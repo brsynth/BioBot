@@ -1,13 +1,13 @@
-# BioRSBot 🧪🤖
+# BioBot 🧪🤖
 
-BioRSBot is an advanced web application and chatbot designed for laboratory automation, particularly with liquid handling robots like the Opentrons OT-2. It helps users interact with an AI assistant to get guidance, protocols, and Python code for automating lab workflows.
+BioBot is a web application and chatbot designed for laboratory automation, particularly with liquid handling robots. It helps users interact with an AI assistant to get guidance, protocols, and code for automating lab workflows.
 
 ---
 
 ## Features
 
 - **User Registration and Login:** Secure authentication system with hashed passwords.
-- **Chat Interface:** Talk to the BioRSBot assistant with context-aware replies.
+- **Chat Interface:** Talk to the BioBot assistant with context-aware replies.
 - **Code Generation:** Generates Python code for lab automation protocols.
 - **RAG (Retrieval-Augmented Generation):** Fetches relevant documentation and generates answers for lab-related queries.
 - **Dockerized Deployment:** Easy to deploy with Docker and Docker Swarm, supporting secrets for API keys.
@@ -31,8 +31,8 @@ BioRSBot is an advanced web application and chatbot designed for laboratory auto
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/yourusername/BioRSBot.git
-cd BioRSBot
+git clone https://github.com/brsynth/BioBot.git
+cd BioBot
 
 2. Docker Setup
 Using Docker Compose (local dev)
