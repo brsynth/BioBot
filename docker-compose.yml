@@ -1,0 +1,22 @@
+version: "3.8"
+
+services:
+  brsbot:
+    image: brsbot:latest
+    build: .
+    ports:
+      - "5000:5000"
+    environment:
+      - API_KEY_FILE=/run/secrets/brsbot_api_key
+      - FLASK_APP=app.py
+      - FLASK_RUN_HOST=0.0.0.0
+    secrets:
+      - brsbot_api_key
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+
+secrets:
+  brsbot_api_key:
+    external: true

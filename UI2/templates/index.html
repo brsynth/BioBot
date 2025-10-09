@@ -1,0 +1,76 @@
+<!-- index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BioBot Chat</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div class="container">
+    <aside class="sidebar">
+      <h2>BioBot 🤖</h2>
+      <button id="new-chat">+ New chat</button>
+      <ul id="chat-list"></ul>
+      <button id="settings-btn" class="settings-btn">Settings</button>
+      <!-- Bouton Logout -->
+      <button id="logout-btn" class="logout-btn">Log out</button>
+    </aside>
+
+    <main class="chat-window">
+      <div id="chat-history"></div>
+      <div class="input-area">
+        <textarea id="user-input" placeholder="Ask me something !"></textarea>
+        <button id="send-btn">Send</button>
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal suppression chat -->
+  <div id="delete-modal" class="modal hidden">
+    <div class="modal-content">
+      <p>Do you really want to delete this chat ?</p>
+      <div class="modal-buttons">
+        <button id="cancel-delete">Cancel</button>
+        <button id="confirm-delete">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Fenêtre modale des paramètres -->
+  <!-- Modal Paramètres utilisateur -->
+  <div id="settings-modal" class="modal hidden">
+    <div class="modal-content">
+      <h2>My settings</h2>
+      <label>First Name</label>
+      <input id="profile-first-name" type="text" />
+      <label>Last Name</label>
+      <input id="profile-last-name" type="text" />
+      <label>Email</label>
+      <input id="profile-email" type="email" />
+      <label for="api_key">API Key :</label>
+      <input type="text" id="api_key" placeholder="Entrez votre clé API">
+      <label>Country</label>
+      <input id="profile-country" type="text" />
+
+      <button id="edit-profile" class="edit-btn">Edit</button>
+      <button id="save-profile" class="save-btn hidden">Save</button>
+      <button id="close-profile" class="close-btn">Close</button>
+    </div>
+  </div>
+  <!-- Notification modale -->
+  <div id="notification-modal" class="modal hidden">
+    <div class="modal-content notification-content">
+      <p id="notification-text"></p>
+      <button id="notification-ok-btn">OK</button>
+    </div>
+  </div>
+
+
+
+
+
+  <script src="/static/script.js"></script>
+</body>
+</html>

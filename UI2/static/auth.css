@@ -1,0 +1,105 @@
+/* Reset de base */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+body {
+  background-color: #121212;
+  color: #e0e0e0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+}
+
+.auth-container {
+  background-color: #1f1f1f;
+  padding: 40px;
+  border-radius: 12px;
+  width: 100%;
+  max-width: 400px;
+  box-shadow: 0px 4px 20px rgba(0, 0, 0, 0.5);
+  text-align: center;
+}
+
+.auth-container h2 {
+  margin-bottom: 20px;
+  color: #00ff99;
+  font-weight: 700;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.auth-form label {
+  text-align: left;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #00ff99;
+}
+
+.auth-form input,
+.auth-form select {
+  padding: 12px;
+  border-radius: 8px;
+  border: none;
+  background-color: #2a2a2a;
+  color: #e0e0e0;
+  font-size: 1rem;
+  outline: none;
+  transition: background-color 0.3s ease;
+}
+
+.auth-form input:focus,
+.auth-form select:focus {
+  background-color: #333;
+}
+
+.auth-btn {
+  background-color: #00ff99;
+  color: #121212;
+  font-weight: 700;
+  border: none;
+  padding: 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.auth-btn:hover {
+  background-color: #00cc7a;
+}
+
+.auth-footer {
+  margin-top: 15px;
+  font-size: 0.9rem;
+}
+
+.auth-footer a {
+  color: #00ff99;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.auth-footer a:hover {
+  text-decoration: underline;
+}
+
+.flash-messages {
+  margin-bottom: 15px;
+}
+
+.flash.error {
+  color: #ff4d4d;
+  background: #2a2a2a;
+  padding: 10px;
+  border-radius: 6px;
+  font-weight: bold;
+  text-align: center;
+}

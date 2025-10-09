@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Sign-up</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='auth.css') }}">
+</head>
+<body>
+  <div class="auth-container">
+    <h2>Sign-up</h2>
+    <form class="auth-form" method="POST">
+      <label>First Name :</label>
+      <input type="text" name="first_name" required>
+
+      <label>Last Name :</label>
+      <input type="text" name="last_name" required>
+
+      <label>Email :</label>
+      <input type="email" name="email" required>
+
+      <label>Password :</label>
+      <input type="password" name="password" required>
+
+      <label for="api_key">API Key :</label>
+      <input type="text" name="api_key" id="api_key" placeholder="If none, a default API KEY will be used">
+
+      <label>Role :</label>
+      <select name="role" required>
+        <option value="Chercheur">Academic</option>
+        <option value="Ingénieur">Professionel</option>
+        <option value="Particulier">Particulier</option>
+      </select>
+
+      <label>Pays :</label>
+      <input type="text" name="country" required>
+
+      <button type="submit" class="auth-btn">Sign-up</button>
+    </form>
+    <div class="auth-footer">
+      <p>Already have an account ? <a href="/login">Log in</a></p>
+    </div>
+  </div>
+</body>
+</html>
