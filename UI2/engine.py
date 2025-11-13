@@ -16,10 +16,8 @@ MODEL_NAME = "gpt-5"  # modèle par défaut
 """
 api_key = "sk-......"
 openai.api_key = api_key
-
 MISTRAL_API_KEY = ""
 MODEL_NAME = "gpt-5
-
 client = Mistral(api_key=MISTRAL_API_KEY)
 """
 
@@ -72,6 +70,7 @@ def run_gpt(chat_history, model=MODEL_NAME, api_key=None):
 
     return assistant_reply
 
+"""
 def run_mistral(user_message,chat_history, model, api_key=None):
     client = get_openai_client(api_key)
     
@@ -95,6 +94,7 @@ def run_mistral(user_message,chat_history, model, api_key=None):
     chat_history.append({"role": "user", "content": user_message})
     chat_history.append(assistant_reply)
     return assistant_reply["content"]
+    """
 
 
 def process_user_query(user_query, chat_history, model, api_key=None):

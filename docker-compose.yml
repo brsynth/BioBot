@@ -12,6 +12,8 @@ services:
       - FLASK_RUN_HOST=0.0.0.0
     secrets:
       - brsbot_api_key
+    volumes:
+      - brsbot_data:/app/data
     deploy:
       replicas: 1
       restart_policy:
@@ -20,3 +22,6 @@ services:
 secrets:
   brsbot_api_key:
     external: true
+
+volumes:
+  brsbot_data:

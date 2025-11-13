@@ -2,7 +2,7 @@ from flask import Flask, request, jsonify, render_template, redirect, url_for, s
 import uuid
 import requests
 import json
-import os
+import os, shutil
 from datetime import datetime
 import sqlite3
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -23,7 +23,12 @@ app.config["SESSION_PERMANENT"] = False
 
 app.secret_key = "super_secret_key"
 
-DB_PATH = "database.db"
+DB_PATH = "/app/data/database.db"
+TEMPLATE_PATH = "/app/UI2/database.db"
+
+if not os.path.exists(DB_PATH):
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    shutil.copy(TEMPLATE_PATH, DB_PATH)
 
 def get_db_connection():
     conn = sqlite3.connect(DB_PATH)
