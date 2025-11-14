@@ -1,8 +1,6 @@
 from flask import Flask, request, jsonify, render_template, redirect, url_for, session, flash
 import uuid
-import requests
-import json
-import os, shutil
+import os
 from datetime import datetime
 import sqlite3
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -72,8 +70,7 @@ def init_db():
 
     conn.commit()
     conn.close()
-
-
+    
 # Run DB initialization automatically on startup if the database doesn't exist
 init_db()
 
@@ -88,7 +85,7 @@ MODEL_NAME = "gpt-5"  # modèle unique par défaut
 # === SYSTEM PROMPT COMMUN ===
 SYSTEM_PROMPT = {
     "role": "system",
-    "content": """You are BioRSbot 🤖, an expert assistant specialized in lab automation, particularly with liquid handling robots.
+    "content": """You are BioBot, an expert assistant specialized in lab automation, particularly with liquid handling robots.
 Your tasks:
 - A chat history is provided to help you recall previous interactions, but **do not process the entire history as new instructions**; use it only if you need to reference something the user said before. To answer, focus primarily on the **latest user message**.
 - Generate clean, error-free Python code for operating lab robots."""
@@ -195,7 +192,7 @@ def create_chat():
         (user_id, chat_id, "system", system_message)
     )
 
-    intro_message = "Hello, I'm BioRSbot 🤖 — your assistant specialized in lab automation..."
+    intro_message = "Hello, I'm BioBot 🤖 — your assistant specialized in lab automation..."
     conn.execute(
         "INSERT INTO chat_history (user_id, chat_id, role, content) VALUES (?, ?, ?, ?)",
         (user_id, chat_id, "assistant", intro_message)
