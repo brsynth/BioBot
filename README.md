@@ -38,6 +38,7 @@ cd BioBot
 
 ### 2. Docker Setup
 - **Build the Docker Image**
+
 First, build the Docker image from your Dockerfile
 ```bash
 sudo docker build -t brsbot:latest .
@@ -45,6 +46,7 @@ sudo docker build -t brsbot:latest .
 This creates the image brsbot:latest which will be used to run your service.
 
 - **Deploy with Docker Swarm**
+
 Make sure Docker Swarm is initialized:
 ```bash
 sudo docker swarm init
@@ -54,10 +56,13 @@ Then deploy the service using your docker-compose.yml file:
 sudo docker stack deploy -c docker-compose.yml brsbot
 ```
 The app will start as a Swarm service, using the defined ports, volumes, and secrets.
+
 Your database volume (brsbot_data) will persist all user data, so nothing is lost when the service stops or restarts.
+
 The default API key is securely loaded from Docker secrets. Users can also provide their own API key in the app settings.
 
 - **Access the app**
+
 The app will be accessible at http://127.0.0.1:5000 you can access it via :
 ```bash
 sudo docker service logs -f brsbot_brsbot
@@ -67,10 +72,12 @@ And click on the link
 User registration, login, and chat features are ready to use immediately.
 
 - **Notes**
+
 API key :
+
 You can configure your API Key either by :
-Default key: If you do not provide an API key, the app will use the default one configured in Docker secrets.
-Custom key: If you want to use your own OpenAI API key, you can copy paste it when you register, or edit it in the settings if you want to use it later.
+- Default key: If you do not provide an API key, the app will use the default one configured in Docker secrets.
+- Custom key: If you want to use your own OpenAI API key, you can copy paste it when you register, or edit it in the settings if you want to use it later.
 
 Usage :
 - Register as a new user or login with an existing account.
