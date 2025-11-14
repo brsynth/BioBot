@@ -24,11 +24,58 @@ app.config["SESSION_PERMANENT"] = False
 app.secret_key = "super_secret_key"
 
 DB_PATH = "/app/data/database.db"
-TEMPLATE_PATH = "/app/UI2/database.db"
 
-if not os.path.exists(DB_PATH):
+def init_db():
+    # Detect if DB is missing
+    first_time = not os.path.exists(DB_PATH)
+
+    # Ensure directory exists
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-    shutil.copy(TEMPLATE_PATH, DB_PATH)
+
+    # Connect (creates file if it doesn't exist)
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    if first_time:
+
+        cursor.executescript("""
+        CREATE TABLE users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            first_name TEXT,
+            last_name TEXT,
+            email TEXT UNIQUE,
+            password TEXT,
+            api_key TEXT,
+            role TEXT,
+            country TEXT,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE chat_names (
+            chat_id TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            name TEXT NOT NULL,
+            FOREIGN KEY(user_id) REFERENCES users(id)
+        );
+
+        CREATE TABLE chat_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            chat_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(user_id) REFERENCES users(id),
+            FOREIGN KEY(chat_id) REFERENCES chat_names(chat_id)
+        );
+        """)
+
+    conn.commit()
+    conn.close()
+
+
+# Run DB initialization automatically on startup if the database doesn't exist
+init_db()
 
 def get_db_connection():
     conn = sqlite3.connect(DB_PATH)
