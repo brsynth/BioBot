@@ -20,7 +20,7 @@ BioBot is a web application and chatbot designed for laboratory automation, part
 
 - **Backend:** Python 3.10, Flask
 - **AI Models:** GPT-5 via OpenAI API
-- **Database:** SQLite for storing users, chat history, and chat names
+- **Database:** PostgreSQL for storing users, chat history, and chat names
 - **Containerization:** Docker, Docker Compose, Docker Swarm
 - **Frontend:** HTML/CSS/JS (templates in `UI2/`)
 
