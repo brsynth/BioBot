@@ -13,14 +13,6 @@ def get_api_key():
     
 MODEL_NAME = "gpt-5"  # modèle par défaut
 
-"""
-api_key = "sk-......"
-openai.api_key = api_key
-MISTRAL_API_KEY = ""
-MODEL_NAME = "gpt-5
-client = Mistral(api_key=MISTRAL_API_KEY)
-"""
-
 def get_openai_client(api_key=None):
     return OpenAI(api_key=api_key or get_api_key())
 
@@ -69,32 +61,6 @@ def run_gpt(chat_history, model=MODEL_NAME, api_key=None):
     chat_history.append({"role": "assistant", "content": assistant_reply})
 
     return assistant_reply
-
-"""
-def run_mistral(user_message,chat_history, model, api_key=None):
-    client = get_openai_client(api_key)
-    
-    system_msg = next((msg for msg in chat_history if msg["role"] == "system"), None)
-    non_system_msgs = [msg for msg in chat_history if msg["role"] != "system"]
-
-    # Add the new user message
-    non_system_msgs.append({"role": "user", "content": user_message})
-
-    # Limit to 9 last messages (+system) = 10 last messages
-    non_system_msgs = non_system_msgs[-9:]
-
-    # Construct the history to give to model
-    messages = [system_msg] + non_system_msgs if system_msg else non_system_msgs
-    
-    chat_response = client.chat.complete(
-        model=model,
-        messages=messages
-    )
-    assistant_reply = {"role": "assistant", "content": chat_response.choices[0].message.content.strip()}
-    chat_history.append({"role": "user", "content": user_message})
-    chat_history.append(assistant_reply)
-    return assistant_reply["content"]
-    """
 
 
 def process_user_query(user_query, chat_history, model, api_key=None):
