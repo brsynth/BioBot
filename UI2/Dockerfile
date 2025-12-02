@@ -19,5 +19,8 @@ ENV FLASK_ENV=development
 # Force Python to flush stdout/stderr immediately
 ENV PYTHONUNBUFFERED=1
 
-# Run Flask directly
+# Run Flask directly, development server
 CMD ["python", "-u", "app.py"]
+
+#Production server
+#CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:5000", "app:app"]
