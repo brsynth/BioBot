@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   brsbot:
-    build: .
+    build: UI2
     image: brsbot:toedit
     ports:
       - "5000:5000"
