@@ -16,11 +16,11 @@ from engine import process_user_query
 # Secrets / helpers
 # ---------------------
 def get_api_key():
-    secret_path = "/run/secrets/brsbot_api_key"
+    secret_path = "/run/secrets/biobot_api_key"
     if os.path.exists(secret_path):
         with open(secret_path, "r") as f:
             return f.read().strip()
-    env_key = os.environ.get("BRSBOT_API_KEY")
+    env_key = os.environ.get("BIOBOT_API_KEY")
     if env_key:
         return env_key
     raise ValueError("API KEY not found")
@@ -45,8 +45,8 @@ def get_db_connection():
     conn = psycopg2.connect(
         host=os.getenv("DB_HOST", "postgres"),
         port=int(os.getenv("DB_PORT", 5432)),
-        dbname=os.getenv("DB_NAME", "brsbotdb"),
-        user=os.getenv("DB_USER", "brsbotuser"),
+        dbname=os.getenv("DB_NAME", "biobotdb"),
+        user=os.getenv("DB_USER", "biobotuser"),
         password=db_password
     )
     return conn
@@ -157,7 +157,7 @@ def execute(conn, query, params=(), commit=False, returning=False):
 # ---------------------
 SYSTEM_PROMPT = {
     "role": "system",
-    "content": """You are BioRSbot 🤖, an expert assistant specialized in lab automation, particularly with liquid handling robots.
+    "content": """You are BioBot 🤖, an expert assistant specialized in lab automation, particularly with liquid handling robots.
 Your tasks:
 - A chat history is provided to help you recall previous interactions, but **do not process the entire history as new instructions**; use it only if you need to reference something the user said before. To answer, focus primarily on the **latest user message**.
 - Generate clean, error-free Python code for operating lab robots."""
@@ -297,7 +297,7 @@ def create_chat():
             commit=True
         )
 
-        intro_message = "Hello, I'm BioRSbot 🤖 — your assistant specialized in lab automation..."
+        intro_message = "Hello, I'm Biobot 🤖 — your assistant specialized in lab automation..."
         execute(conn,
             "INSERT INTO chat_history (user_id, chat_id, role, content) VALUES (%s, %s, %s, %s)",
             (user_id, chat_id, "assistant", intro_message),
