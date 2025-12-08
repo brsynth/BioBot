@@ -1,9 +1,9 @@
 version: "3.9"
 
 services:
-  biobot:
-    build: ./UI2
-    image: biobot:latest
+  brsbot:
+    build: UI2
+    image: brsbot:toedit
     ports:
       - "5000:5000"
     environment:
