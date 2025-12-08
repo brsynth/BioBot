@@ -41,6 +41,7 @@ sudo docker swarm init
 ```
 ### 3. Activate Docker Swarm (for secrets)
 Create the required Docker secrets
+
 You need an OpenAI API key to use Biobot.
 ```bash
 echo "YOUR_OPENAI_API_KEY" | sudo docker secret create biobot_api_key -
