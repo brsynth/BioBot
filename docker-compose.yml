@@ -1,20 +1,20 @@
 version: "3.9"
 
 services:
-  brsbot:
-    build: .
-    image: brsbot:toedit
+  biobot:
+    build: ./UI2
+    image: biobot:latest
     ports:
       - "5000:5000"
     environment:
-      - API_KEY_FILE=/run/secrets/brsbot_api_key
+      - API_KEY_FILE=/run/secrets/biobot_api_key
       - DB_HOST=postgres
       - DB_PORT=5432
-      - DB_NAME=brsbotdb
-      - DB_USER=brsbotuser
+      - DB_NAME=biobotdb
+      - DB_USER=biobotuser
       - DB_PASSWORD_FILE=/run/secrets/db_password
     secrets:
-      - brsbot_api_key
+      - biobot_api_key
       - db_password
     depends_on:
       - postgres
@@ -26,15 +26,15 @@ services:
   postgres:
     image: postgres:16
     environment:
-      - POSTGRES_DB=brsbotdb
-      - POSTGRES_USER=brsbotuser
+      - POSTGRES_DB=biobotdb
+      - POSTGRES_USER=biobotuser
       - POSTGRES_PASSWORD_FILE=/run/secrets/db_password
     secrets:
       - db_password
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "brsbotuser"]
+      test: ["CMD", "pg_isready", "-U", "biobotuser"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -43,7 +43,7 @@ services:
         condition: on-failure
 
 secrets:
-  brsbot_api_key:
+  biobot_api_key:
     external: true
   db_password:
     external: true
