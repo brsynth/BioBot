@@ -12,7 +12,7 @@ BioBot is a web application and chatbot designed for laboratory automation, part
 - **RAG (Retrieval-Augmented Generation):** Fetches relevant documentation and generates answers for lab-related queries.
 - **Dockerized Deployment:** Easy to deploy with Docker and Docker Swarm, supporting secrets for API keys.
 - **Persistent Chat History:** Stores user chats and allows multiple concurrent conversations.
-- **Secure API Key Handling:** Supports API key retrieval via Docker secrets or environment variables.
+- **Secure API Key Handling:** Supports API key retrieval via Docker secrets.
 
 ---
 
@@ -26,7 +26,7 @@ BioBot is a web application and chatbot designed for laboratory automation, part
 
 ---
 
-## Getting Started (Step by Step)
+## Getting Started step by step
 
 ### 1. Clone the repository
 
@@ -39,8 +39,7 @@ cd BioBot
 ```bash
 sudo docker swarm init
 ```
-### 3. Activate Docker Swarm (for secrets)
-Create the required Docker secrets
+### 3. Create the required Docker secrets
 
 You need an OpenAI API key to use Biobot.
 ```bash
