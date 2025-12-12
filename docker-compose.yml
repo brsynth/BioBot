@@ -1,56 +1,37 @@
-#version: "3.9"
-
 services:
-  brsbot:
+  biobot:
     build: UI2
-    image: brsbot:toedit
+    image: biobot:latest
     ports:
-      - "8080:5000"
-    env_file:
+      - "5000:5000"
+    env_file :
       - .env
     environment:
-      # - API_KEY_FILE=/run/secrets/biobot_api_key
-      - DB_HOST=postgres
-      - DB_PORT=5432
-      - DB_NAME=biobotdb
-      - DB_USER=biobotuser
-      # - DB_PASSWORD_FILE=/run/secrets/db_password
-    # secrets:
-    #   - biobot_api_key
-    #   - db_password
+      - DB_HOST=${DB_HOST:-postgres}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME:-biobotdb}
+      - DB_USER=${DB_USER:-biobotuser}
+      - DB_PASSWORD=${DB_PASSWORD:-password}
+      - API_KEY=${API_KEY:-your_api_key}
+    restart : always
     depends_on:
       - postgres
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
 
   postgres:
     image: postgres:16
-    env_file:
+    env_file :
       - .env
     environment:
-      - POSTGRES_DB=biobotdb
-      - POSTGRES_USER=biobotuser
-      # - POSTGRES_PASSWORD_FILE=/run/secrets/db_password
-    # secrets:
-    #   - db_password
+      - POSTGRES_DB=${DB_NAME:-biobotdb}
+      - POSTGRES_USER=${DB_USER:-biobotuser}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-password}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - db_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "biobotuser"]
-      interval: 10s
+      test: ["CMD", "pg_isready", "-U", "biobotuser", "-d","biobotdb"]
+      interval: 5s
       timeout: 5s
       retries: 5
-    deploy:
-      restart_policy:
-        condition: on-failure
-
-# secrets:
-#   biobot_api_key:
-#     external: true
-#   db_password:
-#     external: true
 
 volumes:
-  postgres_data:
+  db_data:
