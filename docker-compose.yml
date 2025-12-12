@@ -1,21 +1,23 @@
-version: "3.9"
+#version: "3.9"
 
 services:
   brsbot:
     build: UI2
     image: brsbot:toedit
     ports:
-      - "5000:5000"
+      - "8080:5000"
+    env_file:
+      - .env
     environment:
-      - API_KEY_FILE=/run/secrets/biobot_api_key
+      # - API_KEY_FILE=/run/secrets/biobot_api_key
       - DB_HOST=postgres
       - DB_PORT=5432
       - DB_NAME=biobotdb
       - DB_USER=biobotuser
-      - DB_PASSWORD_FILE=/run/secrets/db_password
-    secrets:
-      - biobot_api_key
-      - db_password
+      # - DB_PASSWORD_FILE=/run/secrets/db_password
+    # secrets:
+    #   - biobot_api_key
+    #   - db_password
     depends_on:
       - postgres
     deploy:
@@ -25,12 +27,14 @@ services:
 
   postgres:
     image: postgres:16
+    env_file:
+      - .env
     environment:
       - POSTGRES_DB=biobotdb
       - POSTGRES_USER=biobotuser
-      - POSTGRES_PASSWORD_FILE=/run/secrets/db_password
-    secrets:
-      - db_password
+      # - POSTGRES_PASSWORD_FILE=/run/secrets/db_password
+    # secrets:
+    #   - db_password
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -42,11 +46,11 @@ services:
       restart_policy:
         condition: on-failure
 
-secrets:
-  biobot_api_key:
-    external: true
-  db_password:
-    external: true
+# secrets:
+#   biobot_api_key:
+#     external: true
+#   db_password:
+#     external: true
 
 volumes:
   postgres_data:
