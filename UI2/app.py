@@ -1,5 +1,5 @@
 # app.py (fixed)
-from flask import Flask, request, jsonify, render_template, redirect, url_for, session, flash
+from flask import Flask, request, jsonify, render_template, redirect, url_for, session, flash, Response, stream_with_context
 import uuid
 import time
 import os
@@ -20,7 +20,7 @@ def get_api_key():
     if os.path.exists(secret_path):
         with open(secret_path, "r") as f:
             return f.read().strip()
-    env_key = os.environ.get("BIOBOT_API_KEY")
+    env_key = os.environ.get("API_KEY")
     if env_key:
         return env_key
     raise ValueError("API KEY not found")
@@ -391,6 +391,98 @@ def chat(chat_id):
             conn.close()
 
     return jsonify({"reply": bot_reply})
+
+#For streaming :
+@app.route("/chat/<chat_id>/stream", methods=["POST"])
+def chat_stream(chat_id):
+    user_id = session.get("user")
+    if not user_id:
+        return jsonify({"error": "Not logged in"}), 403
+
+    data = request.get_json()
+    user_message = data.get("message")
+    if not user_message:
+        return jsonify({"error": "Message required"}), 400
+
+    # ---- DB: fetch history (same as before) ----
+    conn = None
+    try:
+        conn = get_db_connection()
+
+        chat_exists = fetchone_dict(conn,
+            "SELECT 1 FROM chat_names WHERE chat_id = %s AND user_id = %s",
+            (chat_id, user_id)
+        )
+        if not chat_exists:
+            return jsonify({"error": "Chat not found"}), 404
+
+        # insert user message immediately
+        execute(conn,
+            """
+            INSERT INTO chat_history (user_id, chat_id, role, content, created_at)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (user_id, chat_id, "user", user_message, datetime.now().isoformat()),
+            commit=True
+        )
+
+        rows = fetchall_dict(conn,
+            """
+            SELECT role, content
+            FROM chat_history
+            WHERE user_id = %s AND chat_id = %s
+            ORDER BY created_at
+            """,
+            (user_id, chat_id)
+        )
+
+        user = fetchone_dict(conn,
+            "SELECT api_key FROM users WHERE id = %s",
+            (user_id,)
+        )
+    finally:
+        if conn:
+            conn.close()
+
+    messages = [{"role": r["role"], "content": r["content"]} for r in rows]
+    user_api_key = user["api_key"] if user else None
+
+    # ---- STREAM RESPONSE ----
+    def generate():
+        full_reply = ""
+
+        # IMPORTANT: process_user_query MUST yield chunks (we'll fix this next)
+        for chunk in process_user_query(
+            user_message,
+            messages,
+            MODEL_NAME,
+            api_key=user_api_key,
+            stream=True,      # 👈 NEW
+        ):
+            full_reply += chunk
+            yield chunk
+
+        # Save assistant message AFTER streaming finishes
+        conn2 = None
+        try:
+            conn2 = get_db_connection()
+            execute(conn2,
+                """
+                INSERT INTO chat_history (user_id, chat_id, role, content, created_at)
+                VALUES (%s, %s, %s, %s, %s)
+                """,
+                (user_id, chat_id, "assistant", full_reply, datetime.now().isoformat()),
+                commit=True
+            )
+        finally:
+            if conn2:
+                conn2.close()
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/plain"
+    )
+
 
 
 @app.route("/chat/<chat_id>", methods=["GET"])
