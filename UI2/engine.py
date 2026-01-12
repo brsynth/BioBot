@@ -62,6 +62,34 @@ def run_gpt(chat_history, model=MODEL_NAME, api_key=None):
 
     return assistant_reply
 
+def run_gpt_stream(chat_history, model=MODEL_NAME, api_key=None):
+    client = get_openai_client(api_key)
+    
+    system_msg = next((m for m in chat_history if m["role"] == "system"), None)
+    non_system_msgs = [m for m in chat_history if m["role"] != "system"]
+    non_system_msgs = non_system_msgs[-9:]
+    messages = [system_msg] + non_system_msgs if system_msg else non_system_msgs
+
+    response = client.responses.create(
+        model=model,
+        input=messages,
+        stream=True
+    )
+
+    assistant_text = ""
+
+    for event in response:
+        if event.type == "response.output_text.delta":
+            token = event.delta
+            assistant_text += token
+            yield token
+
+    chat_history.append({
+        "role": "assistant",
+        "content": assistant_text
+    })
+
+
 
 def process_user_query(user_query, chat_history, model, api_key=None):
     classification = classify_prompt_with_mistral(user_query,api_key=api_key)
@@ -75,4 +103,4 @@ def process_user_query(user_query, chat_history, model, api_key=None):
         return result.stdout.strip()
 
     elif classification in {"general", "out"}:
-        return run_gpt(history,model, api_key =api_key)
+        return run_gpt_stream(history,model, api_key =api_key)
