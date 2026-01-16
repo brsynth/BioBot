@@ -14,10 +14,13 @@ ENV FLASK_APP=app.py
 ENV FLASK_RUN_HOST=0.0.0.0
 ENV FLASK_ENV=development    
 
-#or keep production if you want, but logs may buffer
-
 # Force Python to flush stdout/stderr immediately
 ENV PYTHONUNBUFFERED=1
 
 # Run Flask directly
-CMD ["python", "-u", "app.py"]
+#CMD ["python", "-u", "app.py"]
+CMD ["sh", "-c", "python init_db.py && python -u app.py"]
+
+
+#Production server
+#CMD ["sh", "-c", "python init_db.py && gunicorn -w 4 -b 0.0.0.0:5000 app:app"]
