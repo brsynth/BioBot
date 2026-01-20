@@ -27,96 +27,104 @@ function escapeHtml(unsafe) {
 }
 
 // Crée un élément message, avec support du markdown code (```...```)
-function addMessage(text, sender, animate = false) {
+function addMessage(text, sender) {
   const div = document.createElement("div");
   div.className = `chat-message ${sender === "user" ? "chat-user" : "chat-bot"}`;
   chatHistoryElem.appendChild(div);
   if (autoScrollEnabled) chatHistoryElem.scrollTop = chatHistoryElem.scrollHeight;
 
-  if (sender === "bot") {
-    const codeBlockRegex = /```(?:python)?\n([\s\S]*?)```/g;
-    const parts = text.split(codeBlockRegex);
-    let currentPart = 0;
-
-    function typeNextPart() {
-      if (currentPart >= parts.length) return;
-
-      const isCode = currentPart % 2 === 1;
-      const content = parts[currentPart];
-
-      if (isCode) {
-        const container = document.createElement("div");
-        container.style.position = "relative";
-
-        const copyBtn = document.createElement("button");
-        copyBtn.textContent = "📋 Copier";
-        copyBtn.className = "copy-btn";
-        copyBtn.style.cssText = `
-          position: absolute;
-          top: 6px;
-          right: 6px;
-          background:rgb(117, 109, 109);
-          border: 2px solid #ccc;
-          border-radius: 10px;
-          font-size: 15px;
-          padding: 2px 6px;
-          cursor: pointer;
-          z-index: 9999;
-          pointer-events: auto;
-        `;
-
-        const codeElem = document.createElement("pre");
-        codeElem.innerHTML = `<code>${escapeHtml(content)}</code>`;
-
-        container.appendChild(copyBtn);
-        container.appendChild(codeElem);
-        div.appendChild(container);
-
-        copyBtn.addEventListener("click", () => {
-          
-          navigator.clipboard.writeText(content).then(() => {
-            copyBtn.textContent = "✅ Copié !";
-            setTimeout(() => (copyBtn.textContent = "📋 Copier"), 1500);
-          }).catch(err => {
-            console.error("Erreur de copie : ", err);
-            alert("Échec de la copie.");
-          });
-        });
-
-        currentPart++;
-        typeNextPart();
-      } else if (animate) {
-        // Animation lettre par lettre
-        let i = 0;
-        const interval = setInterval(() => {
-          if (i < content.length) {
-            const char = content[i];
-            div.innerHTML += (char === "\n") ? "<br>" : escapeHtml(char);
-            i++;
-            if (autoScrollEnabled) chatHistoryElem.scrollTop = chatHistoryElem.scrollHeight;
-          } else {
-            clearInterval(interval);
-            currentPart++;
-            typeNextPart();
-          }
-        }, 20);
-      } else {
-        // Pas d'animation, texte direct
-        div.innerHTML += content.replace(/\n/g, "<br>");
-        currentPart++;
-        typeNextPart();
-      }
-    }
-
-    typeNextPart();
-  } else {
+  if (sender === "user") {
     div.textContent = text;
     if (autoScrollEnabled) chatHistoryElem.scrollTop = chatHistoryElem.scrollHeight;
+    return div;
   }
+
+  // For bot: initially empty, we'll stream into this div
+  div._buffer = ""; // buffer for partial code blocks
+  return div;
+}
+
+/**
+ * Append a chunk to bot message div, handling code blocks (partial or complete)
+ * @param div The bot message div
+ * @param chunk The new text chunk
+ */
+function appendChunkToBotMessage(div, chunk) {
+  div._buffer += chunk;
+
+  // Regex to find complete code blocks
+  const codeBlockRegex = /```(?:python)?\n([\s\S]*?)```/g;
+  let lastIndex = 0;
+  let match;
+  const fragments = [];
+
+  // Extract complete code blocks from the buffer
+  while ((match = codeBlockRegex.exec(div._buffer)) !== null) {
+    const before = div._buffer.slice(lastIndex, match.index);
+    if (before) fragments.push({ type: "text", content: before });
+    fragments.push({ type: "code", content: match[1] });
+    lastIndex = codeBlockRegex.lastIndex;
+  }
+
+  // Everything after last complete code block remains in buffer (partial code)
+  const remaining = div._buffer.slice(lastIndex);
+  div._buffer = remaining;
+
+  // Append complete fragments to DOM
+  for (const frag of fragments) {
+    if (frag.type === "text") {
+      div.innerHTML += escapeHtml(frag.content).replace(/\n/g, "<br>");
+    } else if (frag.type === "code") {
+      const container = document.createElement("div");
+      container.style.position = "relative";
+
+      const codeElem = document.createElement("pre");
+      codeElem.innerHTML = `<code>${escapeHtml(frag.content)}</code>`;
+
+      const copyBtn = document.createElement("button");
+      copyBtn.textContent = "📋 Copier";
+      copyBtn.className = "copy-btn";
+      copyBtn.style.cssText = `
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        background: rgb(117,109,109);
+        border: 2px solid #ccc;
+        border-radius: 10px;
+        font-size: 15px;
+        padding: 2px 6px;
+        cursor: pointer;
+        z-index: 9999;
+        pointer-events: auto;
+      `;
+      copyBtn.addEventListener("click", () => {
+        navigator.clipboard.writeText(frag.content).then(() => {
+          copyBtn.textContent = "✅ Copié !";
+          setTimeout(() => (copyBtn.textContent = "📋 Copier"), 1500);
+        }).catch(err => {
+          console.error("Erreur de copie : ", err);
+          alert("Échec de la copie.");
+        });
+      });
+
+      container.appendChild(copyBtn);
+      container.appendChild(codeElem);
+      div.appendChild(container);
+    }
+  }
+
+  // If buffer has remaining text, append as normal text
+  if (div._buffer && !div._buffer.startsWith("```")) {
+    div.innerHTML += escapeHtml(div._buffer).replace(/\n/g, "<br>");
+    div._buffer = ""; // already added
+  }
+
+  if (autoScrollEnabled) chatHistoryElem.scrollTop = chatHistoryElem.scrollHeight;
 }
 
 
-// Charger l'historique d'un chat
+
+// Load chat history
 async function loadChatHistory(chatId) {
   if (!chatId) return;
   currentChatId = chatId;
@@ -137,10 +145,16 @@ async function loadChatHistory(chatId) {
 
     const messages = await res.json();
 
-    // Afficher tous les messages
+    // Display all the messages
     for (const msg of messages) {
-      addMessage(msg.content, msg.role === "user" ? "user" : "bot", false);
+      if (msg.role === "user") {
+        addMessage(msg.content, "user", false);
+      } else if (msg.role === "assistant") {
+        const botDiv = addMessage("", "bot"); // create empty div
+        appendChunkToBotMessage(botDiv, msg.content); // fill it
+      }
     }
+
   } catch (e) {
     alert(e.message);
   }
@@ -279,10 +293,6 @@ async function refreshChatList() {
   return chatList;
 }
 
-
-
-
-
 // Sélection visuelle d'un chat dans la liste
 function selectChatListItem(chatId) {
   for (const li of chatListElem.children) {
@@ -300,24 +310,27 @@ async function createNewChat() {
     currentChatId = data.chat_id;
     localStorage.setItem("lastChatId", currentChatId);
 
+    chatHistoryElem.innerHTML = "";
 
-    // Vider l’historique à droite
-    document.getElementById("chat-history").innerHTML = "";
+    const botDiv = addMessage("", "bot");
+    appendChunkToBotMessage(
+      botDiv,
+      "Hello, I'm Biobot 🤖 — your assistant specialized in lab automation..."
+    );
+
     await refreshChatList();
-    await loadChatHistory(currentChatId);
+    selectChatListItem(currentChatId);
+
   } catch (e) {
     alert(e.message);
   }
 }
 
+
 function addThinkingMessage() {
   const div = document.createElement("div");
   div.className = "chat-message chat-bot"; // même style que le bot
   div.id = "thinking-message";
-
-  const span = document.createElement("span");
-  span.textContent = "Thinking";
-  div.appendChild(span);
 
   const dots = document.createElement("span");
   dots.textContent = "...";
@@ -346,41 +359,67 @@ async function sendMessage() {
   const message = input.value.trim();
   if (!message || !currentChatId) return;
 
+  // Add user message
   addMessage(message, "user");
   input.value = "";
 
-  // Ajouter le message "Thinking..."
+  // Show thinking indicator
   const thinkingInterval = addThinkingMessage();
 
   let apiKey = localStorage.getItem("userApiKey") || "";
 
+  let botDiv = null;
+  let firstChunkReceived = false;
+
   try {
-    const res = await fetch(`/chat/${currentChatId}`, {
+    const res = await fetch(`/chat/${currentChatId}/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message, api_key: apiKey }),
     });
 
-    const data = await res.json();
+    if (!res.body) throw new Error("No response body");
 
-    // Supprimer le message thinking
-    clearInterval(thinkingInterval);
-    const thinkingMsgElem = document.getElementById("thinking-message");
-    if (thinkingMsgElem) thinkingMsgElem.remove();
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
 
-    // Afficher la vraie réponse
-    addMessage(data.reply, "bot", true);
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+
+      const chunk = decoder.decode(value);
+
+      // first chunk
+      if (!firstChunkReceived) {
+        firstChunkReceived = true;
+
+        // Stop dots animation
+        clearInterval(thinkingInterval);
+        const thinkingElem = document.getElementById("thinking-message");
+        if (thinkingElem) thinkingElem.remove();
+
+        // Create real bot message div
+        botDiv = addMessage("", "bot");
+      }
+
+      appendChunkToBotMessage(botDiv, chunk);
+    }
 
     await refreshChatList();
     selectChatListItem(currentChatId);
+
   } catch (err) {
     clearInterval(thinkingInterval);
-    const thinkingMsgElem = document.getElementById("thinking-message");
-    if (thinkingMsgElem) thinkingMsgElem.remove();
-    addMessage("Erreur lors de la réponse du bot.", "bot");
+    const thinkingElem = document.getElementById("thinking-message");
+    if (thinkingElem) thinkingElem.remove();
+
+    const errorDiv = addMessage("", "bot");
+    appendChunkToBotMessage(errorDiv, "\nErreur lors de la réponse du bot.");
     console.error(err);
   }
 }
+
+
 
 
 

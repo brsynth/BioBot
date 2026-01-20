@@ -1,5 +1,4 @@
-# app.py (fixed)
-from flask import Flask, request, jsonify, render_template, redirect, url_for, session, flash
+from flask import Flask, request, jsonify, render_template, redirect, url_for, session, flash, Response, stream_with_context
 import uuid
 import time
 import os
@@ -7,7 +6,7 @@ from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 
 import psycopg2
-import psycopg2.extras  # <-- important
+import psycopg2.extras
 import psycopg2.errors
 
 from engine import process_user_query
@@ -20,7 +19,7 @@ def get_api_key():
     if os.path.exists(secret_path):
         with open(secret_path, "r") as f:
             return f.read().strip()
-    env_key = os.environ.get("BIOBOT_API_KEY")
+    env_key = os.environ.get("API_KEY")
     if env_key:
         return env_key
     raise ValueError("API KEY not found")
@@ -113,15 +112,6 @@ def init_db():
         conn.commit()
     finally:
         conn.close()
-
-# wait for DB then init
-wait_for_postgres()
-try:
-    init_db()
-    print("PostgreSQL DB initialized / tables checked.")
-except Exception as e:
-    print("⚠️ init_db error:", e)
-
 
 # ---------------------
 # DB helper wrappers
@@ -244,7 +234,7 @@ def logout():
 
 
 # ---------------------
-# Main routes (kept same logic)
+# Main routes
 # ---------------------
 @app.route("/")
 def index():
@@ -391,6 +381,119 @@ def chat(chat_id):
             conn.close()
 
     return jsonify({"reply": bot_reply})
+
+#For streaming :
+@app.route("/chat/<chat_id>/stream", methods=["POST"])
+def chat_stream(chat_id):
+    user_id = session.get("user")
+    if not user_id:
+        return jsonify({"error": "Not logged in"}), 403
+
+    data = request.get_json()
+    user_message = data.get("message")
+    if not user_message:
+        return jsonify({"error": "Message required"}), 400
+
+    conn = None
+    try:
+        conn = get_db_connection()
+
+        # verify chat exists
+        chat_exists = fetchone_dict(conn,
+            "SELECT 1 FROM chat_names WHERE chat_id = %s AND user_id = %s",
+            (chat_id, user_id)
+        )
+        if not chat_exists:
+            return jsonify({"error": "Chat not found"}), 404
+
+        # insert user message immediately
+        execute(conn,
+            """
+            INSERT INTO chat_history (user_id, chat_id, role, content, created_at)
+            VALUES (%s, %s, %s, %s, %s)
+            """,
+            (user_id, chat_id, "user", user_message, datetime.now().isoformat()),
+            commit=True
+        )
+
+        # ensure intro message exists (only once per chat)
+        intro_exists = fetchone_dict(conn,
+            "SELECT 1 FROM chat_history WHERE chat_id = %s AND role='assistant' AND content LIKE %s",
+            (chat_id, "Hello, I'm Biobot%")
+        )
+        if not intro_exists:
+            intro_message = "Hello, I'm Biobot 🤖 — your assistant specialized in lab automation..."
+            execute(conn,
+                """
+                INSERT INTO chat_history (user_id, chat_id, role, content, created_at)
+                VALUES (%s, %s, %s, %s, %s)
+                """,
+                (user_id, chat_id, "assistant", intro_message, datetime.now().isoformat()),
+                commit=True
+            )
+
+        # fetch full chat history for streaming
+        rows = fetchall_dict(conn,
+            """
+            SELECT role, content
+            FROM chat_history
+            WHERE user_id = %s AND chat_id = %s
+            ORDER BY created_at
+            """,
+            (user_id, chat_id)
+        )
+
+        user = fetchone_dict(conn, "SELECT api_key FROM users WHERE id = %s", (user_id,))
+    finally:
+        if conn:
+            conn.close()
+
+    messages = [{"role": r["role"], "content": r["content"]} for r in rows]
+    user_api_key = user["api_key"] if user else None
+
+    # ---- STREAM RESPONSE ----
+    def generate():
+        full_reply = ""
+        first_chunk = True
+
+        for chunk in process_user_query(user_message, messages, MODEL_NAME, api_key=user_api_key):
+            full_reply += chunk
+            yield chunk
+
+        # Save assistant message after streaming finishes
+        conn2 = None
+        try:
+            conn2 = get_db_connection()
+            execute(conn2,
+                """
+                INSERT INTO chat_history (user_id, chat_id, role, content, created_at)
+                VALUES (%s, %s, %s, %s, %s)
+                """,
+                (user_id, chat_id, "assistant", full_reply, datetime.now().isoformat()),
+                commit=True
+            )
+
+            # RENAME CHAT if still "New chat"
+            title_row = fetchone_dict(conn2,
+                "SELECT name FROM chat_names WHERE chat_id = %s AND user_id = %s",
+                (chat_id, user_id)
+            )
+            if title_row and title_row.get("name") == "New chat":
+                preview_words = user_message.strip().split()
+                preview = " ".join(preview_words[:5])
+                if len(preview_words) > 5:
+                    preview += "..."
+                execute(conn2,
+                    "UPDATE chat_names SET name = %s WHERE chat_id = %s AND user_id = %s",
+                    (preview, chat_id, user_id),
+                    commit=True
+                )
+
+        finally:
+            if conn2:
+                conn2.close()
+
+    return Response(stream_with_context(generate()), mimetype="text/plain")
 
 
 @app.route("/chat/<chat_id>", methods=["GET"])
