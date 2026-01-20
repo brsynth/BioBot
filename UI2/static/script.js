@@ -124,7 +124,7 @@ function appendChunkToBotMessage(div, chunk) {
 
 
 
-// Charger l'historique d'un chat
+// Load chat history
 async function loadChatHistory(chatId) {
   if (!chatId) return;
   currentChatId = chatId;
@@ -145,7 +145,7 @@ async function loadChatHistory(chatId) {
 
     const messages = await res.json();
 
-    // Afficher tous les messages
+    // Display all the messages
     for (const msg of messages) {
       if (msg.role === "user") {
         addMessage(msg.content, "user", false);
@@ -389,11 +389,11 @@ async function sendMessage() {
 
       const chunk = decoder.decode(value);
 
-      // FIRST CHUNK → remove thinking + create bot div
+      // first chunk
       if (!firstChunkReceived) {
         firstChunkReceived = true;
 
-        // Stop thinking animation
+        // Stop dots animation
         clearInterval(thinkingInterval);
         const thinkingElem = document.getElementById("thinking-message");
         if (thinkingElem) thinkingElem.remove();

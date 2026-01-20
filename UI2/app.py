@@ -1,4 +1,3 @@
-# app.py (fixed)
 from flask import Flask, request, jsonify, render_template, redirect, url_for, session, flash, Response, stream_with_context
 import uuid
 import time
@@ -7,7 +6,7 @@ from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 
 import psycopg2
-import psycopg2.extras  # <-- important
+import psycopg2.extras
 import psycopg2.errors
 
 from engine import process_user_query
@@ -235,7 +234,7 @@ def logout():
 
 
 # ---------------------
-# Main routes (kept same logic)
+# Main routes
 # ---------------------
 @app.route("/")
 def index():
@@ -461,7 +460,7 @@ def chat_stream(chat_id):
             full_reply += chunk
             yield chunk
 
-        # Save assistant message AFTER streaming finishes
+        # Save assistant message after streaming finishes
         conn2 = None
         try:
             conn2 = get_db_connection()
