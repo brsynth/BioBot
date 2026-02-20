@@ -9,6 +9,7 @@ import csv
 import json
 from openai import OpenAI
 import sys
+import pickle
 
 # ----------- AUTHENTIFICATION -------------
 if len(sys.argv) > 1:
@@ -94,7 +95,7 @@ def run_gpt(user_message, model="gpt-5"):
     messages = [
         {
             "role": "system",
-            "content": "You are an expert assistant specialized in lab automation with the Opentrons OT-2 robot. Generate full, clean and functional Python code for lab automation protocols."
+            "content": "You are an expert assistant specialized in lab automation with every kind of liquid handler. Generate full, clean and functional Python code for lab automation protocols."
         },
         {
             "role": "user",
@@ -185,11 +186,31 @@ And return the full corrected Python script, don't ask me to complete the code, 
 # ----------- PIPELINE INIT -------------
 base_path = "docs"
 chunk_size = 3000
-chunks, chunk_sources = split_rst_into_chunks(base_path, chunk_size)
-text_embeddings = np.array([get_text_embedding_with_retry(chunk) for chunk in chunks])
-d = text_embeddings.shape[1]
-index = faiss.IndexFlatL2(d)
-index.add(text_embeddings)
+store_path = "rag_store.pkl"
+
+if os.path.exists(store_path):
+    with open(store_path, "rb") as f:
+        store = pickle.load(f)
+    chunks = store["chunks"]
+    chunk_sources = store["chunk_sources"]
+    text_embeddings = store["embeddings"]
+    d = text_embeddings.shape[1]
+    index = faiss.IndexFlatL2(d)
+    index.add(text_embeddings)
+else:
+    chunks, chunk_sources = split_rst_into_chunks(base_path, chunk_size)
+    text_embeddings = np.array([get_text_embedding_with_retry(chunk) for chunk in chunks])
+    d = text_embeddings.shape[1]
+    index = faiss.IndexFlatL2(d)
+    index.add(text_embeddings)
+
+    # 💾 Save store
+    with open(store_path, "wb") as f:
+        pickle.dump({
+            "chunks": chunks,
+            "chunk_sources": chunk_sources,
+            "embeddings": text_embeddings
+        }, f)
     
 final_code, sources_used, file_refs, attempts, last_error = run_query_and_fix(user_query, chunks, chunk_sources)
 print(final_code)

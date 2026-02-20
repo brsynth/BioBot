@@ -35,34 +35,25 @@ git clone https://github.com/brsynth/BioBot.git
 cd BioBot
 ```
 
-### 2. Activate Docker Swarm (for secrets)
+### 2. Define your configuration values in the .env file
 ```bash
-sudo docker swarm init
+DB_HOST=postgres
+DB_PORT=5432
+DB_NAME=your_db_name
+DB_USER=your_db_user
+DB_PASSWORD=your_db_password
+API_KEY=your_openai_api_key
 ```
-### 3. Create the required Docker secrets
-
-You need an OpenAI API key to use Biobot.
+### 3. Build the image
 ```bash
-echo "YOUR_OPENAI_API_KEY" | sudo docker secret create biobot_api_key -
-echo "YOUR_DB_PASSWORD" | sudo docker secret create db_password -
+sudo docker compose build
+sudo docker compose up -d
 ```
-Check the secrets :
+### 4. Check and acces the logs
 ```bash
-sudo docker secret ls
+sudo docker compose logs -f biobot #or the service name if it's not bibot
 ```
-### 4. Build the image
-```bash
-sudo docker build -t biobot:latest ./UI2
-```
-### 5. Deploy the stack with docker swarm
-```bash
-sudo docker stack deploy -c docker-compose.yml biobot
-```
-Check that the service is running:
-```bash
-sudo docker service logs -f biobot_biobot
-```
-### 6. Access the app
+### 5. Access the app
 The app will be accessible via
 ```cpp
 http://127.0.0.1:5000
