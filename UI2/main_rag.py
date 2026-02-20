@@ -95,7 +95,7 @@ def run_gpt(user_message, model="gpt-5"):
     messages = [
         {
             "role": "system",
-            "content": "You are an expert assistant specialized in lab automation with the Opentrons OT-2 robot. Generate full, clean and functional Python code for lab automation protocols."
+            "content": "You are an expert assistant specialized in lab automation with every kind of liquid handler. Generate full, clean and functional Python code for lab automation protocols."
         },
         {
             "role": "user",
