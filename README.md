@@ -2,12 +2,6 @@
   <img src="UI2/static/logo.png" alt="BioBot logo" width="300"/>
 </p>
 
-<h1 align="center">BioBot</h1>
-
-<p align="center">
-AI assistant for laboratory automation and protocol generation
-</p>
-
 BioBot is a web application and chatbot designed for laboratory automation, particularly with liquid handling robots. It helps users interact with an AI assistant to get guidance, protocols, and Python code for automating lab workflows.
 
 ---
