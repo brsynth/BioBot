@@ -4,13 +4,12 @@ from typing import Dict, Any
 import json
 import os
 from openai import OpenAI
-from agent1_informator import get_api_key, get_openai_client
-
-
-
+from agent1_informator import get_api_key
 
 MODEL = "gpt-5"
 
+def get_openai_client(api_key=None):
+    return OpenAI(api_key=api_key or get_api_key())
 
 def agent_2_plan_validation(
     robot_profile: Dict[str, Any],
