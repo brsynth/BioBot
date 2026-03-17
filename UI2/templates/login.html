@@ -1,15 +1,15 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Connexion</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BioBot — Sign in</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='auth.css') }}">
 </head>
 <body>
   <div class="auth-container">
-    <h2>Connexion</h2>
+    <h2>Welcome back</h2>
 
-    <!-- Messages flash -->
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
         <div class="flash-messages">
@@ -21,13 +21,14 @@
     {% endwith %}
 
     <form method="POST" class="auth-form">
-    <input type="email" name="email" placeholder="Email" required>
-    <input type="password" name="password" placeholder="Mot de passe" required>
-    <button type="submit" class="auth-btn">Sign in</button>
+      <label>Email</label>
+      <input type="email" name="email" placeholder="you@example.com" required>
+      <label>Password</label>
+      <input type="password" name="password" placeholder="Enter your password" required>
+      <button type="submit" class="auth-btn">Sign in</button>
     </form>
 
-    <p class="auth-footer">Don't have an account yet ? <a href="{{ url_for('register') }}">Sign-up !</a></p>
-
+    <p class="auth-footer">Don't have an account? <a href="{{ url_for('register') }}">Sign up</a></p>
   </div>
 </body>
 </html>

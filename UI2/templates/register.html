@@ -1,43 +1,55 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Sign-up</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BioBot — Sign up</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='auth.css') }}">
 </head>
 <body>
   <div class="auth-container">
-    <h2>Sign-up</h2>
+    <h2>Create your account</h2>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        <div class="flash-messages">
+          {% for category, message in messages %}
+            <p class="flash {{ category }}">{{ message }}</p>
+          {% endfor %}
+        </div>
+      {% endif %}
+    {% endwith %}
+
     <form class="auth-form" method="POST">
-      <label>First Name :</label>
-      <input type="text" name="first_name" required>
+      <label>First Name</label>
+      <input type="text" name="first_name" placeholder="John" required>
 
-      <label>Last Name :</label>
-      <input type="text" name="last_name" required>
+      <label>Last Name</label>
+      <input type="text" name="last_name" placeholder="Doe" required>
 
-      <label>Email :</label>
-      <input type="email" name="email" required>
+      <label>Email</label>
+      <input type="email" name="email" placeholder="you@example.com" required>
 
-      <label>Password :</label>
-      <input type="password" name="password" required>
+      <label>Password</label>
+      <input type="password" name="password" placeholder="Choose a strong password" required>
 
-      <label for="api_key">API Key :</label>
-      <input type="text" name="api_key" id="api_key" placeholder="If none, a default API KEY will be used">
+      <label>API Key</label>
+      <input type="text" name="api_key" id="api_key" placeholder="Optional — a default key will be used">
 
-      <label>Role :</label>
+      <label>Role</label>
       <select name="role" required>
         <option value="Chercheur">Academic</option>
         <option value="Ingénieur">Professional</option>
         <option value="Particulier">Personal</option>
       </select>
 
-      <label>Country :</label>
-      <input type="text" name="country" required>
+      <label>Country</label>
+      <input type="text" name="country" placeholder="France" required>
 
-      <button type="submit" class="auth-btn">Sign-up</button>
+      <button type="submit" class="auth-btn">Create account</button>
     </form>
     <div class="auth-footer">
-      <p>Already have an account ? <a href="/login">Log in</a></p>
+      <p>Already have an account? <a href="/login">Sign in</a></p>
     </div>
   </div>
 </body>
