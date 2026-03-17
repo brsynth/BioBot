@@ -99,7 +99,7 @@ function appendChunkToBotMessage(div, chunk) {
       `;
       copyBtn.addEventListener("click", () => {
         navigator.clipboard.writeText(frag.content).then(() => {
-          copyBtn.textContent = "✅ Copié !";
+          copyBtn.textContent = "✅ Copied !";
           setTimeout(() => (copyBtn.textContent = "📋 Copier"), 1500);
         }).catch(err => {
           console.error("Erreur de copie : ", err);
@@ -315,7 +315,7 @@ async function createNewChat() {
     const botDiv = addMessage("", "bot");
     appendChunkToBotMessage(
       botDiv,
-      "Hello, I'm Biobot 🤖 — your assistant specialized in lab automation..."
+      "Hello, I'm Biobot 🤖 — your assistant specialized in lab automation."
     );
 
     await refreshChatList();
@@ -537,7 +537,7 @@ document.getElementById("logout-btn").addEventListener("click", () => {
           const data = await res.json();
           if (!res.ok) throw new Error(data.error || "Erreur mise à jour");
 
-          showNotification("Profil mis à jour !");
+          showNotification("Your informations have been updated !");
           modal.classList.add("hidden");
       } catch (err) {
           alert(err.message);
