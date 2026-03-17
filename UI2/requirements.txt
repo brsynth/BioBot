@@ -22,3 +22,4 @@ fastjsonschema==2.21.2
 jsonschema==4.17.3
 psycopg2-binary==2.9.11
 gunicorn
+cryptography==44.0.0
