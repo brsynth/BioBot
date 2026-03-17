@@ -10,18 +10,101 @@ import json
 from openai import OpenAI
 import sys
 import pickle
+from config import get_api_key
 
 # ----------- AUTHENTIFICATION -------------
 if len(sys.argv) > 1:
     user_query = sys.argv[1]
-    user_api_key = sys.argv[2]
+    chat_history = json.loads(sys.argv[2]) if len(sys.argv) > 2 else []
 else:
-    raise ValueError("Usage: python3 main_rag.py '<question>' '<api_key>'")
+    raise ValueError("Usage: python3 main_rag.py '<question>' '<chat_history_json>'")
+ 
+user_api_key = get_api_key()
+if not user_api_key:
+    raise ValueError("API_KEY environment variable not set")
 
-    
 
 def get_openai_client(api_key):
     return OpenAI(api_key=api_key)
+
+# ----------- SUFFICIENCY CHECK -------------
+def check_sufficient_info(query, history, api_key):
+    """
+    Fast check before any embedding or index loading.
+    Prints a clarifying question to stdout and exits if info is missing.
+    """
+    client = get_openai_client(api_key)
+
+    recent = [m for m in history if m["role"] != "system"][-4:]
+    conversation = "\n".join(
+        f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content'][:400]}"
+        for m in recent
+    )
+
+    response = client.responses.create(
+        model="gpt-4o-mini",
+        input=[
+            {
+                "role": "system",
+                "content": """You are BioBot, an expert assistant in lab automation and liquid handling robots.
+
+Your job is to check whether a user's protocol request contains enough information to generate a working script.
+
+If you judge that there are enough infomations in the whole conversation, you were given the conversation history for that, reply with exactly: SUFFICIENT
+Ask kindly for more informations if you assume that there are not enough informations in order to generate the code. You are specialized, you know what informations to ask. 
+Try to help with examples or suggest kindly some default set ups in order to help the user when he does not provide you with sufficient informations.
+
+"""
+            },
+            {
+                "role": "user",
+                "content": f"Conversation so far:\n{conversation}\n\nLatest request: {query}"
+            }
+        ]
+    )
+
+    answer = response.output_text.strip()
+    if answer != "SUFFICIENT":
+        print(answer, flush=True)
+        sys.exit(0)
+
+def consolidate_request(query, history, api_key):
+    """
+    Synthesizes a single self-contained protocol request from the full
+    conversation. This ensures RAG always receives complete context even
+    when the user's latest message was just providing missing parameters.
+    """
+    client = get_openai_client(api_key)
+
+    recent = [m for m in history if m["role"] != "system"][-4:]
+    conversation = "\n".join(
+        f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content'][:500]}"
+        for m in recent
+    )
+
+    response = client.responses.create(
+        model="gpt-4o-mini",
+        input=[
+            {
+                "role": "system",
+                "content": """You are an expert in lab automation. 
+Given a conversation between a user and an assistant about a protocol request, 
+write a structered, complete, self-contained protocol description that consolidates 
+ALL the information provided across the entire conversation.
+
+Note that the request will be sent to an LLM. Restructure it and write it in natural langage in 3th person (the user wants to...) describing what the user wants to do, as if he had provided everything upfront.
+Return ONLY the consolidated request. No preamble, no explanation."""
+            },
+            {
+                "role": "user",
+                "content": f"Conversation:\n{conversation}\n\nLatest message: {query}"
+            }
+        ]
+    )
+    return response.output_text.strip()
+
+check_sufficient_info(user_query, chat_history, user_api_key)
+consolidated_query = consolidate_request(user_query, chat_history, user_api_key)
 
 # ----------- CLEANING & CHUNKING -------------
 def clean_rst_content(content):
@@ -90,7 +173,7 @@ def extract_code_from_response(response):
     return "\n".join(code_lines).strip()
 
 # ----------- COMPLETION -------------
-def run_gpt(user_message, model="gpt-5"):
+def run_gpt(user_message, model="gpt-5.4"):
     client = get_openai_client(user_api_key)
     messages = [
         {
@@ -138,7 +221,10 @@ def reverse_check(user_query, generated_code):
 
 # ----------- PROCESSUS PRINCIPAL -------------
 def run_query_and_fix(question, chunks, chunk_sources, max_attempts=5):
+    print("STEP:Analyzing your request...", flush=True)
     question_embedding = np.array([get_text_embedding_with_retry(question)])
+
+    print("STEP:Searching documentation for relevant context...", flush=True)
     D, I = index.search(question_embedding, k=5)
     retrieved_chunks = [chunks[i] for i in I.tolist()[0]]
     retrieved_sources = [chunk_sources[i] for i in I.tolist()[0]]
@@ -152,7 +238,9 @@ Context information is below.
 Given the context information and/or prior knowledge, answer the query.
 Query: {question}
 """
-    last_error =""
+    print("STEP:Generating protocol code...", flush=True)
+    last_error = ""
+    last_code = ""
     for attempt in range(1, max_attempts + 1):
         response = run_gpt(prompt)
         code = response
@@ -160,15 +248,22 @@ Query: {question}
         if not code:
             break
 
+        last_code = code
+
+        print(f"STEP:Attempt {attempt} — running simulation check...", flush=True)
         stdout, stderr = simulate_code(code)
         if "Error" not in stderr and "Traceback" not in stderr and stdout.strip():
+            print("STEP:Simulation passed — verifying semantic intent...", flush=True)
             verdict = reverse_check(question, code)
             blocks = re.findall(r"```(?:python)?\n(.*?)```", verdict, re.DOTALL)
             if blocks:
                 suggested_code = blocks[0].strip()
                 stdout, stderr = simulate_code(suggested_code)
-            return code, retrieved_chunks, retrieved_sources, attempt, ""
+            print("STEP:All checks passed! Returning final code...", flush=True)
+            time.sleep(3)
+            return code, retrieved_chunks, retrieved_sources, attempt, "", last_code
 
+        print(f"STEP:Simulation failed on attempt {attempt} — correcting errors...", flush=True)
         prompt = f"""
 I have some errors : 
 {stderr}
@@ -181,7 +276,7 @@ And return the full corrected Python script, don't ask me to complete the code, 
 
         last_error = stderr.strip()
 
-    return None, retrieved_chunks, retrieved_sources, attempt, last_error
+    return None, retrieved_chunks, retrieved_sources, attempt, last_error, last_code
 
 # ----------- PIPELINE INIT -------------
 base_path = "docs"
@@ -189,6 +284,7 @@ chunk_size = 3000
 store_path = "rag_store.pkl"
 
 if os.path.exists(store_path):
+    print("STEP:Loading documentation index...", flush=True)
     with open(store_path, "rb") as f:
         store = pickle.load(f)
     chunks = store["chunks"]
@@ -198,13 +294,13 @@ if os.path.exists(store_path):
     index = faiss.IndexFlatL2(d)
     index.add(text_embeddings)
 else:
+    print("STEP:Building documentation index (first run, this takes a moment)...", flush=True)
     chunks, chunk_sources = split_rst_into_chunks(base_path, chunk_size)
     text_embeddings = np.array([get_text_embedding_with_retry(chunk) for chunk in chunks])
     d = text_embeddings.shape[1]
     index = faiss.IndexFlatL2(d)
     index.add(text_embeddings)
 
-    # 💾 Save store
     with open(store_path, "wb") as f:
         pickle.dump({
             "chunks": chunks,
@@ -212,37 +308,16 @@ else:
             "embeddings": text_embeddings
         }, f)
     
-final_code, sources_used, file_refs, attempts, last_error = run_query_and_fix(user_query, chunks, chunk_sources)
-print(final_code)
+final_code, sources_used, file_refs, attempts, last_error, last_code = run_query_and_fix(consolidated_query, chunks, chunk_sources)
 
-if not final_code:
-        print("\n🛑 Code non fonctionnel après plusieurs tentatives.")
-        
-
-
-
-"""
-def run_gpt(user_message, model="gpt-5"):
-    messages = [
-        {
-            "role": "system",
-            "content": fYou are an expert assistant specialized in lab automation with the Opentrons OT-2 robot. 
-            -Generate full, clean and functional Python code for lab automation protocols. 
-            -If information is missing (- Platform (e.g., Opentrons OT-2/OT-3, Hamilton, Tecan)
-            - Labware (plates/tubes, volumes, positions)
-            - Pipettes/tips (models, mount, tip sizes)
-            - Steps (transfers, mixes, dilutions, temps, pauses)
-            - Modules (temp, magnet, heater-shaker, thermocycler)
-            - Any constraints (max volume per step, speed, sterile technique)), ask for it.
-        },
-        {
-            "role": "user",
-            "content": user_message
-        }
-    ]
-    response = client.responses.create(
-        model=model,
-        input=messages
+if final_code:
+    print(final_code)
+else:
+    print("STEP:Generation failed — preparing last attempt for review...", flush=True)
+    time.sleep(3)
+    fail_msg = (
+        "I wasn't able to generate a fully functional script after several attempts. "
+        "The simulation kept returning errors that I couldn't resolve automatically. "
+        "Here is the latest version of the script I generated — it may need some manual adjustments:"
     )
-    return response.output_text
-    """
+    print("FAILED_CODE:" + fail_msg + "___CODE_SEP___" + (last_code or "# No code was generated."), flush=True)
