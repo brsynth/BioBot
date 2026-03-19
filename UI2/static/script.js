@@ -1,24 +1,120 @@
+/* ========================================
+   BioBot — Chat UI Script
+   ======================================== */
+
 const chatListElem = document.getElementById("chat-list");
 const chatHistoryElem = document.getElementById("chat-history");
 const userInputElem = document.getElementById("user-input");
 const sendBtn = document.getElementById("send-btn");
 const newChatBtn = document.getElementById("new-chat");
-chatHistoryElem.addEventListener("scroll", () => {
-  const nearBottom = chatHistoryElem.scrollHeight - chatHistoryElem.scrollTop - chatHistoryElem.clientHeight < 50;
-  autoScrollEnabled = nearBottom;
-});
-
 
 let currentChatId = null;
 let isTyping = false;
 let autoScrollEnabled = true;
-userInputElem.addEventListener("input", () => {
-  userInputElem.style.height = "auto";
-  userInputElem.style.height = Math.min(userInputElem.scrollHeight, 300) + "px";
+
+// --- Auto-scroll detection ---
+// Instead of trying to distinguish programmatic vs user scroll events
+// (which is unreliable), we detect user scroll INTENT via input events
+// (wheel, touch, pointer on scrollbar). When the user actively scrolls
+// up, we disable auto-scroll. We re-enable it only when:
+//   1. The user scrolls back near the bottom, OR
+//   2. The user sends a new message.
+
+let _userIsInteracting = false;
+
+// Detect user scroll intent via input events
+chatHistoryElem.addEventListener("wheel", (e) => {
+  if (e.deltaY < 0) {
+    // Scrolling up — user wants to read previous messages
+    autoScrollEnabled = false;
+  }
+}, { passive: true });
+
+chatHistoryElem.addEventListener("touchstart", () => {
+  _userIsInteracting = true;
+}, { passive: true });
+
+chatHistoryElem.addEventListener("touchmove", () => {
+  if (_userIsInteracting) {
+    // During touch interaction, check if user scrolled away from bottom
+    const distFromBottom = chatHistoryElem.scrollHeight - chatHistoryElem.scrollTop - chatHistoryElem.clientHeight;
+    if (distFromBottom > 80) {
+      autoScrollEnabled = false;
+    }
+  }
+}, { passive: true });
+
+chatHistoryElem.addEventListener("touchend", () => {
+  _userIsInteracting = false;
+  // Re-enable if they scrolled back to bottom
+  const distFromBottom = chatHistoryElem.scrollHeight - chatHistoryElem.scrollTop - chatHistoryElem.clientHeight;
+  if (distFromBottom < 60) {
+    autoScrollEnabled = true;
+  }
+}, { passive: true });
+
+// Also handle scrollbar dragging (mousedown on the scrollbar area)
+chatHistoryElem.addEventListener("pointerdown", (e) => {
+  // Detect click on scrollbar: click position is beyond the content width
+  if (e.offsetX > chatHistoryElem.clientWidth) {
+    _userIsInteracting = true;
+  }
 });
 
+document.addEventListener("pointerup", () => {
+  if (_userIsInteracting) {
+    _userIsInteracting = false;
+    const distFromBottom = chatHistoryElem.scrollHeight - chatHistoryElem.scrollTop - chatHistoryElem.clientHeight;
+    if (distFromBottom < 60) {
+      autoScrollEnabled = true;
+    }
+  }
+});
 
-// Fonction pour échapper le HTML dans le texte (éviter injection)
+// Periodic check: if user has somehow scrolled back to bottom, re-enable
+chatHistoryElem.addEventListener("scroll", () => {
+  if (!autoScrollEnabled) {
+    const distFromBottom = chatHistoryElem.scrollHeight - chatHistoryElem.scrollTop - chatHistoryElem.clientHeight;
+    if (distFromBottom < 30) {
+      autoScrollEnabled = true;
+    }
+  }
+});
+
+function scrollToBottom() {
+  if (!autoScrollEnabled) return;
+  chatHistoryElem.scrollTop = chatHistoryElem.scrollHeight;
+}
+
+// --- Auto-resize textarea ---
+userInputElem.addEventListener("input", () => {
+  userInputElem.style.height = "auto";
+  userInputElem.style.height = Math.min(userInputElem.scrollHeight, 200) + "px";
+});
+
+// --- Mobile sidebar toggle ---
+const sidebar = document.getElementById("sidebar");
+const sidebarOverlay = document.getElementById("sidebar-overlay");
+const sidebarToggle = document.getElementById("sidebar-toggle");
+
+function openSidebar() {
+  sidebar.classList.add("open");
+  sidebarOverlay.classList.add("active");
+}
+
+function closeSidebar() {
+  sidebar.classList.remove("open");
+  sidebarOverlay.classList.remove("active");
+}
+
+if (sidebarToggle) {
+  sidebarToggle.addEventListener("click", openSidebar);
+}
+if (sidebarOverlay) {
+  sidebarOverlay.addEventListener("click", closeSidebar);
+}
+
+// --- Escape HTML ---
 function escapeHtml(unsafe) {
   return unsafe
     .replace(/&/g, "&amp;")
@@ -26,39 +122,92 @@ function escapeHtml(unsafe) {
     .replace(/>/g, "&gt;");
 }
 
-// Crée un élément message, avec support du markdown code (```...```)
+// --- Build a styled code block with copy + download buttons ---
+function buildCodeBlock(code) {
+  const wrapper = document.createElement("div");
+  wrapper.className = "code-block-wrapper";
+
+  // Top toolbar with language label + action buttons
+  const toolbar = document.createElement("div");
+  toolbar.className = "code-toolbar";
+
+  const langLabel = document.createElement("span");
+  langLabel.className = "code-lang-label";
+  langLabel.textContent = "python";
+
+  const actions = document.createElement("div");
+  actions.className = "code-actions";
+
+  const copyBtn = document.createElement("button");
+  copyBtn.className = "code-action-btn";
+  copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy';
+  copyBtn.addEventListener("click", () => {
+    navigator.clipboard.writeText(code).then(() => {
+      copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg> Copied!';
+      setTimeout(() => {
+        copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> Copy';
+      }, 1500);
+    }).catch(err => console.error("Copy error:", err));
+  });
+
+  const downloadBtn = document.createElement("button");
+  downloadBtn.className = "code-action-btn";
+  downloadBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Download';
+  downloadBtn.addEventListener("click", () => {
+    const blob = new Blob([code], { type: "text/x-python" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "generated_script.py";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+
+  actions.appendChild(copyBtn);
+  actions.appendChild(downloadBtn);
+  toolbar.appendChild(langLabel);
+  toolbar.appendChild(actions);
+
+  const pre = document.createElement("pre");
+  pre.className = "code-block-pre";
+  const codeElem = document.createElement("code");
+  codeElem.textContent = code;
+  pre.appendChild(codeElem);
+
+  wrapper.appendChild(toolbar);
+  wrapper.appendChild(pre);
+  return wrapper;
+}
+
+// --- Create a message element ---
 function addMessage(text, sender) {
   const div = document.createElement("div");
   div.className = `chat-message ${sender === "user" ? "chat-user" : "chat-bot"}`;
   chatHistoryElem.appendChild(div);
-  if (autoScrollEnabled) chatHistoryElem.scrollTop = chatHistoryElem.scrollHeight;
+  scrollToBottom();
 
   if (sender === "user") {
     div.textContent = text;
-    if (autoScrollEnabled) chatHistoryElem.scrollTop = chatHistoryElem.scrollHeight;
+    scrollToBottom();
     return div;
   }
 
   // For bot: initially empty, we'll stream into this div
-  div._buffer = ""; // buffer for partial code blocks
+  div._buffer = "";
   return div;
 }
 
-/**
- * Append a chunk to bot message div, handling code blocks (partial or complete)
- * @param div The bot message div
- * @param chunk The new text chunk
- */
+// --- Append chunk to bot message (handles code blocks) ---
 function appendChunkToBotMessage(div, chunk) {
   div._buffer += chunk;
 
-  // Regex to find complete code blocks
-  const codeBlockRegex = /```(?:python)?\n([\s\S]*?)```/g;
+  const codeBlockRegex = /```(?:\w*)\s*\n([\s\S]*?)```/g;
   let lastIndex = 0;
   let match;
   const fragments = [];
 
-  // Extract complete code blocks from the buffer
   while ((match = codeBlockRegex.exec(div._buffer)) !== null) {
     const before = div._buffer.slice(lastIndex, match.index);
     if (before) fragments.push({ type: "text", content: before });
@@ -66,102 +215,60 @@ function appendChunkToBotMessage(div, chunk) {
     lastIndex = codeBlockRegex.lastIndex;
   }
 
-  // Everything after last complete code block remains in buffer (partial code)
   const remaining = div._buffer.slice(lastIndex);
   div._buffer = remaining;
 
-  // Append complete fragments to DOM
   for (const frag of fragments) {
     if (frag.type === "text") {
       div.innerHTML += escapeHtml(frag.content).replace(/\n/g, "<br>");
     } else if (frag.type === "code") {
-      const container = document.createElement("div");
-      container.style.position = "relative";
-
-      const codeElem = document.createElement("pre");
-      codeElem.innerHTML = `<code>${escapeHtml(frag.content)}</code>`;
-
-      const copyBtn = document.createElement("button");
-      copyBtn.textContent = "📋 Copier";
-      copyBtn.className = "copy-btn";
-      copyBtn.style.cssText = `
-        position: absolute;
-        top: 6px;
-        right: 6px;
-        background: rgb(117,109,109);
-        border: 2px solid #ccc;
-        border-radius: 10px;
-        font-size: 15px;
-        padding: 2px 6px;
-        cursor: pointer;
-        z-index: 9999;
-        pointer-events: auto;
-      `;
-      copyBtn.addEventListener("click", () => {
-        navigator.clipboard.writeText(frag.content).then(() => {
-          copyBtn.textContent = "✅ Copié !";
-          setTimeout(() => (copyBtn.textContent = "📋 Copier"), 1500);
-        }).catch(err => {
-          console.error("Erreur de copie : ", err);
-          alert("Échec de la copie.");
-        });
-      });
-
-      container.appendChild(copyBtn);
-      container.appendChild(codeElem);
-      div.appendChild(container);
+      div.appendChild(buildCodeBlock(frag.content));
     }
   }
 
-  // If buffer has remaining text, append as normal text
   if (div._buffer && !div._buffer.startsWith("```")) {
     div.innerHTML += escapeHtml(div._buffer).replace(/\n/g, "<br>");
-    div._buffer = ""; // already added
+    div._buffer = "";
   }
 
-  if (autoScrollEnabled) chatHistoryElem.scrollTop = chatHistoryElem.scrollHeight;
+  scrollToBottom();
 }
 
-
-
-// Load chat history
+// --- Load chat history ---
 async function loadChatHistory(chatId) {
   if (!chatId) return;
   currentChatId = chatId;
   localStorage.setItem("lastChatId", chatId);
   chatHistoryElem.innerHTML = "";
   selectChatListItem(chatId);
+  closeSidebar();
 
   try {
     const res = await fetch(`/chat/${chatId}`);
     if (res.status === 404) {
-      console.warn("Aucune conversation enregistrée pour ce chat.");
+      console.warn("No conversation found for this chat.");
       return;
     }
     if (!res.ok) {
-      alert("Erreur inattendue lors du chargement du chat.");
+      alert("Unexpected error loading chat.");
       return;
     }
 
     const messages = await res.json();
-
-    // Display all the messages
     for (const msg of messages) {
       if (msg.role === "user") {
         addMessage(msg.content, "user", false);
       } else if (msg.role === "assistant") {
-        const botDiv = addMessage("", "bot"); // create empty div
-        appendChunkToBotMessage(botDiv, msg.content); // fill it
+        const botDiv = addMessage("", "bot");
+        appendChunkToBotMessage(botDiv, msg.content);
       }
     }
-
   } catch (e) {
     alert(e.message);
   }
 }
 
-
-// Variables globales pour la modal
+// --- Delete Modal ---
 const deleteModal = document.getElementById("delete-modal");
 const cancelDeleteBtn = document.getElementById("cancel-delete");
 const confirmDeleteBtn = document.getElementById("confirm-delete");
@@ -172,13 +279,11 @@ async function showDeleteModal(chatId) {
   deleteModal.classList.remove("hidden");
 }
 
-// Annuler suppression
 cancelDeleteBtn.onclick = () => {
   chatToDeleteId = null;
   deleteModal.classList.add("hidden");
 };
 
-// Confirmer suppression
 confirmDeleteBtn.onclick = async () => {
   if (!chatToDeleteId) return;
   const resp = await fetch(`/chat/${chatToDeleteId}`, { method: "DELETE" });
@@ -193,14 +298,20 @@ confirmDeleteBtn.onclick = async () => {
       }
     }
   } else {
-    alert("Erreur lors de la suppression.");
+    alert("Error deleting chat.");
   }
   chatToDeleteId = null;
   deleteModal.classList.add("hidden");
 };
 
+// Close modals on backdrop click
+document.querySelectorAll('.modal-backdrop').forEach(backdrop => {
+  backdrop.addEventListener('click', () => {
+    backdrop.closest('.modal').classList.add('hidden');
+  });
+});
 
-// Actualiser la liste des chats dans la sidebar
+// --- Refresh chat list ---
 async function refreshChatList() {
   const res = await fetch("/chats");
   if (!res.ok) return [];
@@ -212,25 +323,22 @@ async function refreshChatList() {
     const li = document.createElement("li");
     li.dataset.chatId = chat.chat_id;
 
-    // Span pour le nom du chat
     const nameSpan = document.createElement("span");
     nameSpan.className = "chat-name";
     nameSpan.textContent = chat.name;
     li.appendChild(nameSpan);
 
-    // Menu
     const menu = document.createElement("div");
     menu.className = "chat-options";
     menu.innerHTML = `
       <span class="chat-dots">⋮</span>
       <div class="chat-menu hidden">
-        <button class="rename-chat-btn">✏️ Rename</button>
-        <button class="delete-chat-btn">🗑️ Delete</button>
+        <button class="rename-chat-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Rename</button>
+        <button class="delete-chat-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> Delete</button>
       </div>
     `;
     li.appendChild(menu);
 
-    // Sélection du chat
     li.onclick = (e) => {
       if (!e.target.classList.contains("chat-dots") &&
           !e.target.classList.contains("delete-chat-btn") &&
@@ -239,23 +347,21 @@ async function refreshChatList() {
       }
     };
 
-    // Toggle menu
     menu.querySelector(".chat-dots").onclick = (e) => {
       e.stopPropagation();
+      // Close all other menus first
+      document.querySelectorAll('.chat-menu').forEach(m => m.classList.add('hidden'));
       menu.querySelector(".chat-menu").classList.toggle("hidden");
     };
 
-    // Supprimer chat
     menu.querySelector(".delete-chat-btn").onclick = (e) => {
       e.stopPropagation();
       showDeleteModal(chat.chat_id);
     };
 
-    // Renommer chat
     menu.querySelector(".rename-chat-btn").onclick = (e) => {
       e.stopPropagation();
       const currentName = nameSpan.textContent;
-      // Remplacer le texte par un input uniquement
       nameSpan.innerHTML = `<input type="text" class="rename-input" value="${currentName}" />`;
       const input = nameSpan.querySelector(".rename-input");
       input.focus();
@@ -270,7 +376,7 @@ async function refreshChatList() {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ name: newName }),
             });
-            if (!res.ok) throw new Error("Erreur lors du renommage");
+            if (!res.ok) throw new Error("Rename failed");
           } catch (err) {
             alert(err.message);
           }
@@ -293,18 +399,18 @@ async function refreshChatList() {
   return chatList;
 }
 
-// Sélection visuelle d'un chat dans la liste
+// --- Select chat in sidebar ---
 function selectChatListItem(chatId) {
   for (const li of chatListElem.children) {
     li.classList.toggle("selected", li.dataset.chatId === chatId);
   }
 }
 
-// Créer un nouveau chat
+// --- Create new chat ---
 async function createNewChat() {
   try {
     const res = await fetch("/chat", { method: "POST" });
-    if (!res.ok) throw new Error("Erreur création chat");
+    if (!res.ok) throw new Error("Error creating chat");
 
     const data = await res.json();
     currentChatId = data.chat_id;
@@ -315,61 +421,76 @@ async function createNewChat() {
     const botDiv = addMessage("", "bot");
     appendChunkToBotMessage(
       botDiv,
-      "Hello, I'm Biobot 🤖 — your assistant specialized in lab automation..."
+      "Hello, I'm Biobot 🤖 — your assistant specialized in lab automation."
     );
 
     await refreshChatList();
     selectChatListItem(currentChatId);
-
+    closeSidebar();
   } catch (e) {
     alert(e.message);
   }
 }
 
-
+// --- Thinking indicator ---
 function addThinkingMessage() {
   const div = document.createElement("div");
-  div.className = "chat-message chat-bot"; // même style que le bot
+  div.className = "chat-message chat-bot";
   div.id = "thinking-message";
+
+  const label = document.createElement("span");
+  label.textContent = "Analyzing";
+  div.appendChild(label);
 
   const dots = document.createElement("span");
   dots.textContent = "...";
   dots.style.display = "inline-block";
-  dots.style.marginLeft = "2px";
   div.appendChild(dots);
 
   chatHistoryElem.appendChild(div);
-  chatHistoryElem.scrollTop = chatHistoryElem.scrollHeight;
+  scrollToBottom();
 
   let count = 0;
   const interval = setInterval(() => {
     count = (count + 1) % 4;
-    dots.textContent = ".".repeat(count);
-    if (chatHistoryElem.scrollHeight - chatHistoryElem.scrollTop - chatHistoryElem.clientHeight < 50) {
-      chatHistoryElem.scrollTop = chatHistoryElem.scrollHeight;
-    }
-  }, 500);
+    dots.textContent = ".".repeat(count || 1);
+  }, 400);
 
-  return interval; // pour pouvoir stopper l’animation plus tard
+  return interval;
 }
 
-// Envoyer un message utilisateur au backend
+// --- Typewriter effect for large chunks ---
+function typewriterAppend(div, text, delay = 18) {
+  const words = text.split(/(?<=\s)|(?=\s)/);
+  let i = 0;
+  function next() {
+    if (i >= words.length) return;
+    appendChunkToBotMessage(div, words[i++]);
+    setTimeout(next, delay);
+  }
+  next();
+}
+
+// --- Send message ---
 async function sendMessage() {
   const input = document.getElementById("user-input");
   const message = input.value.trim();
   if (!message || !currentChatId) return;
 
-  // Add user message
+  // User just sent a message — re-enable auto-scroll
+  autoScrollEnabled = true;
+
   addMessage(message, "user");
   input.value = "";
+  input.style.height = "auto";
 
-  // Show thinking indicator
   const thinkingInterval = addThinkingMessage();
 
   let apiKey = localStorage.getItem("userApiKey") || "";
-
   let botDiv = null;
   let firstChunkReceived = false;
+  let statusDiv = null;
+  let isRagResponse = false;  // true if we received __STATUS__ messages → content is raw code
 
   try {
     const res = await fetch(`/chat/${currentChatId}/stream`, {
@@ -388,21 +509,72 @@ async function sendMessage() {
       if (done) break;
 
       const chunk = decoder.decode(value);
+      const parts = chunk.split("__STATUS__:");
 
-      // first chunk
-      if (!firstChunkReceived) {
-        firstChunkReceived = true;
+      const contentPart = parts[0];
+      const statusParts = parts.slice(1);
 
-        // Stop dots animation
+      for (const statusText of statusParts) {
+        if (!statusText.trim()) continue;
+
+        isRagResponse = true;
+
         clearInterval(thinkingInterval);
         const thinkingElem = document.getElementById("thinking-message");
         if (thinkingElem) thinkingElem.remove();
 
-        // Create real bot message div
-        botDiv = addMessage("", "bot");
+        if (!statusDiv) {
+          statusDiv = document.createElement("div");
+          statusDiv.className = "chat-message chat-bot rag-status";
+          chatHistoryElem.appendChild(statusDiv);
+        }
+        statusDiv.innerHTML = `<span class="rag-spinner"></span>${statusText.trim()}`;
+        scrollToBottom();
       }
 
-      appendChunkToBotMessage(botDiv, chunk);
+      if (contentPart) {
+        if (!firstChunkReceived) {
+          firstChunkReceived = true;
+          clearInterval(thinkingInterval);
+          const thinkingElem = document.getElementById("thinking-message");
+          if (thinkingElem) thinkingElem.remove();
+          if (statusDiv) { statusDiv.remove(); statusDiv = null; }
+          botDiv = addMessage("", "bot");
+        }
+
+        // --- RAG failure: message + code ---
+        if (contentPart.includes("__FAILED_CODE__:")) {
+          const failedContent = contentPart.split("__FAILED_CODE__:").pop();
+          const sepParts = failedContent.split("___CODE_SEP___");
+          const message = (sepParts[0] || "").trim();
+          const code = (sepParts[1] || "").trim();
+
+          // Render the failure message as text
+          if (message) {
+            const msgP = document.createElement("p");
+            msgP.textContent = message;
+            msgP.style.marginBottom = "12px";
+            botDiv.appendChild(msgP);
+          }
+          // Render code block
+          if (code) {
+            botDiv.appendChild(buildCodeBlock(code));
+          }
+          isRagResponse = false;
+        }
+        // --- RAG success: raw code ---
+        else if (isRagResponse) {
+          botDiv.appendChild(buildCodeBlock(contentPart));
+        }
+        // --- Normal streaming (general/out) ---
+        else {
+          if (contentPart.length > 120) {
+            typewriterAppend(botDiv, contentPart);
+          } else {
+            appendChunkToBotMessage(botDiv, contentPart);
+          }
+        }
+      }
     }
 
     await refreshChatList();
@@ -414,16 +586,12 @@ async function sendMessage() {
     if (thinkingElem) thinkingElem.remove();
 
     const errorDiv = addMessage("", "bot");
-    appendChunkToBotMessage(errorDiv, "\nErreur lors de la réponse du bot.");
+    appendChunkToBotMessage(errorDiv, "Error: Unable to get a response. Please try again.");
     console.error(err);
   }
 }
 
-
-
-
-
-// Event listeners
+// --- Event Listeners ---
 sendBtn.addEventListener("click", sendMessage);
 userInputElem.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {
@@ -435,28 +603,30 @@ userInputElem.addEventListener("keydown", (e) => {
 newChatBtn.addEventListener("click", createNewChat);
 
 document.getElementById("logout-btn").addEventListener("click", () => {
-  // Redirection vers la route logout
   window.location.href = "/logout";
 });
 
-// Init page : créer un chat si aucun et charger liste
-(async function init() {
-  const chats = await refreshChatList(); // récupère la liste actuelle
+// Close menus on outside click
+document.addEventListener('click', () => {
+  document.querySelectorAll('.chat-menu').forEach(m => m.classList.add('hidden'));
+});
 
-  // Cherche le dernier chat stocké en localStorage qui existe encore
+// --- Init ---
+(async function init() {
+  const chats = await refreshChatList();
+
   let lastChatId = localStorage.getItem("lastChatId");
   if (!lastChatId || !chats.find(c => c.chat_id === lastChatId)) {
-    // si le lastChatId n'existe pas ou n'existe plus, on prend le premier chat existant
     lastChatId = chats.length ? chats[chats.length - 1].chat_id : null;
   }
 
   if (lastChatId) {
     await loadChatHistory(lastChatId);
   } else {
-    // Aucun chat existant, on crée un nouveau
     await createNewChat();
   }
 
+  // --- Settings Modal ---
   const settingsBtn = document.getElementById("settings-btn");
   const modal = document.getElementById("settings-modal");
 
@@ -473,79 +643,68 @@ document.getElementById("logout-btn").addEventListener("click", () => {
   const notificationOkBtn = document.getElementById("notification-ok-btn");
 
   function showNotification(message) {
-      notificationText.textContent = message;
-      notificationModal.classList.remove("hidden");
+    notificationText.textContent = message;
+    notificationModal.classList.remove("hidden");
   }
 
-  // Cacher la modale quand on clique sur OK
   notificationOkBtn.addEventListener("click", () => {
-      notificationModal.classList.add("hidden");
+    notificationModal.classList.add("hidden");
   });
 
-
-  // Ouvrir la modale et charger les données utilisateur
   settingsBtn.addEventListener("click", async () => {
-      modal.classList.remove("hidden");
+    modal.classList.remove("hidden");
 
+    try {
+      const res = await fetch("/user/profile");
+      if (!res.ok) throw new Error("Error loading profile");
 
-      try {
-          const res = await fetch("/user/profile");
-          if (!res.ok) throw new Error("Erreur récupération profil");
+      const data = await res.json();
+      firstNameInput.value = data.first_name;
+      lastNameInput.value = data.last_name;
+      emailInput.value = data.email;
+      apiKeyInput.value = data.api_key || "";
+      countryInput.value = data.country;
 
-          const data = await res.json();
-          firstNameInput.value = data.first_name;
-          lastNameInput.value = data.last_name;
-          emailInput.value = data.email;
-          apiKeyInput.value = data.api_key || ""; // vide si aucune clé définie
-          countryInput.value = data.country;
-
-          [firstNameInput, lastNameInput, emailInput, countryInput].forEach(i => i.disabled = true);
-          apiKeyInput.disabled = true; // au départ désactivé
-          saveBtn.classList.add("hidden");
-          editBtn.classList.remove("hidden");
-      } catch (err) {
-          alert(err.message);
-      }
+      [firstNameInput, lastNameInput, emailInput, countryInput, apiKeyInput].forEach(i => i.disabled = true);
+      saveBtn.classList.add("hidden");
+      editBtn.classList.remove("hidden");
+    } catch (err) {
+      alert(err.message);
+    }
   });
 
-  // Activer modification
   editBtn.addEventListener("click", () => {
-      [firstNameInput, lastNameInput, emailInput, countryInput].forEach(i => i.disabled = false);
-      apiKeyInput.disabled = false;
-      editBtn.classList.add("hidden");
-      saveBtn.classList.remove("hidden");
+    [firstNameInput, lastNameInput, emailInput, countryInput, apiKeyInput].forEach(i => i.disabled = false);
+    editBtn.classList.add("hidden");
+    saveBtn.classList.remove("hidden");
   });
 
-  // Sauvegarder modifications
   saveBtn.addEventListener("click", async () => {
-      const payload = {
-          first_name: firstNameInput.value,
-          last_name: lastNameInput.value,
-          email: emailInput.value,
-          country: countryInput.value,
-          api_key: apiKeyInput.value || "" 
-      };
-      localStorage.setItem("userApiKey", payload.api_key);
+    const payload = {
+      first_name: firstNameInput.value,
+      last_name: lastNameInput.value,
+      email: emailInput.value,
+      country: countryInput.value,
+      api_key: apiKeyInput.value || ""
+    };
+    localStorage.setItem("userApiKey", payload.api_key);
 
-      try {
-          const res = await fetch("/user/profile", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify(payload)
-          });
+    try {
+      const res = await fetch("/user/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
 
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.error || "Erreur mise à jour");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Update failed");
 
-          showNotification("Profil mis à jour !");
-          modal.classList.add("hidden");
-      } catch (err) {
-          alert(err.message);
-      }
+      showNotification("Your profile has been updated!");
+      modal.classList.add("hidden");
+    } catch (err) {
+      alert(err.message);
+    }
   });
 
-  // Fermer modale
   closeBtn.addEventListener("click", () => modal.classList.add("hidden"));
-
-
 })();

@@ -10,61 +10,8 @@ import psycopg2.extras
 import psycopg2.errors
 
 from engine import process_user_query
-
-# ---------------------
-# Secrets / helpers
-# ---------------------
-def get_api_key():
-    secret_path = "/run/secrets/biobot_api_key"
-    if os.path.exists(secret_path):
-        with open(secret_path, "r") as f:
-            return f.read().strip()
-    env_key = os.environ.get("API_KEY")
-    if env_key:
-        return env_key
-    raise ValueError("API KEY not found")
-
-
-def get_db_password():
-    secret_path = "/run/secrets/db_password"
-    if os.path.exists(secret_path):
-        with open(secret_path, "r") as f:
-            return f.read().strip()
-    env_pw = os.environ.get("DB_PASS") or os.environ.get("DB_PASSWORD")
-    if env_pw:
-        return env_pw
-    raise ValueError("DB password not found")
-
-
-def get_db_connection():
-    """
-    Returns a new psycopg2 connection. Caller must close it.
-    """
-    db_password = get_db_password()
-    conn = psycopg2.connect(
-        host=os.getenv("DB_HOST", "postgres"),
-        port=int(os.getenv("DB_PORT", 5432)),
-        dbname=os.getenv("DB_NAME", "biobotdb"),
-        user=os.getenv("DB_USER", "biobotuser"),
-        password=db_password
-    )
-    return conn
-
-
-def wait_for_postgres(retries=60, delay=2):
-    attempts = 0
-    while attempts < retries:
-        try:
-            conn = get_db_connection()
-            conn.close()
-            print("Postgres is ready!")
-            return True
-        except Exception as e:
-            attempts += 1
-            print(f"Waiting for Postgres... (attempt {attempts}) error: {e}")
-            time.sleep(delay)
-    raise RuntimeError("Postgres did not become ready in time")
-
+from config import get_api_key, get_db_connection
+from crypt import generate_salt, derive_key, encrypt, decrypt
 
 # ---------------------
 # App & DB init
@@ -75,43 +22,33 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "super_secret_key")
 
 MODEL_NAME = "gpt-5"
 
-def init_db():
-    conn = get_db_connection()
-    try:
-        cur = conn.cursor()
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                id SERIAL PRIMARY KEY,
-                first_name TEXT,
-                last_name TEXT,
-                email TEXT UNIQUE,
-                password TEXT,
-                api_key TEXT,
-                role TEXT,
-                country TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        """)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS chat_names (
-                chat_id TEXT PRIMARY KEY,
-                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                name TEXT NOT NULL
-            );
-        """)
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS chat_history (
-                id SERIAL PRIMARY KEY,
-                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                chat_id TEXT NOT NULL REFERENCES chat_names(chat_id) ON DELETE CASCADE,
-                role TEXT NOT NULL,
-                content TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        """)
-        conn.commit()
-    finally:
-        conn.close()
+# ---------------------
+# Encryption helpers
+# ---------------------
+def get_encryption_key():
+    """Retrieve the user's encryption key from the session."""
+    key = session.get("encryption_key")
+    if key:
+        return key.encode("utf-8") if isinstance(key, str) else key
+    return None
+
+def encrypt_text(text):
+    """Encrypt text if encryption key is available, otherwise return as-is."""
+    key = get_encryption_key()
+    if key and text:
+        return encrypt(text, key)
+    return text
+
+def decrypt_text(ciphertext):
+    """Decrypt text if encryption key is available, otherwise return as-is."""
+    key = get_encryption_key()
+    if key and ciphertext:
+        try:
+            return decrypt(ciphertext, key)
+        except Exception:
+            # Fallback for unencrypted legacy data
+            return ciphertext
+    return ciphertext
 
 # ---------------------
 # DB helper wrappers
@@ -165,34 +102,39 @@ def register():
         first_name = request.form["first_name"]
         last_name = request.form["last_name"]
         email = request.form["email"]
-        password = generate_password_hash(request.form["password"])
+        raw_password = request.form["password"]
+        password = generate_password_hash(raw_password)
         api_key = request.form.get("api_key", "").strip() or get_api_key()
         role = request.form.get("role", "")
         country = request.form.get("country", "")
+        salt = generate_salt()
+        # Derive key to encrypt the API key before storing
+        enc_key = derive_key(raw_password, salt)
+        encrypted_api_key = encrypt(api_key, enc_key)
 
         conn = None
         try:
             conn = get_db_connection()
             execute(conn,
                 """
-                INSERT INTO users (first_name, last_name, email, password, api_key, role, country, created_at)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO users (first_name, last_name, email, password, api_key, role, country, encryption_salt, created_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
-                (first_name, last_name, email, password, api_key, role, country, datetime.now().isoformat()),
+                (first_name, last_name, email, password, encrypted_api_key, role, country, salt, datetime.now().isoformat()),
                 commit=True
             )
-            flash("Inscription réussie ! Connectez-vous.", "success")
+            flash("Account created! Please sign in.", "success")
             return redirect("/login")
         except psycopg2.errors.UniqueViolation:
             if conn:
                 conn.rollback()
-            flash("Email déjà utilisé.", "error")
+            flash("Email already used.", "error")
             return redirect("/register")
         except Exception as e:
             if conn:
                 conn.rollback()
             print("Register error:", e)
-            flash("Erreur interne lors de l'inscription.", "error")
+            flash("Internal error.", "error")
             return redirect("/register")
         finally:
             if conn:
@@ -220,9 +162,13 @@ def login():
 
         if user and check_password_hash(user["password"], password):
             session["user"] = user["id"]
+            # Derive encryption key from password + stored salt
+            if user.get("encryption_salt"):
+                key = derive_key(password, user["encryption_salt"])
+                session["encryption_key"] = key.decode("utf-8")
             return redirect("/")
         else:
-            flash("Email ou mot de passe incorrect !", "error")
+            flash("Incorrect email or password.", "error")
             return redirect("/login")
 
     return render_template("login.html")
@@ -231,7 +177,8 @@ def login():
 @app.route("/logout")
 def logout():
     session.pop("user", None)
-    flash("Vous avez été déconnecté.", "info")
+    session.pop("encryption_key", None)
+    flash("You have been logged out.", "info")
     return redirect(url_for("login"))
 
 
@@ -278,21 +225,21 @@ def create_chat():
         conn = get_db_connection()
         execute(conn,
             "INSERT INTO chat_names (chat_id, user_id, name) VALUES (%s, %s, %s)",
-            (chat_id, user_id, title),
+            (chat_id, user_id, encrypt_text(title)),
             commit=True
         )
 
         system_message = SYSTEM_PROMPT["content"]
         execute(conn,
             "INSERT INTO chat_history (user_id, chat_id, role, content) VALUES (%s, %s, %s, %s)",
-            (user_id, chat_id, "system", system_message),
+            (user_id, chat_id, "system", encrypt_text(system_message)),
             commit=True
         )
 
         intro_message = "Hello, I'm Biobot 🤖 — your assistant specialized in lab automation..."
         execute(conn,
             "INSERT INTO chat_history (user_id, chat_id, role, content) VALUES (%s, %s, %s, %s)",
-            (user_id, chat_id, "assistant", intro_message),
+            (user_id, chat_id, "assistant", encrypt_text(intro_message)),
             commit=True
         )
     except Exception as e:
@@ -328,10 +275,10 @@ def chat(chat_id):
             (chat_id, user_id)
         )
 
-        # insert user message
+        # insert user message (encrypted)
         execute(conn,
             "INSERT INTO chat_history (user_id, chat_id, role, content, created_at) VALUES (%s, %s, %s, %s, %s)",
-            (user_id, chat_id, "user", user_message, datetime.now().isoformat()),
+            (user_id, chat_id, "user", encrypt_text(user_message), datetime.now().isoformat()),
             commit=True
         )
 
@@ -346,32 +293,32 @@ def chat(chat_id):
         if conn:
             conn.close()
 
-    user_api_key = user["api_key"] if user and user.get("api_key") else None
-    messages = [{"role": r["role"], "content": r["content"]} for r in rows]
+    user_api_key = decrypt_text(user["api_key"]) if user and user.get("api_key") else None
+    messages = [{"role": r["role"], "content": decrypt_text(r["content"])} for r in rows]
 
     # call your engine
     bot_reply = process_user_query(user_message, messages, MODEL_NAME, api_key=user_api_key)
 
-    # save bot response
+    # save bot response (encrypted)
     conn = None
     try:
         conn = get_db_connection()
         execute(conn,
             "INSERT INTO chat_history (user_id, chat_id, role, content, created_at) VALUES (%s, %s, %s, %s, %s)",
-            (user_id, chat_id, "assistant", bot_reply, datetime.now().isoformat()),
+            (user_id, chat_id, "assistant", encrypt_text(bot_reply), datetime.now().isoformat()),
             commit=True
         )
 
         # rename chat if still "New chat"
         title_row = fetchone_dict(conn, "SELECT name FROM chat_names WHERE chat_id = %s AND user_id = %s", (chat_id, user_id))
-        if title_row and title_row.get("name") == "New chat":
+        if title_row and decrypt_text(title_row.get("name")) == "New chat":
             preview_words = user_message.strip().split()
             preview = " ".join(preview_words[:5])
             if len(preview_words) > 5:
                 preview += "..."
             execute(conn,
                 "UPDATE chat_names SET name = %s WHERE chat_id = %s AND user_id = %s",
-                (preview, chat_id, user_id),
+                (encrypt_text(preview), chat_id, user_id),
                 commit=True
             )
     except Exception as e:
@@ -408,29 +355,30 @@ def chat_stream(chat_id):
         if not chat_exists:
             return jsonify({"error": "Chat not found"}), 404
 
-        # insert user message immediately
+        # insert user message immediately (encrypted)
         execute(conn,
             """
             INSERT INTO chat_history (user_id, chat_id, role, content, created_at)
             VALUES (%s, %s, %s, %s, %s)
             """,
-            (user_id, chat_id, "user", user_message, datetime.now().isoformat()),
+            (user_id, chat_id, "user", encrypt_text(user_message), datetime.now().isoformat()),
             commit=True
         )
 
         # ensure intro message exists (only once per chat)
-        intro_exists = fetchone_dict(conn,
-            "SELECT 1 FROM chat_history WHERE chat_id = %s AND role='assistant' AND content LIKE %s",
-            (chat_id, "Hello, I'm Biobot%")
+        # Count assistant messages instead of LIKE match (content is encrypted)
+        assistant_count = fetchone_dict(conn,
+            "SELECT COUNT(*) as cnt FROM chat_history WHERE chat_id = %s AND role='assistant'",
+            (chat_id,)
         )
-        if not intro_exists:
+        if not assistant_count or assistant_count["cnt"] == 0:
             intro_message = "Hello, I'm Biobot 🤖 — your assistant specialized in lab automation..."
             execute(conn,
                 """
                 INSERT INTO chat_history (user_id, chat_id, role, content, created_at)
                 VALUES (%s, %s, %s, %s, %s)
                 """,
-                (user_id, chat_id, "assistant", intro_message, datetime.now().isoformat()),
+                (user_id, chat_id, "assistant", encrypt_text(intro_message), datetime.now().isoformat()),
                 commit=True
             )
 
@@ -450,17 +398,43 @@ def chat_stream(chat_id):
         if conn:
             conn.close()
 
-    messages = [{"role": r["role"], "content": r["content"]} for r in rows]
-    user_api_key = user["api_key"] if user else None
+    # Decrypt history for the LLM
+    messages = [{"role": r["role"], "content": decrypt_text(r["content"])} for r in rows]
+    user_api_key = decrypt_text(user["api_key"]) if user and user.get("api_key") else None
+
+    # Capture encryption key before entering generator (session may not be available later)
+    enc_key = get_encryption_key()
 
     # ---- STREAM RESPONSE ----
     def generate():
         full_reply = ""
-        first_chunk = True
+        is_rag = False
 
+        from engine import RAG_STATUS_PREFIX, FAILED_CODE_MARKER
         for chunk in process_user_query(user_message, messages, MODEL_NAME, api_key=user_api_key):
+            if chunk.startswith(RAG_STATUS_PREFIX):
+                is_rag = True
+                status_text = chunk[len(RAG_STATUS_PREFIX):]
+                yield "__STATUS__:" + status_text
+                continue
             full_reply += chunk
             yield chunk
+
+        # Before saving: wrap RAG code in markdown fences so it renders
+        # correctly when reloaded from chat history
+        save_content = full_reply
+        if is_rag and full_reply:
+            if full_reply.startswith(FAILED_CODE_MARKER):
+                failed_content = full_reply[len(FAILED_CODE_MARKER):]
+                sep_parts = failed_content.split("___CODE_SEP___", 1)
+                message = sep_parts[0].strip() if sep_parts else ""
+                code = sep_parts[1].strip() if len(sep_parts) > 1 else ""
+                save_content = message + "\n\n```python\n" + code + "\n```" if code else message
+            else:
+                save_content = "```python\n" + full_reply + "\n```"
+
+        # Encrypt before saving
+        encrypted_content = encrypt(save_content, enc_key) if enc_key and save_content else save_content
 
         # Save assistant message after streaming finishes
         conn2 = None
@@ -471,7 +445,7 @@ def chat_stream(chat_id):
                 INSERT INTO chat_history (user_id, chat_id, role, content, created_at)
                 VALUES (%s, %s, %s, %s, %s)
                 """,
-                (user_id, chat_id, "assistant", full_reply, datetime.now().isoformat()),
+                (user_id, chat_id, "assistant", encrypted_content, datetime.now().isoformat()),
                 commit=True
             )
 
@@ -480,16 +454,19 @@ def chat_stream(chat_id):
                 "SELECT name FROM chat_names WHERE chat_id = %s AND user_id = %s",
                 (chat_id, user_id)
             )
-            if title_row and title_row.get("name") == "New chat":
-                preview_words = user_message.strip().split()
-                preview = " ".join(preview_words[:5])
-                if len(preview_words) > 5:
-                    preview += "..."
-                execute(conn2,
-                    "UPDATE chat_names SET name = %s WHERE chat_id = %s AND user_id = %s",
-                    (preview, chat_id, user_id),
-                    commit=True
-                )
+            if title_row:
+                decrypted_name = decrypt(title_row["name"], enc_key) if enc_key else title_row["name"]
+                if decrypted_name == "New chat":
+                    preview_words = user_message.strip().split()
+                    preview = " ".join(preview_words[:5])
+                    if len(preview_words) > 5:
+                        preview += "..."
+                    encrypted_preview = encrypt(preview, enc_key) if enc_key else preview
+                    execute(conn2,
+                        "UPDATE chat_names SET name = %s WHERE chat_id = %s AND user_id = %s",
+                        (encrypted_preview, chat_id, user_id),
+                        commit=True
+                    )
 
         finally:
             if conn2:
@@ -515,7 +492,7 @@ def get_history(chat_id):
         if conn:
             conn.close()
 
-    visible_messages = [{"role": r["role"], "content": r["content"]} for r in rows if r["role"] != "system"]
+    visible_messages = [{"role": r["role"], "content": decrypt_text(r["content"])} for r in rows if r["role"] != "system"]
     return jsonify(visible_messages)
 
 
@@ -564,7 +541,7 @@ def list_chats():
         if conn:
             conn.close()
 
-    return jsonify([{"chat_id": r["chat_id"], "name": r["name"]} for r in rows])
+    return jsonify([{"chat_id": r["chat_id"], "name": decrypt_text(r["name"])} for r in rows])
 
 
 @app.route("/chat/<chat_id>/rename", methods=["POST"])
@@ -583,7 +560,7 @@ def rename_chat(chat_id):
         conn = get_db_connection()
         execute(conn,
             "UPDATE chat_names SET name = %s WHERE chat_id = %s AND user_id = %s",
-            (new_name, chat_id, user_id),
+            (encrypt_text(new_name), chat_id, user_id),
             commit=True
         )
     finally:
@@ -613,7 +590,9 @@ def get_user_profile():
     if not user:
         return jsonify({"error": "User not found"}), 404
 
-    return jsonify(dict(user))
+    user_dict = dict(user)
+    user_dict["api_key"] = decrypt_text(user_dict.get("api_key", ""))
+    return jsonify(user_dict)
 
 
 @app.route("/user/profile", methods=["POST"])
@@ -640,7 +619,7 @@ def update_user_profile():
             UPDATE users SET first_name = %s, last_name = %s, email = %s, api_key = %s, country = %s
             WHERE id = %s
             """,
-            (first_name, last_name, email, api_key, country, user_id),
+            (first_name, last_name, email, encrypt_text(api_key), country, user_id),
             commit=True
         )
     except psycopg2.errors.UniqueViolation:
