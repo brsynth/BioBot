@@ -1,0 +1,29 @@
+{
+    "opentrons": {
+        "name": "Opentrons",
+        "docs_path": "docs/opentrons",
+        "store_path": "rag_store_opentrons.pkl",
+        "simulate_cmd": ["opentrons_simulate"],
+        "validation_strategy": "simulation",
+        "output_type": "python",
+        "keywords": ["opentrons", "ot-2", "ot2", "ot-3", "ot3", "flex"]
+    },
+    "hamilton": {
+        "name": "Hamilton",
+        "docs_path": "docs/hamilton",
+        "store_path": "rag_store_hamilton.pkl",
+        "simulate_cmd": null,
+        "validation_strategy": "llm_review",
+        "output_type": "file",
+        "keywords": ["hamilton", "star", "starlet", "microlab", "vantage", "nimbus"]
+    },
+    "tecan": {
+        "name": "Tecan",
+        "docs_path": "docs/tecan",
+        "store_path": "rag_store_tecan.pkl",
+        "simulate_cmd": null,
+        "validation_strategy": "llm_review",
+        "output_type": "file",
+        "keywords": ["tecan", "evo", "fluent", "freedom"]
+    }
+}
