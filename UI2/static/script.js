@@ -439,16 +439,25 @@ function addThinkingMessage() {
   div.id = "thinking-message";
 
   const label = document.createElement("span");
+  label.className = "thinking-label";
   label.textContent = "Analyzing";
   div.appendChild(label);
 
-  const dots = document.createElement("span");
-  dots.textContent = "...";
-  dots.style.display = "inline-block";
-  div.appendChild(dots);
+  const dotsContainer = document.createElement("span");
+  dotsContainer.className = "thinking-dots";
+  for (let i = 0; i < 3; i++) {
+    const dot = document.createElement("span");
+    dot.className = "thinking-dot";
+    dot.style.animationDelay = `${i * 0.15}s`;
+    dotsContainer.appendChild(dot);
+  }
+  div.appendChild(dotsContainer);
 
   chatHistoryElem.appendChild(div);
   scrollToBottom();
+
+  // Return a dummy interval ID for compatibility (animation is pure CSS now)
+  return setInterval(() => {}, 60000);
 
   let count = 0;
   const interval = setInterval(() => {
