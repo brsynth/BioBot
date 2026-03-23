@@ -1,24 +1,24 @@
-import openai
 import os
 import re
 import subprocess
 import numpy as np
 import faiss
 import time
-import csv
 import json
 from openai import OpenAI
 import sys
 import pickle
 from config import get_api_key
+from doc_loader import load_and_chunk_docs
+from doc_fetcher import fetch_documentation
 
-# ----------- AUTHENTIFICATION -------------
+# ----------- ARGS & AUTH -------------
 if len(sys.argv) > 1:
     user_query = sys.argv[1]
     chat_history = json.loads(sys.argv[2]) if len(sys.argv) > 2 else []
 else:
     raise ValueError("Usage: python3 main_rag.py '<question>' '<chat_history_json>'")
- 
+
 user_api_key = get_api_key()
 if not user_api_key:
     raise ValueError("API_KEY environment variable not set")
@@ -27,12 +27,139 @@ if not user_api_key:
 def get_openai_client(api_key):
     return OpenAI(api_key=api_key)
 
+
+# ----------- HANDLER DETECTION -------------
+HANDLERS_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "handlers.json")
+
+def load_handlers_config():
+    """Load the handler registry from handlers.json."""
+    if not os.path.exists(HANDLERS_CONFIG_PATH):
+        return {
+            "opentrons": {
+                "name": "Opentrons",
+                "docs_path": "docs/opentrons",
+                "store_path": "rag_store_opentrons.pkl",
+                "simulate_cmd": ["opentrons_simulate"],
+                "keywords": ["opentrons", "ot-2", "ot2", "ot-3", "ot3", "flex"]
+            }
+        }
+    with open(HANDLERS_CONFIG_PATH, "r") as f:
+        return json.load(f)
+
+
+def detect_handler(query, history, api_key):
+    """
+    Detect which liquid handler the user is referring to using LLM classification.
+    If the handler isn't in handlers.json, creates a dynamic entry so
+    the doc fetcher can find and download its documentation.
+    """
+    handlers = load_handlers_config()
+    available_ids = list(handlers.keys())
+    client = get_openai_client(api_key)
+
+    # Build context from recent conversation
+    recent = [m for m in history if m["role"] != "system"][-4:]
+    conversation_context = "\n".join(
+        f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content'][:300]}"
+        for m in recent
+    )
+
+    # Build the known platforms description
+    if available_ids:
+        known_list = "\n".join(
+            f'  - "{hid}" → {cfg["name"]}'
+            for hid, cfg in handlers.items()
+        )
+    else:
+        known_list = "  (none configured)"
+
+    response = client.responses.create(
+        model="gpt-4o-mini",
+        input=[
+            {
+                "role": "system",
+                "content": f"""You are an expert in lab automation and liquid handling robots.
+
+Your task: identify which liquid handling PLATFORM (robot/instrument) the user is requesting a protocol for.
+
+Here are the platforms already configured in our system:
+{known_list}
+
+INSTRUCTIONS:
+1. Read the user's latest message AND the conversation history carefully.
+2. Identify the liquid handling platform they are referring to.
+3. If the platform matches one already configured, return its exact ID (the text in quotes above).
+4. If the platform is NOT in the list above, return a new short lowercase ID for it. Use the brand name in lowercase, no spaces (e.g., "opentrons", "beckman", "agilent", "eppendorf", "gilson", "biomek").
+5. If the user does NOT mention or imply any specific platform anywhere in the conversation, return "unknown".
+
+IMPORTANT:
+- Focus on the INSTRUMENT/ROBOT brand, not reagents, software, or lab techniques.
+- Look at the ENTIRE conversation, not just the latest message — the platform may have been mentioned earlier.
+- Common platforms include: Opentrons, Hamilton, Tecan, Beckman Coulter (Biomek), Agilent, Eppendorf, Gilson, PerkinElmer (JANUS), Formulatrix, Andrew Alliance, etc.
+
+Return ONLY the platform ID. One word, lowercase, no quotes, no explanation."""
+            },
+            {
+                "role": "user",
+                "content": f"Conversation history:\n{conversation_context}\n\nLatest message: {query}"
+            }
+        ]
+    )
+
+    detected = response.output_text.strip().lower().strip('"').replace(" ", "_")
+
+    # Known handler — return directly
+    if detected in available_ids:
+        return detected, handlers
+
+    # "unknown" — default to first available, or opentrons
+    if detected == "unknown":
+        if available_ids:
+            return available_ids[0], handlers
+        detected = "opentrons"
+
+    # New handler — ask the LLM for the proper display name
+    name_response = client.responses.create(
+        model="gpt-4o-mini",
+        input=[
+            {
+                "role": "system",
+                "content": "Return ONLY the official full name of this liquid handling robot platform/brand. No explanation, no punctuation, just the name (e.g., 'Opentrons OT-2', 'Hamilton STAR', 'Tecan Fluent')."
+            },
+            {
+                "role": "user",
+                "content": f"Platform ID: {detected}"
+            }
+        ]
+    )
+    handler_name = name_response.output_text.strip().strip("'\"")
+
+    print(f"STEP:Detected new platform: {handler_name} (not in config — will search for docs)...", flush=True)
+    time.sleep(2)
+
+    handlers[detected] = {
+        "name": handler_name,
+        "docs_path": f"docs/{detected}",
+        "store_path": f"rag_store_{detected}.pkl",
+        "simulate_cmd": None,
+        "validation_strategy": "llm_review",
+        "output_type": "file",
+        "keywords": [detected]
+    }
+
+    # Save to handlers.json so it persists across sessions
+    try:
+        with open(HANDLERS_CONFIG_PATH, "w") as f:
+            json.dump(handlers, f, indent=4)
+        print(f"STEP:Added {handler_name} to handlers config", flush=True)
+    except Exception as e:
+        print(f"WARNING: Could not save to handlers.json: {e}", flush=True)
+
+    return detected, handlers
+
+
 # ----------- SUFFICIENCY CHECK -------------
 def check_sufficient_info(query, history, api_key):
-    """
-    Fast check before any embedding or index loading.
-    Prints a clarifying question to stdout and exits if info is missing.
-    """
     client = get_openai_client(api_key)
 
     recent = [m for m in history if m["role"] != "system"][-4:]
@@ -48,13 +175,12 @@ def check_sufficient_info(query, history, api_key):
                 "role": "system",
                 "content": """You are BioBot, an expert assistant in lab automation and liquid handling robots.
 
-Your job is to check whether a user's protocol request contains enough information to generate a working script.
+DO NOT GENERATE CODE, your job is only to check whether a user's protocol request contains enough information to generate a working script.
 
-If you judge that there are enough infomations in the whole conversation, you were given the conversation history for that, reply with exactly: SUFFICIENT
+If you judge that there are enough infomations in the whole conversation, you were given the conversation history for that, reply with exactly: SUFFICIENT , and nothing more.
 Ask kindly for more informations if you assume that there are not enough informations in order to generate the code. You are specialized, you know what informations to ask. 
-Try to help with examples or suggest kindly some default set ups in order to help the user when he does not provide you with sufficient informations.
-
-"""
+Always suggest kindly a default set up in order to help the user when he does not provide you with sufficient informations.
+If the user asks you to use a default set up, do it and don't ask for informations then."""
             },
             {
                 "role": "user",
@@ -68,12 +194,8 @@ Try to help with examples or suggest kindly some default set ups in order to hel
         print(answer, flush=True)
         sys.exit(0)
 
+
 def consolidate_request(query, history, api_key):
-    """
-    Synthesizes a single self-contained protocol request from the full
-    conversation. This ensures RAG always receives complete context even
-    when the user's latest message was just providing missing parameters.
-    """
     client = get_openai_client(api_key)
 
     recent = [m for m in history if m["role"] != "system"][-4:]
@@ -103,36 +225,6 @@ Return ONLY the consolidated request. No preamble, no explanation."""
     )
     return response.output_text.strip()
 
-check_sufficient_info(user_query, chat_history, user_api_key)
-consolidated_query = consolidate_request(user_query, chat_history, user_api_key)
-
-# ----------- CLEANING & CHUNKING -------------
-def clean_rst_content(content):
-    content = re.sub(r"\.\. .*?::", "", content)
-    content = re.sub(r":ref:`.*?`", "", content)
-    return content
-
-def split_rst_into_chunks(base_path, chunk_size=2048):
-    chunks = []
-    sources = []
-
-    for root, dirs, files in os.walk(base_path):
-        for file in files:
-            if file.endswith(".rst"):
-                full_path = os.path.join(root, file)
-                with open(full_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                    cleaned = clean_rst_content(content)
-
-                    sections = re.split(r"\n\s*(=+|-+|~+|\^+|\++)\n", cleaned)
-                    logical_sections = ["".join(pair).strip() for pair in zip(sections[::2], sections[1::2])]
-
-                    for idx, section in enumerate(logical_sections):
-                        for i in range(0, len(section), chunk_size):
-                            chunk = section[i:i+chunk_size]
-                            chunks.append(chunk)
-                            sources.append(f"{file} (section {idx}, part {i // chunk_size})")
-    return chunks, sources
 
 # ----------- EMBEDDINGS -------------
 def get_text_embedding_with_retry(text, retries=5, delay=2):
@@ -153,27 +245,9 @@ def get_text_embedding_with_retry(text, retries=5, delay=2):
                 raise
     raise RuntimeError("Failed to get embedding after retries.")
 
-# ----------- CODE EXTRACTION -------------
-def extract_code_from_response(response):
-    code_blocks = re.findall(r"```(?:python)?\n(.*?)```", response, re.DOTALL)
-    if code_blocks:
-        return code_blocks[0].strip()
-
-    lines = response.splitlines()
-    code_lines = []
-    code_started = False
-    for line in lines:
-        if line.strip().startswith(("import", "from", "def", "for", "while", "if", "class")) or line.strip().startswith(" "):
-            code_started = True
-            code_lines.append(line)
-        elif code_started and line.strip() == "":
-            code_lines.append(line)
-        elif code_started:
-            break
-    return "\n".join(code_lines).strip()
 
 # ----------- COMPLETION -------------
-def run_gpt(user_message, model="gpt-5.4"):
+def run_gpt(user_message, model="gpt-5"):
     client = get_openai_client(user_api_key)
     messages = [
         {
@@ -191,36 +265,209 @@ def run_gpt(user_message, model="gpt-5.4"):
     )
     return response.output_text
 
-# ----------- SIMULATION -------------
-def simulate_code(code, save_path="generated_script.py"):
+
+# ----------- VALIDATION STRATEGIES -------------
+
+def validate_simulation(code, handler_config, save_path="generated_script.py"):
+    """
+    Strategy: SIMULATION
+    Run the handler's simulator tool against the generated code.
+    Returns (passed: bool, feedback: str)
+    """
+    simulate_cmd = handler_config.get("simulate_cmd")
+    if not simulate_cmd:
+        return True, ""
+
     with open(save_path, "w") as f:
         f.write(code)
-    result = subprocess.run(["opentrons_simulate", save_path], capture_output=True, text=True)
-    return result.stdout, result.stderr
+
+    result = subprocess.run(simulate_cmd + [save_path], capture_output=True, text=True)
+    stdout, stderr = result.stdout, result.stderr
+
+    if "Error" not in stderr and "Traceback" not in stderr and stdout.strip():
+        return True, ""
+    else:
+        return False, stderr.strip()
+
+
+def validate_llm_review(code, handler_config, context_chunks, question):
+    """
+    Strategy: LLM_REVIEW
+    Ask the LLM to review the generated code against the handler's documentation,
+    known API patterns, syntax rules, and best practices.
+    Returns (passed: bool, feedback: str)
+    """
+    handler_name = handler_config["name"]
+    output_type = handler_config.get("output_type", "python")
+
+    # Include some documentation context for the review
+    doc_context = "\n\n".join(context_chunks[:3]) if context_chunks else "No documentation available."
+
+    client = get_openai_client(user_api_key)
+    response = client.responses.create(
+        model="gpt-5",
+        input=[
+            {
+                "role": "system",
+                "content": f"""You are a senior code reviewer specialized in {handler_name} liquid handling robot programming.
+
+Your task is to thoroughly review a generated {output_type} script for a {handler_name} robot and determine if it is correct and functional.
+
+Here is relevant documentation for reference:
+---------------------
+{doc_context}
+---------------------
+
+Review the code for ALL of the following:
+1. **API correctness**: Are the function/method calls valid for the {handler_name} platform? Do they use the correct syntax, parameters, and argument types?
+2. **Import statements**: Are all necessary libraries imported? Are the import paths correct for {handler_name}?
+3. **Logic flow**: Does the script logically accomplish what the user requested? Are the steps in the right order?
+4. **Labware & hardware references**: Are plate names, pipette types, module names, and deck positions valid for {handler_name}?
+5. **Volume & parameter validity**: Are volumes within pipette capacity? Are speeds, temperatures, and other parameters within acceptable ranges?
+6. **Syntax**: Is the {output_type} syntax correct? Would this code run without syntax errors?
+7. **Completeness**: Is the script complete? Are there any placeholder comments like "add your code here" or incomplete sections?
+
+RESPONSE FORMAT:
+- If the code is correct and would work: respond with exactly "PASS" on the first line.
+- If there are issues: respond with "FAIL" on the first line, followed by a detailed list of every issue found, each on its own line starting with "- ".
+
+Be thorough but fair. Minor style issues are not failures. Focus on issues that would prevent the code from working correctly on a real {handler_name} instrument."""
+            },
+            {
+                "role": "user",
+                "content": f"User's request: {question}\n\nGenerated script to review:\n```\n{code}\n```"
+            }
+        ]
+    )
+
+    review = response.output_text.strip()
+
+    if review.upper().startswith("PASS"):
+        return True, ""
+    else:
+        # Extract the feedback (everything after "FAIL")
+        feedback = review
+        if feedback.upper().startswith("FAIL"):
+            feedback = feedback[4:].strip()
+        return False, feedback
+
+
+def validate_code(code, handler_config, context_chunks, question, save_path="generated_script.py"):
+    """
+    Unified validation dispatcher.
+    Routes to the correct strategy based on handler_config["validation_strategy"].
+    Returns (passed: bool, feedback: str)
+    """
+    strategy = handler_config.get("validation_strategy", "llm_review")
+
+    if strategy == "simulation":
+        return validate_simulation(code, handler_config, save_path)
+    elif strategy == "llm_review":
+        return validate_llm_review(code, handler_config, context_chunks, question)
+    else:
+        # Unknown strategy — fall back to LLM review
+        print(f"WARNING: Unknown validation strategy '{strategy}', using llm_review", flush=True)
+        return validate_llm_review(code, handler_config, context_chunks, question)
+
 
 # ----------- REVERSE CHECK -------------
-def reverse_check(user_query, generated_code):
+def reverse_check(user_query, generated_code, handler_name):
     """
     Verify if the generated code actually matches the user's intention.
     """
     reverse_prompt = f"""
-    You are an expert lab assistant in Python scripts for Opentrons laboratory robots.
+    You are an expert lab assistant in scripts for {handler_name} laboratory robots.
 
-    Here is a Python script :
-    ```python
+    Here is a script:
+    ```
     {generated_code}
+    ```
     
-    And this is what the user requested : "{user_query}"
+    And this is what the user requested: "{user_query}"
 
-    Does this script match what the user requested ? Just in a general point of view, we don't need a precise comparison.
+    Does this script match what the user requested? Just in a general point of view, we don't need a precise comparison.
     Answer strictly with "Yes" or "No", followed by a short explanation.
     If the answer is no, ALWAYS suggest a corrected script right after.
     """
     verdict = run_gpt(reverse_prompt).strip()
     return verdict
 
-# ----------- PROCESSUS PRINCIPAL -------------
-def run_query_and_fix(question, chunks, chunk_sources, max_attempts=5):
+
+# ----------- INDEX MANAGEMENT -------------
+# Resolve all paths relative to this script's directory
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def load_or_build_index(handler_id, handler_config, chunk_size=3000):
+    """
+    Load the FAISS index for a handler from its pickle store,
+    or build it from the docs folder if it doesn't exist.
+    """
+    docs_path = os.path.join(SCRIPT_DIR, handler_config["docs_path"])
+    store_path = os.path.join(docs_path, handler_config["store_path"])
+
+    if os.path.exists(store_path):
+        print(f"STEP:Loading {handler_config['name']} documentation index...", flush=True)
+        time.sleep(1)
+        with open(store_path, "rb") as f:
+            store = pickle.load(f)
+        chunks = store["chunks"]
+        chunk_sources = store["chunk_sources"]
+        text_embeddings = store["embeddings"]
+    else:
+        # Check if docs folder exists and has content (including subfolders)
+        has_local_docs = False
+        if os.path.exists(docs_path):
+            for root, dirs, files in os.walk(docs_path):
+                for f in files:
+                    if os.path.splitext(f)[1].lower() in ('.rst', '.pdf', '.txt'):
+                        has_local_docs = True
+                        break
+                if has_local_docs:
+                    break
+
+        if not has_local_docs:
+            # No local docs — try to fetch from the web
+            handler_name = handler_config["name"]
+            handler_keywords = handler_config.get("keywords", [])
+            fetched = fetch_documentation(handler_name, handler_keywords, docs_path, user_api_key)
+
+            if not fetched:
+                print(f"STEP:Could not obtain documentation for {handler_name}", flush=True)
+                time.sleep(2)
+                return [], [], None
+
+        print(f"STEP:Building {handler_config['name']} documentation index...", flush=True)
+        chunks, chunk_sources = load_and_chunk_docs(docs_path, chunk_size)
+
+        if not chunks:
+            print(f"STEP:No parseable documents found in {docs_path}", flush=True)
+            time.sleep(2)
+            return [], [], None
+
+        text_embeddings = np.array([get_text_embedding_with_retry(chunk) for chunk in chunks])
+
+        # Save the index for future use
+        os.makedirs(os.path.dirname(store_path), exist_ok=True)
+        try:
+            with open(store_path, "wb") as f:
+                pickle.dump({
+                    "chunks": chunks,
+                    "chunk_sources": chunk_sources,
+                    "embeddings": text_embeddings
+                }, f)
+            print(f"STEP:Index saved to {store_path}", flush=True)
+        except Exception as e:
+            print(f"WARNING: Could not save index: {e}", flush=True)
+
+    d = text_embeddings.shape[1]
+    index = faiss.IndexFlatL2(d)
+    index.add(text_embeddings)
+
+    return chunks, chunk_sources, index
+
+
+# ----------- MAIN PIPELINE -------------
+def run_query_and_fix(question, chunks, chunk_sources, index, handler_config, max_attempts=5):
     print("STEP:Analyzing your request...", flush=True)
     question_embedding = np.array([get_text_embedding_with_retry(question)])
 
@@ -230,17 +477,25 @@ def run_query_and_fix(question, chunks, chunk_sources, max_attempts=5):
     retrieved_sources = [chunk_sources[i] for i in I.tolist()[0]]
 
     context = "\n\n".join(retrieved_chunks)
+    handler_name = handler_config["name"]
+    strategy = handler_config.get("validation_strategy", "llm_review")
+    output_type = handler_config.get("output_type", "python")
+
     prompt = f"""
 Context information is below.
 ---------------------
 {context}
 ---------------------
 Given the context information and/or prior knowledge, answer the query.
+Generate a complete, functional {output_type} script for the {handler_name} platform.
 Query: {question}
 """
     print("STEP:Generating protocol code...", flush=True)
     last_error = ""
     last_code = ""
+
+    strategy_label = "simulation" if strategy == "simulation" else "LLM review"
+
     for attempt in range(1, max_attempts + 1):
         response = run_gpt(prompt)
         code = response
@@ -250,71 +505,76 @@ Query: {question}
 
         last_code = code
 
-        print(f"STEP:Attempt {attempt} — running simulation check...", flush=True)
-        stdout, stderr = simulate_code(code)
-        if "Error" not in stderr and "Traceback" not in stderr and stdout.strip():
-            print("STEP:Simulation passed — verifying semantic intent...", flush=True)
-            verdict = reverse_check(question, code)
-            blocks = re.findall(r"```(?:python)?\n(.*?)```", verdict, re.DOTALL)
+        print(f"STEP:Attempt {attempt} — validating via {strategy_label}...", flush=True)
+        time.sleep(2)
+        passed, feedback = validate_code(code, handler_config, retrieved_chunks, question)
+
+        if passed:
+            print("STEP:Validation passed — verifying semantic intent...", flush=True)
+            verdict = reverse_check(question, code, handler_name)
+            blocks = re.findall(r"```(?:\w*)\n(.*?)```", verdict, re.DOTALL)
             if blocks:
                 suggested_code = blocks[0].strip()
-                stdout, stderr = simulate_code(suggested_code)
+                # Re-validate the suggested code too
+                passed2, _ = validate_code(suggested_code, handler_config, retrieved_chunks, question)
+                if passed2:
+                    code = suggested_code
             print("STEP:All checks passed! Returning final code...", flush=True)
             time.sleep(2)
-            return code, retrieved_chunks, retrieved_sources, attempt, "", last_code
+            return code, retrieved_chunks, retrieved_sources, attempt, "", code
 
-        print(f"STEP:Simulation failed on attempt {attempt} — correcting errors...", flush=True)
+        print(f"STEP:Validation failed on attempt {attempt} — correcting errors...", flush=True)
         prompt = f"""
-I have some errors : 
-{stderr}
+The following {output_type} script for the {handler_name} platform has issues:
 
-Please correct accordingly this code you've given me : 
+{feedback}
+
+Here is the script that needs fixing:
 {code}
 
-For the query : {question} 
-And return the full corrected Python script, don't ask me to complete the code, don't ask me specific informations, always return a python code"""
+Original user request: {question}
 
-        last_error = stderr.strip()
+Please correct ALL the issues listed above and return the full corrected script.
+Do not ask me to complete anything — return only a complete, working {output_type} script, nothing more."""
+
+        last_error = feedback
 
     return None, retrieved_chunks, retrieved_sources, attempt, last_error, last_code
 
-# ----------- PIPELINE INIT -------------
-base_path = "docs"
-chunk_size = 3000
-store_path = "rag_store.pkl"
 
-if os.path.exists(store_path):
-    print("STEP:Loading documentation index...", flush=True)
-    with open(store_path, "rb") as f:
-        store = pickle.load(f)
-    chunks = store["chunks"]
-    chunk_sources = store["chunk_sources"]
-    text_embeddings = store["embeddings"]
-    d = text_embeddings.shape[1]
-    index = faiss.IndexFlatL2(d)
-    index.add(text_embeddings)
-else:
-    print("STEP:Building documentation index (first run, this takes a moment)...", flush=True)
-    chunks, chunk_sources = split_rst_into_chunks(base_path, chunk_size)
-    text_embeddings = np.array([get_text_embedding_with_retry(chunk) for chunk in chunks])
-    d = text_embeddings.shape[1]
-    index = faiss.IndexFlatL2(d)
-    index.add(text_embeddings)
+# ============================================================
+# EXECUTION
+# ============================================================
 
-    with open(store_path, "wb") as f:
-        pickle.dump({
-            "chunks": chunks,
-            "chunk_sources": chunk_sources,
-            "embeddings": text_embeddings
-        }, f)
-    
-final_code, sources_used, file_refs, attempts, last_error, last_code = run_query_and_fix(consolidated_query, chunks, chunk_sources)
+# 1. Check if we have enough info
+check_sufficient_info(user_query, chat_history, user_api_key)
+
+# 2. Consolidate the request
+consolidated_query = consolidate_request(user_query, chat_history, user_api_key)
+
+# 3. Detect which handler the user needs
+handler_id, handlers = detect_handler(user_query, chat_history, user_api_key)
+handler_config = handlers[handler_id]
+print(f"STEP:Detected platform: {handler_config['name']}", flush=True)
+time.sleep(1)
+
+# 4. Load or build the index for this handler
+chunks, chunk_sources, index = load_or_build_index(handler_id, handler_config)
+
+if index is None or not chunks:
+    print(f"No documentation available for {handler_config['name']}. "
+          f"Please add documents to {handler_config['docs_path']}/", flush=True)
+    sys.exit(0)
+
+# 5. Run the RAG pipeline
+final_code, sources_used, file_refs, attempts, last_error, last_code = \
+    run_query_and_fix(consolidated_query, chunks, chunk_sources, index, handler_config)
 
 if final_code:
     print(final_code)
 else:
     print("STEP:Generation failed — preparing last attempt for review...", flush=True)
-    time.sleep(3)
+    time.sleep(2)
     fail_msg = (
         "I wasn't able to generate a fully functional script after several attempts. "
         "The simulation kept returning errors that I couldn't resolve automatically. "
