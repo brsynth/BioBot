@@ -260,7 +260,7 @@ Query: {question}
                 suggested_code = blocks[0].strip()
                 stdout, stderr = simulate_code(suggested_code)
             print("STEP:All checks passed! Returning final code...", flush=True)
-            time.sleep(3)
+            time.sleep(2)
             return code, retrieved_chunks, retrieved_sources, attempt, "", last_code
 
         print(f"STEP:Simulation failed on attempt {attempt} — correcting errors...", flush=True)
