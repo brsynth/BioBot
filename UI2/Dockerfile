@@ -5,7 +5,7 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+#COPY . .
 
 RUN mkdir -p /app/data
 
@@ -19,8 +19,8 @@ ENV PYTHONUNBUFFERED=1
 
 # Run Flask directly
 #CMD ["python", "-u", "app.py"]
-CMD ["sh", "-c", "python init_db.py && python -u app.py"]
+#CMD ["sh", "-c", "python init_db.py && python -u app.py"]
 
 
 #Production server
-#CMD ["sh", "-c", "python init_db.py && gunicorn -w 4 -b 0.0.0.0:5000 app:app"]
+CMD ["sh", "-c", "python init_db.py && gunicorn -w 4 -b 0.0.0.0:5000 app:app"]
