@@ -177,10 +177,10 @@ def check_sufficient_info(query, history, api_key):
 
 DO NOT GENERATE CODE, your job is only to check whether a user's protocol request contains enough information to generate a working script.
 
-If you judge that there are enough infomations in the whole conversation, you were given the conversation history for that, reply with exactly: SUFFICIENT , and nothing more.
+If you judge that there are enough infomations in the whole conversation, you were given the conversation history for that, ONLY reply with exactly: SUFFICIENT , nothing more.
 Ask kindly for more informations if you assume that there are not enough informations in order to generate the code. You are specialized, you know what informations to ask. 
 Always suggest kindly a default set up in order to help the user when he does not provide you with sufficient informations.
-If the user asks you to use a default set up, do it and don't ask for informations then."""
+If the user asks you to use a default set up, do it and don't ask for informations then which means that you will reply ONLY with exactly : SUFFICIENT."""
             },
             {
                 "role": "user",
