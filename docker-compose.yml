@@ -7,6 +7,7 @@ services:
     volumes:
       - ./UI2/docs:/app/docs
       - ./UI2/handlers.json:/app/handlers.json
+      - ./UI2:/app:rw
     env_file :
       - .env
     environment:
