@@ -2,6 +2,15 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
+# System dependencies for PyMuPDF (PDF parsing)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libmupdf-dev \
+    libfreetype6-dev \
+    libharfbuzz-dev \
+    libjpeg-dev \
+    libopenjp2-7-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
@@ -23,4 +32,4 @@ ENV PYTHONUNBUFFERED=1
 
 
 #Production server
-CMD ["sh", "-c", "python init_db.py && gunicorn -w 4 -b 0.0.0.0:5000 app:app"]
+CMD ["sh", "-c", "python init_db.py && gunicorn -w 4 -b 0.0.0.0:5000 --timeout 600 app:app"]
