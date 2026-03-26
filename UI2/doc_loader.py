@@ -1,3 +1,4 @@
+import sys
 """
 Document loader for BioBot RAG pipeline.
 
@@ -107,8 +108,7 @@ def _parse_pdf(filepath: str, filename: str) -> list[dict]:
                             "source": f"{filename} (page {page_num + 1})"
                         })
         except ImportError:
-            print(f"WARNING: No PDF library available. Install PyMuPDF (pip install pymupdf) "
-                  f"or pdfplumber. Skipping {filename}")
+            print(f"WARNING: No PDF library available. Install PyMuPDF (pip install pymupdf) ", file=sys.stderr, flush=True)
             return []
 
     return text_pages
@@ -153,7 +153,7 @@ def load_and_chunk_docs(base_path: str, chunk_size: int = 3000) -> tuple[list[st
                     with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
                         content = f.read()
                 except Exception as e:
-                    print(f"WARNING: Could not read {file}: {e}")
+                    print(f"WARNING: Could not read {file}: {e}", file=sys.stderr, flush=True)
                     continue
 
                 if parser_type == "rst":
