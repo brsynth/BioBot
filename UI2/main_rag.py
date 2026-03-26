@@ -58,7 +58,7 @@ def detect_handler(query, history, api_key):
     client = get_openai_client(api_key)
 
     # Build context from recent conversation
-    recent = [m for m in history if m["role"] != "system"][-4:]
+    recent = [m for m in history if m["role"] != "system"][-8:]
     conversation_context = "\n".join(
         f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content'][:300]}"
         for m in recent
@@ -74,7 +74,7 @@ def detect_handler(query, history, api_key):
         known_list = "  (none configured)"
 
     response = client.responses.create(
-        model="gpt-4o-mini",
+        model="gpt-5.4",
         input=[
             {
                 "role": "system",
@@ -88,7 +88,7 @@ Here are the platforms already configured in our system:
 INSTRUCTIONS:
 1. Read the user's latest message AND the conversation history carefully.
 2. Identify the liquid handling platform they are referring to.
-3. If the platform matches one already configured, return its exact ID (the text in quotes above).
+3. If the platform matches one already configured, return its exact ID (the text in quotes above). PS: The user might point to an already configured platform uing another name (example: ot-2 for opentrons)
 4. If the platform is NOT in the list above, return a new short lowercase ID for it. Use the brand name in lowercase, no spaces (e.g., "opentrons", "beckman", "agilent", "eppendorf", "gilson", "biomek").
 5. If the user does NOT mention or imply any specific platform anywhere in the conversation, return "unknown".
 
@@ -120,11 +120,11 @@ Return ONLY the platform ID. One word, lowercase, no quotes, no explanation."""
 
     # New handler — ask the LLM for the proper display name
     name_response = client.responses.create(
-        model="gpt-4o-mini",
+        model="gpt-5.4",
         input=[
             {
                 "role": "system",
-                "content": "Return ONLY the official full name of this liquid handling robot platform/brand. No explanation, no punctuation, just the name (e.g., 'Opentrons OT-2', 'Hamilton STAR', 'Tecan Fluent')."
+                "content": "Return ONLY the official full name of this liquid handling robot platform/brand. No explanation, no punctuation, just the name (e.g., 'Opentrons', 'Hamilton STAR', 'Tecan Fluent')."
             },
             {
                 "role": "user",
@@ -143,7 +143,7 @@ Return ONLY the platform ID. One word, lowercase, no quotes, no explanation."""
         "store_path": f"rag_store_{detected}.pkl",
         "simulate_cmd": None,
         "validation_strategy": "llm_review",
-        "output_type": "file",
+        "output_type": "python",
         "keywords": [detected]
     }
 
@@ -162,7 +162,7 @@ Return ONLY the platform ID. One word, lowercase, no quotes, no explanation."""
 def check_sufficient_info(query, history, api_key):
     client = get_openai_client(api_key)
 
-    recent = [m for m in history if m["role"] != "system"][-4:]
+    recent = [m for m in history if m["role"] != "system"][-8:]
     conversation = "\n".join(
         f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content'][:400]}"
         for m in recent
@@ -198,7 +198,7 @@ If the user asks you to use a default set up, do it and don't ask for informatio
 def consolidate_request(query, history, api_key):
     client = get_openai_client(api_key)
 
-    recent = [m for m in history if m["role"] != "system"][-4:]
+    recent = [m for m in history if m["role"] != "system"][-8:]
     conversation = "\n".join(
         f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content'][:500]}"
         for m in recent
@@ -212,7 +212,7 @@ def consolidate_request(query, history, api_key):
                 "content": """You are an expert in lab automation. 
 Given a conversation between a user and an assistant about a protocol request, 
 write a structered, complete, self-contained protocol description that consolidates 
-ALL the information provided across the entire conversation.
+ALL the information provided across the entire conversation. If the user mentioned the type of the output he wants, mention it (example : txt, csv, python script, HSL etc..)
 
 Note that the request will be sent to an LLM. Restructure it and write it in natural langage in 3th person (the user wants to...) describing what the user wants to do, as if he had provided everything upfront.
 Return ONLY the consolidated request. No preamble, no explanation."""
@@ -238,7 +238,7 @@ def get_text_embedding_with_retry(text, retries=5, delay=2):
             return response.data[0].embedding
         except Exception as e:
             if "rate limit" in str(e).lower():
-                print(f"Rate limit hit. Retry {i+1}/{retries} in {delay} sec...")
+                print(f"Rate limit hit. Retry {i+1}/{retries} in {delay} sec...", file=sys.stderr)
                 time.sleep(delay)
                 delay *= 2
             else:
@@ -247,12 +247,12 @@ def get_text_embedding_with_retry(text, retries=5, delay=2):
 
 
 # ----------- COMPLETION -------------
-def run_gpt(user_message, model="gpt-5"):
+def run_gpt(user_message, model="gpt-5.4"):
     client = get_openai_client(user_api_key)
     messages = [
         {
             "role": "system",
-            "content": "You are an expert assistant specialized in lab automation with every kind of liquid handler. Generate full, clean and functional Python code for lab automation protocols."
+            "content": "You are an expert assistant specialized in lab automation with every kind of liquid handler. Generate full, clean and functional script for lab automation protocols."
         },
         {
             "role": "user",
@@ -298,40 +298,38 @@ def validate_llm_review(code, handler_config, context_chunks, question):
     Returns (passed: bool, feedback: str)
     """
     handler_name = handler_config["name"]
-    output_type = handler_config.get("output_type", "python")
+    output_type = handler_config.get("output_type", "script")
 
-    # Include some documentation context for the review
-    doc_context = "\n\n".join(context_chunks[:3]) if context_chunks else "No documentation available."
 
     client = get_openai_client(user_api_key)
     response = client.responses.create(
-        model="gpt-5",
+        model="gpt-5.4",
+        tools=[{"type": "web_search"}],
         input=[
             {
                 "role": "system",
-                "content": f"""You are a senior code reviewer specialized in {handler_name} liquid handling robot programming.
+                "content": f"""You are a specialized reviewer in {handler_name} liquid handling protocol automation.
 
-Your task is to thoroughly review a generated {output_type} script for a {handler_name} robot and determine if it is correct and functional.
+Your task is to compare a generated {output_type} script for a {handler_name} robot with similar existing protocols, files and references in order to determine if it is correct and functional.
 
-Here is relevant documentation for reference:
----------------------
-{doc_context}
----------------------
+You have access to web search. USE IT to look up the official {handler_name} documentation, verify function signatures, check valid labware names, and confirm correct usage patterns.
 
-Review the code for ALL of the following:
-1. **API correctness**: Are the function/method calls valid for the {handler_name} platform? Do they use the correct syntax, parameters, and argument types?
-2. **Import statements**: Are all necessary libraries imported? Are the import paths correct for {handler_name}?
-3. **Logic flow**: Does the script logically accomplish what the user requested? Are the steps in the right order?
-4. **Labware & hardware references**: Are plate names, pipette types, module names, and deck positions valid for {handler_name}?
+Here is some local documentation for reference depending on the type of the generated file:
+
+Here are a suggestion of some checks to do:
+1. **API correctness**: Search the web for {handler_name} docs and verify that the file's function/method are valid, with correct syntax, parameters, and argument types.
+2. **Import statements**: If it's code, are all necessary libraries imported? Verify import paths against official documentation.
+3. **Logic flow**: Does the output/script logically accomplish what the user requested? Are the steps in the right order?
+4. **Labware & hardware references**: Search for valid labware definitions, pipette types, module names, and deck positions for {handler_name}.
 5. **Volume & parameter validity**: Are volumes within pipette capacity? Are speeds, temperatures, and other parameters within acceptable ranges?
-6. **Syntax**: Is the {output_type} syntax correct? Would this code run without syntax errors?
-7. **Completeness**: Is the script complete? Are there any placeholder comments like "add your code here" or incomplete sections?
+6. **Syntax and logic**: Is the syntax and logic correct? Would this file/script run without errors?
+7. **Completeness**: Is the output/script complete?
 
 RESPONSE FORMAT:
 - If the code is correct and would work: respond with exactly "PASS" on the first line.
-- If there are issues: respond with "FAIL" on the first line, followed by a detailed list of every issue found, each on its own line starting with "- ".
+- If there are issues: respond with exactly "FAIL" on the first line.
 
-Be thorough but fair. Minor style issues are not failures. Focus on issues that would prevent the code from working correctly on a real {handler_name} instrument."""
+Don't be strict and accurate. Minor style issues are not failures. Focus on big issues that would prevent the code from working correctly on a real {handler_name} instrument. If you think that there aren't any or are not a big feal, you pass."""
             },
             {
                 "role": "user",
@@ -479,7 +477,7 @@ def run_query_and_fix(question, chunks, chunk_sources, index, handler_config, ma
     context = "\n\n".join(retrieved_chunks)
     handler_name = handler_config["name"]
     strategy = handler_config.get("validation_strategy", "llm_review")
-    output_type = handler_config.get("output_type", "python")
+    output_type = handler_config.get("output_type", "script")
 
     prompt = f"""
 Context information is below.
@@ -490,7 +488,7 @@ Given the context information and/or prior knowledge, answer the query.
 Generate a complete, functional {output_type} script for the {handler_name} platform.
 Query: {question}
 """
-    print("STEP:Generating protocol code...", flush=True)
+    print("STEP:Generating protocol...", flush=True)
     last_error = ""
     last_code = ""
 
@@ -506,10 +504,10 @@ Query: {question}
         last_code = code
 
         print(f"STEP:Attempt {attempt} — validating via {strategy_label}...", flush=True)
-        time.sleep(2)
+        time.sleep(1)
         passed, feedback = validate_code(code, handler_config, retrieved_chunks, question)
 
-        if passed:
+        if passed and strategy_label == "simulation":
             print("STEP:Validation passed — verifying semantic intent...", flush=True)
             verdict = reverse_check(question, code, handler_name)
             blocks = re.findall(r"```(?:\w*)\n(.*?)```", verdict, re.DOTALL)
@@ -522,20 +520,26 @@ Query: {question}
             print("STEP:All checks passed! Returning final code...", flush=True)
             time.sleep(2)
             return code, retrieved_chunks, retrieved_sources, attempt, "", code
+        
+        if passed:
+            print("STEP:All checks passed! Returning final code...", flush=True)
+            time.sleep(2)
+            return code, retrieved_chunks, retrieved_sources, attempt, "", code
+            
 
         print(f"STEP:Validation failed on attempt {attempt} — correcting errors...", flush=True)
         prompt = f"""
-The following {output_type} script for the {handler_name} platform has issues:
+The following {output_type} output for the {handler_name} platform has issues:
 
 {feedback}
 
-Here is the script that needs fixing:
+Here is the file that needs fixing:
 {code}
 
 Original user request: {question}
 
-Please correct ALL the issues listed above and return the full corrected script.
-Do not ask me to complete anything — return only a complete, working {output_type} script, nothing more."""
+Please correct ALL the issues listed above and return the full corrected output.
+Do not ask me to complete anything — return only the complete, working output file."""
 
         last_error = feedback
 
@@ -562,8 +566,12 @@ time.sleep(1)
 chunks, chunk_sources, index = load_or_build_index(handler_id, handler_config)
 
 if index is None or not chunks:
-    print(f"No documentation available for {handler_config['name']}. "
+    print(f"STEP:No documentation available for {handler_config['name']}. "
           f"Please add documents to {handler_config['docs_path']}/", flush=True)
+    # Give the user a friendly message as the final output
+    print(f"I couldn't find any documentation for {handler_config['name']}. "
+          f"To generate accurate protocols, please add documentation files "
+          f"(PDF, RST, or TXT) to the {handler_config['docs_path']}/ folder.", flush=True)
     sys.exit(0)
 
 # 5. Run the RAG pipeline

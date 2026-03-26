@@ -3,10 +3,19 @@
         "name": "Opentrons",
         "docs_path": "docs/opentrons",
         "store_path": "rag_store_opentrons.pkl",
-        "simulate_cmd": ["opentrons_simulate"],
+        "simulate_cmd": [
+            "opentrons_simulate"
+        ],
         "validation_strategy": "simulation",
         "output_type": "python",
-        "keywords": ["opentrons", "ot-2", "ot2", "ot-3", "ot3", "flex"]
+        "keywords": [
+            "opentrons",
+            "ot-2",
+            "ot2",
+            "ot-3",
+            "ot3",
+            "flex"
+        ]
     },
     "hamilton": {
         "name": "Hamilton",
@@ -15,7 +24,14 @@
         "simulate_cmd": null,
         "validation_strategy": "llm_review",
         "output_type": "file",
-        "keywords": ["hamilton", "star", "starlet", "microlab", "vantage", "nimbus"]
+        "keywords": [
+            "hamilton",
+            "star",
+            "starlet",
+            "microlab",
+            "vantage",
+            "nimbus"
+        ]
     },
     "tecan": {
         "name": "Tecan",
@@ -24,6 +40,22 @@
         "simulate_cmd": null,
         "validation_strategy": "llm_review",
         "output_type": "file",
-        "keywords": ["tecan", "evo", "fluent", "freedom"]
+        "keywords": [
+            "tecan",
+            "evo",
+            "fluent",
+            "freedom"
+        ]
+    },
+    "echo": {
+        "name": "Echo Liquid Handler",
+        "docs_path": "docs/echo",
+        "store_path": "rag_store_echo.pkl",
+        "simulate_cmd": null,
+        "validation_strategy": "llm_review",
+        "output_type": "file",
+        "keywords": [
+            "echo"
+        ]
     }
 }
