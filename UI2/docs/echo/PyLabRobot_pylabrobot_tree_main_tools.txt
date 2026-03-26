@@ -1,0 +1,58 @@
+PyLabRobot
+/
+pylabrobot
+Public
+Notifications
+You must be signed in to change notification settings
+Fork
+141
+Star
+410
+Files
+Expand file tree
+main
+/
+tools
+/
+Copy path
+Directory actions
+More options
+More options
+Directory actions
+More options
+More options
+Latest commit
+History
+History
+History
+main
+/
+tools
+/
+Top
+Folders and files
+Name
+Name
+Last commit message
+Last commit date
+parent directory
+..
+make_fw
+make_fw
+make_resources
+make_resources
+qc/
+hamilton
+qc/
+hamilton
+README.md
+README.md
+make_lc.py
+make_lc.py
+View all files
+README.md
+PyLabRobot Tools
+make_fw
+: script for converting commands from the firmware documents into Python methods.
+make_resources
+: scripts to create PyLabRobot methods for various resources.

@@ -1,0 +1,197 @@
+PyLabRobot
+/
+pylabrobot
+Public
+Notifications
+You must be signed in to change notification settings
+Fork
+141
+Star
+410
+Files
+Expand file tree
+main
+/
+Makefile
+Copy path
+Blame
+More file actions
+Blame
+More file actions
+Latest commit
+History
+History
+History
+46 lines (34 loc) · 1.03 KB
+main
+/
+Makefile
+Top
+File metadata and controls
+Code
+Blame
+46 lines (34 loc) · 1.03 KB
+Raw
+Copy raw file
+Download raw file
+Open symbols panel
+Edit and raw actions
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+45
+46
+ifeq
+(
+$(
+shell
+test -e ./env/ && echo yes)
+,yes)
+BIN=env/bin/
+$(info Using virtualenv in env)
+endif
+.PHONY
+: docs lint test
+docs
+:
+sphinx-build -b html docs docs/build/ -j 16 -W
+docs-fast
+:
+echo
+"
+building docs without api for speed
+"
+sphinx-build -t no-api -b html docs docs/build/ -j 16 -W
+docs-check
+:
+sphinx-build -b dummy docs docs/build/ -j 16 -W
+clean-docs
+:
+rm -rf docs/build
+rm -rf docs/_autosummary
+rm -rf docs/api/_autosummary
+rm -rf docs/jupyter_execute
+rm -rf docs/user_guide/jupyter_execute
+TRACKED_PY
+=
+$(
+shell
+git ls-files 'pylabrobot/
+*
+.py' 'pylabrobot/
+*
+.ipynb')
+lint
+:
+$(
+BIN
+)
+python -m ruff check
+$(
+TRACKED_PY
+)
+format
+:
+$(
+BIN
+)
+python -m ruff format
+$(
+TRACKED_PY
+)
+$(
+BIN
+)
+python -m ruff check --fix
+$(
+TRACKED_PY
+)
+--select I
+format-check
+:
+$(
+BIN
+)
+python -m ruff format --check
+$(
+TRACKED_PY
+)
+$(
+BIN
+)
+python -m ruff check
+$(
+TRACKED_PY
+)
+--select I
+test
+:
+$(
+BIN
+)
+python -m pytest -s -v
+typecheck
+:
+$(
+BIN
+)
+python -m mypy pylabrobot --check-untyped-defs
+clear-pyc
+:
+find
+.
+-name
+"
+*.pyc
+"
+|
+xargs rm
+find
+.
+-name
+"
+*__pycache__
+"
+|
+xargs rm -r

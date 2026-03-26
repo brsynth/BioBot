@@ -1,0 +1,232 @@
+Popular repositories
+Loading
+ro-crate-rs
+ro-crate-rs
+Public
+A Rust library for defining RO-Crates (https://www.researchobject.org/ro-crate/1.1/) for research data.
+Rust
+9
+2
+BiomationScripterLib
+BiomationScripterLib
+Public
+A Python library to assist with scripting bio-automation protocols
+Python
+4
+genet2
+genet2
+Public
+Web Application for the integration, enhancement and representation of Synthetic Biology centric data.
+Python
+4
+shortbol
+shortbol
+Public
+ShortBOL - A abstract language implementing the SBOL Data Model.
+Python
+3
+1
+seq-mdp
+seq-mdp
+Public
+Solve the Maximum Diversity Problem for protein sequence sampling.
+Python
+2
+1
+net_vis_syn_bio
+net_vis_syn_bio
+Public
+Network Visualisation Synthetic Biology
+Python
+2
+Repositories
+Loading
+Type
+All
+Public
+Sources
+Forks
+Archived
+Mirrors
+Templates
+Language
+All
+C++
+Python
+Rust
+Sort
+Last updated
+Name
+Stars
+Showing 10 of 17 repositories
+ro-crate-rs
+Public
+A Rust library for defining RO-Crates (
+https://www.researchobject.org/ro-crate/1.1/
+) for research data.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+intbio-ncl/ro-crate-rs’s past year of commit activity
+Rust
+9
+Apache-2.0
+2
+0
+0
+Updated
+Mar 2, 2026
+BiomationScripterLib
+Public
+A Python library to assist with scripting bio-automation protocols
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+intbio-ncl/BiomationScripterLib’s past year of commit activity
+Python
+4
+MIT
+0
+13
+(3 issues need help)
+1
+Updated
+Oct 13, 2025
+csn_workflow
+Public
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+intbio-ncl/csn_workflow’s past year of commit activity
+Python
+0
+0
+0
+0
+Updated
+Apr 8, 2025
+Probablistic-Functional-Integrated-Networks
+Public
+PhD Project
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+intbio-ncl/Probablistic-Functional-Integrated-Networks’s past year of commit activity
+Python
+0
+0
+0
+0
+Updated
+Feb 8, 2024
+seq-mdp
+Public
+Solve the Maximum Diversity Problem for protein sequence sampling.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+intbio-ncl/seq-mdp’s past year of commit activity
+Python
+2
+1
+1
+0
+Updated
+Oct 9, 2023
+genet2
+Public
+Web Application for the integration, enhancement and representation of Synthetic Biology centric data.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+intbio-ncl/genet2’s past year of commit activity
+Python
+4
+MIT
+0
+5
+0
+Updated
+Mar 22, 2023
+csc8221-synbioautomation
+Public
+course scripts for synbio automation course
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+intbio-ncl/csc8221-synbioautomation’s past year of commit activity
+Python
+0
+0
+0
+0
+Updated
+Jan 23, 2023
+ROTc
+Public
+Recursive Orthogonal Threshold classifier.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+intbio-ncl/ROTc’s past year of commit activity
+C++
+0
+0
+1
+0
+Updated
+Jan 10, 2023
+net_vis_syn_bio
+Public
+Network Visualisation Synthetic Biology
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+intbio-ncl/net_vis_syn_bio’s past year of commit activity
+Python
+2
+MIT
+0
+4
+0
+Updated
+Mar 16, 2022
+sbol_graph_visualiser
+Public
+A Tool to visualise SBOL in graphical views.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+intbio-ncl/sbol_graph_visualiser’s past year of commit activity
+Python
+0
+0
+3
+0
+Updated
+Jul 21, 2021
+View all repositories
+People
+This organization has no public members. You must be a member to see who’s a part of this organization.
+Top languages
+Loading…
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Most used topics
+Loading…
+Uh oh!
+There was an error while loading.
+Please reload this page
+.

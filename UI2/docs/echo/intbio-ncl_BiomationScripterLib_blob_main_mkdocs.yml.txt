@@ -1,0 +1,200 @@
+intbio-ncl
+/
+BiomationScripterLib
+Public
+Notifications
+You must be signed in to change notification settings
+Fork
+0
+Star
+4
+Files
+Expand file tree
+main
+/
+mkdocs.yml
+Copy path
+Blame
+More file actions
+Blame
+More file actions
+Latest commit
+History
+History
+History
+52 lines (39 loc) · 1.04 KB
+main
+/
+mkdocs.yml
+Top
+File metadata and controls
+Code
+Blame
+52 lines (39 loc) · 1.04 KB
+Raw
+Copy raw file
+Download raw file
+Open symbols panel
+Edit and raw actions
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+45
+46
+47
+48
+49
+50
+51
+52
+site_name
+:
+BiomationScripterLib
+repo_url
+:
+https://github.com/intbio-ncl/BiomationScripterLib
+repo_name
+:
+Source Code on GitHub
+docs_dir
+:
+"
+docs
+"
+theme
+:
+logo
+:
+wiki-images/Logo - Pic Only.png
+icon
+:
+repo
+:
+fontawesome/brands/github
+admonition
+:
+example
+:
+material/notebook
+name
+:
+"
+material
+"
+custom_dir
+:
+docs/overrides
+palette
+:
+-
+scheme
+:
+default
+toggle
+:
+icon
+:
+material/lightbulb
+name
+:
+Switch to dark mode
+primary
+:
+deep purple
+accent
+:
+light blue
+-
+scheme
+:
+slate
+toggle
+:
+icon
+:
+material/lightbulb-outline
+name
+:
+Switch to light mode
+primary
+:
+deep purple
+accent
+:
+light blue
+plugins
+:
+-
+mkdocs-jupyter
+:
+include
+:
+["*.ipynb"]
+-
+search
+markdown_extensions
+:
+-
+admonition
+-
+pymdownx.details
+-
+pymdownx.highlight
+:
+anchor_linenums
+:
+true
+-
+pymdownx.superfences
+-
+attr_list
+-
+pymdownx.emoji
+:
+emoji_index
+:
+!!python/name:materialx.emoji.twemoji
+emoji_generator
+:
+!!python/name:materialx.emoji.to_svg

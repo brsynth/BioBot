@@ -1,0 +1,217 @@
+cgevans
+/
+kithairon
+Public
+Notifications
+You must be signed in to change notification settings
+Fork
+0
+Star
+1
+Branch selector
+main
+User selector
+All users
+All time
+Commit History
+Commits on Mar 14, 2026
+Remove kithairon_extra wildcard import, add requires-python
+Show description for 9624b13
+cgevans
+and
+claude
+committed
+9624b13
+Copy full SHA for 9624b13
+Commits on Aug 9, 2025
+github actions refactor
+cgevans
+committed
+ce3d0b1
+Copy full SHA for ce3d0b1
+github actions refactor
+cgevans
+committed
+af13b3e
+Copy full SHA for af13b3e
+github actions refactor
+cgevans
+committed
+84da062
+Copy full SHA for 84da062
+Linting, build system to uv
+cgevans
+committed
+f09f644
+Copy full SHA for f09f644
+Commits on Jul 28, 2025
+minor fixes and surveydata convenience functions
+cgevans
+committed
+903ae1c
+Copy full SHA for 903ae1c
+Commits on Feb 13, 2025
+add local store
+cgevans
+committed
+4faa509
+Copy full SHA for 4faa509
+Commits on Nov 25, 2024
+Add a check for inconsistent destination sample names.
+cgevans
+committed
+fca784b
+Copy full SHA for fca784b
+Commits on Nov 2, 2024
+Maintain order for non-intermediate source plate listing.
+cgevans
+committed
+1ada225
+Copy full SHA for 1ada225
+Fix PickList concat - should no longer warn needlessly
+cgevans
+committed
+bd1f519
+Copy full SHA for bd1f519
+Commits on Aug 31, 2024
+Add check for zero volume transfers
+cgevans
+committed
+ba1be03
+Copy full SHA for ba1be03
+Added quick optimize_well_transfer_order
+cgevans
+committed
+a0f38ba
+Copy full SHA for a0f38ba
+Commits on Aug 22, 2024
+make error messages a bit more informative in validate
+cgevans
+committed
+95c3d4f
+Copy full SHA for 95c3d4f
+fix just-introduced bug (a is used multiple times)
+cgevans
+committed
+2e74ccc
+Copy full SHA for 2e74ccc
+Commits on Aug 21, 2024
+- Add non-intermediate-transfer finder for picklists.
+Show description for a5eb42e
+cgevans
+committed
+a5eb42e
+Copy full SHA for a5eb42e
+Commits on Aug 19, 2024
+fix Self from typing
+cgevans
+committed
+2037de7
+Copy full SHA for 2037de7
+fix map_dict deprecation
+cgevans
+committed
+22d02d7
+Copy full SHA for 22d02d7
+typing, fixes for >1.0 polars
+cgevans
+committed
+4cbcc19
+Copy full SHA for 4cbcc19
+Commits on Jun 23, 2024
+initial pre-commit fixes
+cgevans
+committed
+1c3670c
+Copy full SHA for 1c3670c
+Fix docs ci
+cgevans
+committed
+8663653
+Copy full SHA for 8663653
+CI updates
+cgevans
+committed
+feb503c
+Copy full SHA for feb503c
+Fix testing (add hypothesis)
+cgevans
+committed
+a2db4e7
+Copy full SHA for a2db4e7
+Commits on Jun 22, 2024
+Split
+cgevans
+committed
+d2aec34
+Copy full SHA for d2aec34
+Commits on Jun 1, 2024
+Add surveydata plate_name property.
+cgevans
+committed
+8371460
+Copy full SHA for 8371460
+Commits on May 22, 2024
+Merge
+cgevans
+committed
+626ef7c
+Copy full SHA for 626ef7c
+Commits on Feb 27, 2024
+default labware, picklist validation fixes
+cgevans
+committed
+f5b532f
+Copy full SHA for f5b532f
+Commits on Feb 26, 2024
+fix pydantic_xml version, add concat to PickList
+cgevans
+committed
+271783a
+Copy full SHA for 271783a
+Commits on Feb 14, 2024
+labware improvements
+cgevans
+committed
+859e686
+Copy full SHA for 859e686
+Commits on Nov 21, 2023
+util fixes
+cgevans
+committed
+23fb516
+Copy full SHA for 23fb516
+survey fixes
+cgevans
+committed
+b038f19
+Copy full SHA for b038f19
+Commits on Nov 10, 2023
+fix docs template, don't static check for now
+cgevans
+committed
+6eb7b41
+Copy full SHA for 6eb7b41
+actually fix docs
+cgevans
+committed
+37f0565
+Copy full SHA for 37f0565
+docs
+cgevans
+committed
+e2c8dea
+Copy full SHA for e2c8dea
+docs
+cgevans
+committed
+15d8be1
+Copy full SHA for 15d8be1
+3.10 compat fixes
+cgevans
+committed
+cfd29b9
+Copy full SHA for cfd29b9
+Pagination
+Previous
+Next

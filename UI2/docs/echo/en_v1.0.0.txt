@@ -1,0 +1,27 @@
+Home
+|
+Getting Started
+|
+Generic Tools
+|
+EchoProto
+|
+EchoProto Templates
+|
+OTProto
+|
+OTProto Templates
+BiomationScripter - Library
+A Python library to assist with writing bio-automation protocols.
+Source code:
+github.com/intbio-ncl/BiomationScripter
+This documentation is for BiomationScripter version 0.2.2 (Pre-Release)
+Getting Started
+Installation
+BiomationScripter Generic Tools
+OTProto
+Writing protocols for
+Opentrons-2
+EchoProto
+Writing protocols for
+Echo 525

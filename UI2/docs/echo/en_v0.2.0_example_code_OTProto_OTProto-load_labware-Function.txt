@@ -1,0 +1,674 @@
+BMS.OTProto.load_labware
+Example
+¶
+Using the native Opentrons API, the way in which labware is loaded can change depending on whether the labware is custom or default, and whether the protocol is being executed via the app, executed via a jupyter notebook, or if it is being simulated. The
+OTProto.load_labware
+function can load any labware in any environment.
+In [1]:
+Copied!
+from
+BiomationScripter
+import
+OTProto
+# This code is used to create an opentrons protocol object required for this function
+from
+opentrons
+import
+simulate
+as
+OT2
+# This line simulates the protocol
+# Get the correct api version
+protocol
+=
+OT2
+.
+get_protocol_api
+(
+'2.11'
+)
+# Home the pipetting head
+protocol
+.
+home
+()
+from BiomationScripter import OTProto
+# This code is used to create an opentrons protocol object required for this function
+
+from opentrons import simulate as OT2 # This line simulates the protocol
+# Get the correct api version
+protocol = OT2.get_protocol_api('2.11')
+# Home the pipetting head
+protocol.home()
+C:\Users\bradl\.opentrons\robot_settings.json not found. Loading defaults
+C:\Users\bradl\.opentrons\deck_calibration.json not found. Loading defaults
+Best Practices
+¶
+It is recommended that a directory/folder is created for custom labware files on any computer that will be used for developing/simulating Opentrons protocols. This directory can then always be provided where appropriate. When the protocol is loaded to the Opentrons via the app, the directory will then be ignored so that custom labware can be loaded through the usual way.
+In [2]:
+Copied!
+custom_labware_dir
+=
+"custom_labware/"
+custom_labware_dir = "custom_labware/"
+Loading default labware to the next empty deck position
+¶
+Any labware being loaded must be reference by its
+API name
+. Default labware api names can be found here:
+https://labware.opentrons.com/
+When loading to the deck, the
+parent
+argument should be the opentrons
+protocol
+object defined above.
+In [3]:
+Copied!
+# The code below will load the labware to the next empty slot on the Opentrons deck
+labware_type
+=
+"opentrons_24_aluminumblock_nest_1.5ml_snapcap"
+Default_Labware_1
+=
+OTProto
+.
+load_labware
+(
+parent
+=
+protocol
+,
+labware_api_name
+=
+labware_type
+)
+# The code below will load the labware to the next empty slot on the Opentrons deck
+labware_type = "opentrons_24_aluminumblock_nest_1.5ml_snapcap"
+Default_Labware_1 = OTProto.load_labware(
+                parent = protocol,
+                labware_api_name = labware_type
+)
+In [4]:
+Copied!
+for
+position
+in
+protocol
+.
+deck
+:
+print
+(
+position
+,
+protocol
+.
+deck
+[
+position
+])
+for position in protocol.deck:
+    print(position, protocol.deck[position])
+1 <opentrons.protocols.context.protocol_api.labware.LabwareImplementation object at 0x0000026B8FA71550>
+2 None
+3 None
+4 None
+5 None
+6 None
+7 None
+8 None
+9 None
+10 None
+11 None
+12 Opentrons Fixed Trash on 12
+The
+load_labware
+function returns an
+opentrons.protocol_api.labware.Labware
+object
+In [5]:
+Copied!
+print
+(
+"Object:"
+,
+Default_Labware_1
+)
+print
+(
+"Name:"
+,
+Default_Labware_1
+.
+name
+)
+print("Object:", Default_Labware_1)
+print("Name:", Default_Labware_1.name)
+Object: Opentrons 24 Well Aluminum Block with NEST 1.5 mL Snapcap on 1
+Name: opentrons_24_aluminumblock_nest_1.5ml_snapcap
+Loading default labware to a specific deck position
+¶
+Labware can also be loaded to a specific deck position using the
+deck_position
+argument, which must be an
+integer
+between
+1
+and
+11
+In [6]:
+Copied!
+labware_type
+=
+"opentrons_96_tiprack_20ul"
+Default_Labware_2
+=
+OTProto
+.
+load_labware
+(
+parent
+=
+protocol
+,
+labware_api_name
+=
+labware_type
+,
+deck_position
+=
+5
+)
+labware_type = "opentrons_96_tiprack_20ul"
+Default_Labware_2 = OTProto.load_labware(
+                parent = protocol,
+                labware_api_name = labware_type,
+                deck_position = 5
+)
+In [7]:
+Copied!
+print
+(
+"Object:"
+,
+Default_Labware_2
+)
+print
+(
+"Name:"
+,
+Default_Labware_2
+.
+name
+)
+print("Object:", Default_Labware_2)
+print("Name:", Default_Labware_2.name)
+Object: Opentrons 96 Tip Rack 20 ÂµL on 5
+Name: opentrons_96_tiprack_20ul
+In [8]:
+Copied!
+for
+position
+in
+protocol
+.
+deck
+:
+print
+(
+position
+,
+protocol
+.
+deck
+[
+position
+])
+for position in protocol.deck:
+    print(position, protocol.deck[position])
+1 <opentrons.protocols.context.protocol_api.labware.LabwareImplementation object at 0x0000026B8FA71550>
+2 None
+3 None
+4 None
+5 <opentrons.protocols.context.protocol_api.labware.LabwareImplementation object at 0x0000026B919A9DC0>
+6 None
+7 None
+8 None
+9 None
+10 None
+11 None
+12 Opentrons Fixed Trash on 12
+Labelling Labware
+¶
+Labware can be given a label which will then show up in the Opentrons app once the protocol is loaded. This can help differentiate between different instances of the same labware type
+In [9]:
+Copied!
+# The code below will load the labware to the next empty slot on the Opentrons deck
+labware_type
+=
+"opentrons_24_aluminumblock_nest_1.5ml_snapcap"
+Default_Labware_3
+=
+OTProto
+.
+load_labware
+(
+parent
+=
+protocol
+,
+labware_api_name
+=
+labware_type
+,
+label
+=
+"Default Labware 3"
+)
+# The code below will load the labware to the next empty slot on the Opentrons deck
+labware_type = "opentrons_24_aluminumblock_nest_1.5ml_snapcap"
+Default_Labware_3 = OTProto.load_labware(
+                parent = protocol,
+                labware_api_name = labware_type,
+                label = "Default Labware 3"
+)
+In [10]:
+Copied!
+print
+(
+"Object:"
+,
+Default_Labware_3
+)
+print
+(
+"Name:"
+,
+Default_Labware_3
+.
+name
+)
+print
+(
+"API:"
+,
+Default_Labware_3
+.
+load_name
+)
+print("Object:", Default_Labware_3)
+print("Name:", Default_Labware_3.name)
+print("API:", Default_Labware_3.load_name)
+Object: Default Labware 3 on 2
+Name: Default Labware 3
+API: opentrons_24_aluminumblock_nest_1.5ml_snapcap
+In [11]:
+Copied!
+for
+position
+in
+protocol
+.
+deck
+:
+print
+(
+position
+,
+protocol
+.
+deck
+[
+position
+])
+for position in protocol.deck:
+    print(position, protocol.deck[position])
+1 <opentrons.protocols.context.protocol_api.labware.LabwareImplementation object at 0x0000026B8FA71550>
+2 <opentrons.protocols.context.protocol_api.labware.LabwareImplementation object at 0x0000026B919E8760>
+3 None
+4 None
+5 <opentrons.protocols.context.protocol_api.labware.LabwareImplementation object at 0x0000026B919A9DC0>
+6 None
+7 None
+8 None
+9 None
+10 None
+11 None
+12 Opentrons Fixed Trash on 12
+Loading Labware to a Hardware Module
+¶
+Labware can be loaded to a hardware module by using the hardware module's object as the value for the
+parent
+argument. In this case, any deck position will be ignored as the labware will be loaded to wherever the hardware module is loaded
+In [12]:
+Copied!
+# Load a temperature module to deck position 4
+Temp_Deck
+=
+protocol
+.
+load_module
+(
+"temperature module gen2"
+,
+4
+)
+# Load a temperature module to deck position 4
+Temp_Deck = protocol.load_module("temperature module gen2", 4)
+In [13]:
+Copied!
+labware_type
+=
+"opentrons_24_aluminumblock_nest_1.5ml_snapcap"
+Temp_Deck_Labware
+=
+OTProto
+.
+load_labware
+(
+parent
+=
+Temp_Deck
+,
+labware_api_name
+=
+labware_type
+,
+label
+=
+"Temp_Deck_Labware"
+)
+labware_type = "opentrons_24_aluminumblock_nest_1.5ml_snapcap"
+Temp_Deck_Labware = OTProto.load_labware(
+                parent = Temp_Deck,
+                labware_api_name = labware_type,
+                label = "Temp_Deck_Labware"
+)
+In [14]:
+Copied!
+print
+(
+"Object:"
+,
+Temp_Deck_Labware
+)
+print
+(
+"Name:"
+,
+Temp_Deck_Labware
+.
+name
+)
+print
+(
+"API:"
+,
+Temp_Deck_Labware
+.
+load_name
+)
+print
+(
+"Parent:"
+,
+Temp_Deck_Labware
+.
+parent
+)
+print("Object:", Temp_Deck_Labware)
+print("Name:", Temp_Deck_Labware.name)
+print("API:", Temp_Deck_Labware.load_name)
+print("Parent:", Temp_Deck_Labware.parent)
+Object: Temp_Deck_Labware on Temperature Module GEN2 on 4
+Name: Temp_Deck_Labware
+API: opentrons_24_aluminumblock_nest_1.5ml_snapcap
+Parent: Temperature Module GEN2 on 4
+In [15]:
+Copied!
+for
+position
+in
+protocol
+.
+deck
+:
+print
+(
+position
+,
+protocol
+.
+deck
+[
+position
+])
+for position in protocol.deck:
+    print(position, protocol.deck[position])
+1 <opentrons.protocols.context.protocol_api.labware.LabwareImplementation object at 0x0000026B8FA71550>
+2 <opentrons.protocols.context.protocol_api.labware.LabwareImplementation object at 0x0000026B919E8760>
+3 None
+4 Temperature Module GEN2 on 4
+5 <opentrons.protocols.context.protocol_api.labware.LabwareImplementation object at 0x0000026B919A9DC0>
+6 None
+7 None
+8 None
+9 None
+10 None
+11 None
+12 Opentrons Fixed Trash on 12
+Loading Custom Labware
+¶
+To load custom labware, the same as above can be followed, except a custom labware directory containing the
+.json
+file for the labware must be included.
+To create definitions for your own custom labware, see here:
+https://labware.opentrons.com/create
+In [16]:
+Copied!
+custom_labware_dir
+=
+"../../../For docs/custom_labware/"
+custom_labware_dir = "../../../For docs/custom_labware/"
+For custom labware, the
+API name
+is the name of the file (without the extension)
+In [17]:
+Copied!
+# The code below will load the labware to the next empty slot on the Opentrons deck
+labware_type
+=
+"greinerscbtppmasterblock780270_96_wellplate_2000ul"
+Custom_Labware
+=
+OTProto
+.
+load_labware
+(
+parent
+=
+protocol
+,
+labware_api_name
+=
+labware_type
+,
+label
+=
+"Custom_Labware"
+,
+custom_labware_dir
+=
+custom_labware_dir
+)
+# The code below will load the labware to the next empty slot on the Opentrons deck
+labware_type = "greinerscbtppmasterblock780270_96_wellplate_2000ul"
+Custom_Labware = OTProto.load_labware(
+                parent = protocol,
+                labware_api_name = labware_type,
+                label = "Custom_Labware",
+                custom_labware_dir = custom_labware_dir
+)
+In [18]:
+Copied!
+print
+(
+"Object:"
+,
+Custom_Labware
+)
+print
+(
+"Name:"
+,
+Custom_Labware
+.
+name
+)
+print
+(
+"API:"
+,
+Custom_Labware
+.
+load_name
+)
+print("Object:", Custom_Labware)
+print("Name:", Custom_Labware.name)
+print("API:", Custom_Labware.load_name)
+Object: Custom_Labware on 3
+Name: Custom_Labware
+API: greinerscbtppmasterblock780270_96_wellplate_2000ul
+In [19]:
+Copied!
+for
+position
+in
+protocol
+.
+deck
+:
+print
+(
+position
+,
+protocol
+.
+deck
+[
+position
+])
+for position in protocol.deck:
+    print(position, protocol.deck[position])
+1 <opentrons.protocols.context.protocol_api.labware.LabwareImplementation object at 0x0000026B8FA71550>
+2 <opentrons.protocols.context.protocol_api.labware.LabwareImplementation object at 0x0000026B919E8760>
+3 <opentrons.protocols.context.protocol_api.labware.LabwareImplementation object at 0x0000026B919F2D00>
+4 Temperature Module GEN2 on 4
+5 <opentrons.protocols.context.protocol_api.labware.LabwareImplementation object at 0x0000026B919A9DC0>
+6 None
+7 None
+8 None
+9 None
+10 None
+11 None
+12 Opentrons Fixed Trash on 12
+Note that the custom labware directory can be specified for default labware - it will simply be ignored. You may wish to provide the custom labware dir for all labware loaded, even if it is default, to enable easier changing of labware later on
+In [20]:
+Copied!
+# The code below will load the labware to the next empty slot on the Opentrons deck
+labware_type
+=
+"nest_96_wellplate_100ul_pcr_full_skirt"
+Default_Labware_4
+=
+OTProto
+.
+load_labware
+(
+parent
+=
+protocol
+,
+labware_api_name
+=
+labware_type
+,
+label
+=
+"Default Labware 4"
+,
+custom_labware_dir
+=
+custom_labware_dir
+)
+# The code below will load the labware to the next empty slot on the Opentrons deck
+labware_type = "nest_96_wellplate_100ul_pcr_full_skirt"
+Default_Labware_4 = OTProto.load_labware(
+                parent = protocol,
+                labware_api_name = labware_type,
+                label = "Default Labware 4",
+                custom_labware_dir = custom_labware_dir
+)
+In [21]:
+Copied!
+print
+(
+"Object:"
+,
+Default_Labware_4
+)
+print
+(
+"Name:"
+,
+Default_Labware_4
+.
+name
+)
+print
+(
+"API:"
+,
+Default_Labware_4
+.
+load_name
+)
+print("Object:", Default_Labware_4)
+print("Name:", Default_Labware_4.name)
+print("API:", Default_Labware_4.load_name)
+Object: Default Labware 4 on 6
+Name: Default Labware 4
+API: nest_96_wellplate_100ul_pcr_full_skirt
+In [22]:
+Copied!
+for
+position
+in
+protocol
+.
+deck
+:
+print
+(
+position
+,
+protocol
+.
+deck
+[
+position
+])
+for position in protocol.deck:
+    print(position, protocol.deck[position])
+1 <opentrons.protocols.context.protocol_api.labware.LabwareImplementation object at 0x0000026B8FA71550>
+2 <opentrons.protocols.context.protocol_api.labware.LabwareImplementation object at 0x0000026B919E8760>
+3 <opentrons.protocols.context.protocol_api.labware.LabwareImplementation object at 0x0000026B919F2D00>
+4 Temperature Module GEN2 on 4
+5 <opentrons.protocols.context.protocol_api.labware.LabwareImplementation object at 0x0000026B919A9DC0>
+6 <opentrons.protocols.context.protocol_api.labware.LabwareImplementation object at 0x0000026B91A11AF0>
+7 None
+8 None
+9 None
+10 None
+11 None
+12 Opentrons Fixed Trash on 12

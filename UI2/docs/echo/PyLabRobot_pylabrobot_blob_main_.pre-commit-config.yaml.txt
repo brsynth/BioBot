@@ -1,0 +1,126 @@
+PyLabRobot
+/
+pylabrobot
+Public
+Notifications
+You must be signed in to change notification settings
+Fork
+141
+Star
+410
+Files
+Expand file tree
+main
+/
+.pre-commit-config.yaml
+Copy path
+Blame
+More file actions
+Blame
+More file actions
+Latest commit
+History
+History
+History
+23 lines (21 loc) · 503 Bytes
+main
+/
+.pre-commit-config.yaml
+Top
+File metadata and controls
+Code
+Blame
+23 lines (21 loc) · 503 Bytes
+Raw
+Copy raw file
+Download raw file
+Open symbols panel
+Edit and raw actions
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+repos
+:
+-
+repo
+:
+local
+hooks
+:
+-
+id
+:
+ruff-format
+name
+:
+ruff format
+entry
+:
+ruff format
+language
+:
+system
+types
+:
+[python]
+files
+:
+^pylabrobot/.*$
+-
+id
+:
+ruff-check
+name
+:
+ruff check
+entry
+:
+ruff check --fix
+language
+:
+system
+types
+:
+[python]
+files
+:
+^pylabrobot/.*$
+-
+repo
+:
+https://github.com/crate-ci/typos
+rev
+:
+v1
+hooks
+:
+-
+id
+:
+typos
+files
+:
+^pylabrobot/.*$
+args
+:
+["--force-exclude"]

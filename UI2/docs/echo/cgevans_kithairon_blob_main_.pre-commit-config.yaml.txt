@@ -1,0 +1,303 @@
+cgevans
+/
+kithairon
+Public
+Notifications
+You must be signed in to change notification settings
+Fork
+0
+Star
+1
+Files
+Expand file tree
+main
+/
+.pre-commit-config.yaml
+Copy path
+Blame
+More file actions
+Blame
+More file actions
+Latest commit
+History
+History
+History
+79 lines (70 loc) · 1.93 KB
+main
+/
+.pre-commit-config.yaml
+Top
+File metadata and controls
+Code
+Blame
+79 lines (70 loc) · 1.93 KB
+Raw
+Copy raw file
+Download raw file
+Open symbols panel
+Edit and raw actions
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+30
+31
+32
+33
+34
+35
+36
+37
+38
+39
+40
+41
+42
+43
+44
+45
+46
+47
+48
+49
+50
+51
+52
+53
+54
+55
+56
+57
+58
+59
+60
+61
+62
+63
+64
+65
+66
+67
+68
+69
+70
+71
+72
+73
+74
+75
+76
+77
+78
+79
+exclude
+:
+'
+^docs/conf.py
+'
+repos
+:
+-
+repo
+:
+https://github.com/pre-commit/pre-commit-hooks
+rev
+:
+v4.6.0
+hooks
+:
+-
+id
+:
+trailing-whitespace
+-
+id
+:
+check-added-large-files
+-
+id
+:
+check-ast
+-
+id
+:
+check-json
+-
+id
+:
+check-merge-conflict
+-
+id
+:
+check-xml
+-
+id
+:
+check-yaml
+-
+id
+:
+debug-statements
+-
+id
+:
+end-of-file-fixer
+-
+id
+:
+requirements-txt-fixer
+-
+id
+:
+mixed-line-ending
+args
+:
+['--fix=lf']
+#
+replace 'auto' with 'lf' to enforce Linux/Mac line endings or 'crlf' for Windows
+#
+# If you want to automatically "modernize" your Python code:
+#
+- repo: https://github.com/asottile/pyupgrade
+#
+rev: v3.7.0
+#
+hooks:
+#
+- id: pyupgrade
+#
+args: ['--py37-plus']
+#
+# If you want to avoid flake8 errors due to unused vars or imports:
+#
+- repo: https://github.com/PyCQA/autoflake
+#
+rev: v2.1.1
+#
+hooks:
+#
+- id: autoflake
+#
+args: [
+#
+--in-place,
+#
+--remove-all-unused-imports,
+#
+--remove-unused-variables,
+#
+]
+-
+repo
+:
+https://github.com/PyCQA/isort
+rev
+:
+5.13.2
+hooks
+:
+-
+id
+:
+isort
+#
+- repo: https://github.com/psf/black
+#
+rev: 23.10.1
+#
+hooks:
+#
+- id: black
+#
+language_version: python3
+#
+# If like to embrace black styles even in the docs:
+#
+- repo: https://github.com/asottile/blacken-docs
+#
+rev: v1.13.0
+#
+hooks:
+#
+- id: blacken-docs
+#
+additional_dependencies: [black]
+#
+- repo: https://github.com/PyCQA/flake8
+#
+rev: 6.1.0
+#
+hooks:
+#
+- id: flake8
+#
+## You can add flake8 plugins via `additional_dependencies`:
+#
+#  additional_dependencies: [flake8-bugbear]
+#
+# Check for misspells in documentation files:
+#
+- repo: https://github.com/codespell-project/codespell
+#
+rev: v2.2.5
+#
+hooks:
+#
+- id: codespell
+-
+repo
+:
+https://github.com/astral-sh/ruff-pre-commit
+#
+Ruff version.
+rev
+:
+v0.4.10
+hooks
+:
+#
+Run the linter.
+-
+id
+:
+ruff
+types_or
+:
+[ python, pyi, jupyter ]
+args
+:
+[ --fix ]
+#
+Run the formatter.
+-
+id
+:
+ruff-format
+types_or
+:
+[ python, pyi, jupyter ]

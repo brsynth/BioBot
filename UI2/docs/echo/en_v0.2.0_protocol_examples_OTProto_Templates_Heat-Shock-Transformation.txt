@@ -1,0 +1,1800 @@
+OTProto: Heat Shock Transformation
+¶
+Overview
+¶
+BiomationScripter Templates can be used to help quickly and easily generate automation protocols for common experiments or procedures. Shown here is an example of how the OTProto.Templates.Heat_Shock_Transformation Template can be used to generate an automation protocol to perform heat shock transformations.
+See the
+documentation
+for full details about the heat shock transformation template
+Setting Up
+¶
+The first step is to import the
+BiomationScripter
+module, and the template from
+BiomationScripter.OTProto.Templates
+.
+In [1]:
+Copied!
+import
+BiomationScripter
+as
+BMS
+from
+BiomationScripter.OTProto.Templates
+import
+Heat_Shock_Transformation
+import BiomationScripter as BMS
+from BiomationScripter.OTProto.Templates import Heat_Shock_Transformation
+The next block of code tells the Opentrons where to find BiomationScripter during execution. It is not needed for simulation, but is required to actually run the protocol. More information about this can be found
+here
+.
+In [2]:
+Copied!
+import
+sys
+sys
+.
+path
+.
+insert
+(
+0
+,
+"/var/lib/jupyter/notebooks/Packages/BiomationScripterLib"
+)
+import sys
+sys.path.insert(0, "/var/lib/jupyter/notebooks/Packages/BiomationScripterLib")
+Protocol Metadata
+¶
+It is good practice to include some metadata in your protocol. It is also required for Opentrons protocols to run correctly. The metadata is stored in a dictionary with specific key words, as shown below.
+In [3]:
+Copied!
+metadata
+=
+{
+'protocolName'
+:
+'Transformation Example'
+,
+'author'
+:
+'Bradley Brown'
+,
+'author-email'
+:
+'b.bradley2@newcastle.ac.uk'
+,
+'user'
+:
+''
+,
+'user-email'
+:
+''
+,
+'source'
+:
+'BiomationScripter Examples - BMS v0.2.0.dev'
+,
+'apiLevel'
+:
+'2.11'
+,
+'robotName'
+:
+'RobOT2'
+# This is the name of the OT2 you plan to run the protocol on
+}
+metadata = {
+    'protocolName': 'Transformation Example',
+    'author': 'Bradley Brown',
+    'author-email': 'b.bradley2@newcastle.ac.uk',
+    'user': '',
+    'user-email': '',
+    'source': 'BiomationScripter Examples - BMS v0.2.0.dev',
+    'apiLevel': '2.11',
+    'robotName': 'RobOT2' # This is the name of the OT2 you plan to run the protocol on
+}
+Defining the DNA
+¶
+First, the DNA to be transformed is defined. This is done by creating and populating
+Labware_Layout
+objects
+.
+For this example the DNA is supplied across two labware:
+A 384 well plate containing DNA assemblies
+A 24 well tube rack containing positive and negative DNA controls
+For each
+Labware_Layout
+object, we need to specify a
+Name
+and a
+Type
+. The
+Type
+MUST be an
+Opentrons API name
+.
+First we'll create the labware for the DNA assembly plate.
+Note:
+This information could also be imported from a
+Layout File
+using the
+Import_Labware_Layout
+function
+.
+In [4]:
+Copied!
+# Define the DNA names:
+DNA_Plate_Content
+=
+[
+"Assembly 1"
+,
+"Assembly 2"
+,
+"Assembly 3"
+,
+"Assembly 4"
+,
+"Assembly 5"
+,
+"Assembly 6"
+,
+"Assembly 7"
+,
+"Assembly 8"
+,
+"Assembly 9"
+,
+"Assembly 10"
+,
+"Assembly 11"
+,
+]
+# Then give the well locations for each DNA assembly
+DNA_Plate_Wells
+=
+[
+"B2"
+,
+"B3"
+,
+"B4"
+,
+"B5"
+,
+"B6"
+,
+"B7"
+,
+"B8"
+,
+"B9"
+,
+"B10"
+,
+"B11"
+,
+"B12"
+,
+]
+# Create the layout object
+DNA_Plate
+=
+BMS
+.
+Labware_Layout
+(
+"DNA Plate"
+,
+"appliedbiosystemsmicroampoptical_384_wellplate_20ul"
+)
+# And add the DNA assemblies to it
+DNA_Plate
+.
+bulk_add_content
+(
+Wells
+=
+DNA_Plate_Wells
+,
+Reagents
+=
+DNA_Plate_Content
+,
+Volumes
+=
+20
+)
+# Define the DNA names:
+DNA_Plate_Content = [
+    "Assembly 1",
+    "Assembly 2",
+    "Assembly 3",
+    "Assembly 4",
+    "Assembly 5",
+    "Assembly 6",
+    "Assembly 7",
+    "Assembly 8",
+    "Assembly 9",
+    "Assembly 10",
+    "Assembly 11",
+]
+
+# Then give the well locations for each DNA assembly
+DNA_Plate_Wells = [
+    "B2",
+    "B3",
+    "B4",
+    "B5",
+    "B6",
+    "B7",
+    "B8",
+    "B9",
+    "B10",
+    "B11",
+    "B12",
+]
+
+# Create the layout object
+DNA_Plate = BMS.Labware_Layout("DNA Plate", "appliedbiosystemsmicroampoptical_384_wellplate_20ul")
+
+# And add the DNA assemblies to it
+DNA_Plate.bulk_add_content(
+    Wells = DNA_Plate_Wells,
+    Reagents = DNA_Plate_Content,
+    Volumes = 20
+)
+Next, we'll add the tube rack containing our controls in the same way:
+In [5]:
+Copied!
+DNA_Tubes_Wells
+=
+[
+"A1"
+,
+"A2"
+]
+DNA_Tubes_Content
+=
+[
+"Positive"
+,
+"Negative"
+]
+DNA_Tubes
+=
+BMS
+.
+Labware_Layout
+(
+"DNA Tubes"
+,
+"3dprinted_24_tuberack_1500ul"
+)
+DNA_Tubes
+.
+bulk_add_content
+(
+Wells
+=
+DNA_Tubes_Wells
+,
+Reagents
+=
+DNA_Tubes_Content
+,
+Volumes
+=
+10
+)
+DNA_Tubes_Wells = [
+    "A1",
+    "A2"
+]
+
+DNA_Tubes_Content = [
+    "Positive",
+    "Negative"
+]
+
+DNA_Tubes = BMS.Labware_Layout("DNA Tubes", "3dprinted_24_tuberack_1500ul")
+
+DNA_Tubes.bulk_add_content(
+    Wells = DNA_Tubes_Wells,
+    Reagents = DNA_Tubes_Content,
+    Volumes = 10
+)
+Finally, we'll store the two types of labware in a list:
+In [6]:
+Copied!
+DNA_Source_Layouts
+=
+[
+DNA_Plate
+,
+DNA_Tubes
+]
+DNA_Source_Layouts = [DNA_Plate, DNA_Tubes]
+Defining Other Labware
+¶
+The next step is to define the other labware required in the protocol. For the
+Heat_Shock_Transformation
+template, this means we need to define source labware for the competent cells and media, and also the destination labware in which our transformations will be performed.
+For these labware, we don't need to actually create a
+Labware_Layout
+object. We just need to give the template the
+Opentrons API name
+of the labware we intend to use.
+In [7]:
+Copied!
+Competent_Cells_Source_Type
+=
+"3dprinted_24_tuberack_1500ul"
+Media_Source_Type
+=
+"3dprinted_15_tuberack_15000ul"
+Transformation_Destination_Type
+=
+"nunclondeltasurface163320_96_wellplate_250ul"
+Competent_Cells_Source_Type = "3dprinted_24_tuberack_1500ul"
+Media_Source_Type = "3dprinted_15_tuberack_15000ul"
+Transformation_Destination_Type = "nunclondeltasurface163320_96_wellplate_250ul"
+We then need to define the aliquot volumes for the competent cells and the media.
+In [8]:
+Copied!
+Competent_Cells_Aliquot_Vol
+=
+50
+# uL
+Media_Aliquot_Vol
+=
+5000
+# uL
+Competent_Cells_Aliquot_Vol = 50 # uL
+Media_Aliquot_Vol = 5000 # uL
+For the competent cells, we also have the option to store them on a
+temperature module
+to keep them cool. To do this, the type of module available needs to be specified. If there are multiple labware containing the competent cells, a temperature module for each should be specified. If the cells do not need to be kept cool, then an empty list can be defined instead.
+In [9]:
+Copied!
+Comp_Cells_Modules
+=
+[
+"temperature module gen2"
+]
+Comp_Cells_Modules = ["temperature module gen2"]
+Protocol Parameters
+¶
+The
+Heat_Shock_Transformation
+template has a number of parameters which modify how the transformation will be performed. The mandatory parameters are:
+Volume (in uL) of DNA per transformation
+Volume (in uL) of competent cells per transformation
+The final transformation volume (in uL) after media has been added
+The heat shock time (in seconds)
+The heat shock temperature (in celcius)
+The time to wait (settling time, in seconds) before performing the heat shock
+The replicates per transformation
+Other parameters can be seen in
+the documentation
+.
+Below, the mandatory parameters for this example are defined:
+In [10]:
+Copied!
+DNA_Per_Transformation
+=
+3
+# uL
+Competent_Cells_Volume
+=
+20
+# uL
+Final_Volume
+=
+100
+# uL
+Heat_Shock_Time
+=
+30
+# Seconds
+Heat_Shock_Temp
+=
+42
+# celcius
+Wait_Before_Shock
+=
+300
+# seconds
+Reps
+=
+1
+DNA_Per_Transformation = 3 # uL
+Competent_Cells_Volume = 20 # uL
+Final_Volume = 100 # uL
+Heat_Shock_Time = 30 # Seconds
+Heat_Shock_Temp = 42 # celcius
+Wait_Before_Shock = 300 # seconds
+Reps = 1
+Protocol Configuration
+¶
+Two final pieces of information are required for this protocol. The first is the directory of any
+custom labware files
+. Note that this isn't needed for execuation by the Opentrons; it is used when simulating on a separate device.
+In [11]:
+Copied!
+Custom_Labware_Dir
+=
+"../../../../data/custom_labware"
+Custom_Labware_Dir = "../../../../data/custom_labware"
+The final information required are the starting tips for loaded pipettes. This simply refers to the position of the first tip in a tip box for each type of pipette. This allows for the use of partially empty boxes.
+In [12]:
+Copied!
+Starting_20uL_Tip
+=
+"A8"
+Starting_300uL_Tip
+=
+"A1"
+Starting_20uL_Tip = "A8"
+Starting_300uL_Tip = "A1"
+The
+Run
+Function
+¶
+Before the final steps, we need to first create a
+run
+function which contains the code above. This
+run
+function needs to take a single argument called
+protocol
+. For more information about why this is needed, see
+here
+.
+At the end of the function, we'll also create the protocol template and run it.
+In [13]:
+Copied!
+metadata
+=
+{
+'protocolName'
+:
+'Transformation Example'
+,
+'author'
+:
+'Bradley Brown'
+,
+'author-email'
+:
+'b.bradley2@newcastle.ac.uk'
+,
+'user'
+:
+''
+,
+'user-email'
+:
+''
+,
+'source'
+:
+'BiomationScripter Examples - BMS v0.2.0.dev'
+,
+'apiLevel'
+:
+'2.11'
+,
+'robotName'
+:
+'RobOT2'
+# This is the name of the OT2 you plan to run the protocol on
+}
+def
+run
+(
+protocol
+):
+####################
+# Defining the DNA #
+####################
+# Define the DNA names:
+DNA_Plate_Content
+=
+[
+"Assembly 1"
+,
+"Assembly 2"
+,
+"Assembly 3"
+,
+"Assembly 4"
+,
+"Assembly 5"
+,
+"Assembly 6"
+,
+"Assembly 7"
+,
+"Assembly 8"
+,
+"Assembly 9"
+,
+"Assembly 10"
+,
+"Assembly 11"
+,
+]
+# Then give the well locations for each DNA assembly
+DNA_Plate_Wells
+=
+[
+"B2"
+,
+"B3"
+,
+"B4"
+,
+"B5"
+,
+"B6"
+,
+"B7"
+,
+"B8"
+,
+"B9"
+,
+"B10"
+,
+"B11"
+,
+"B12"
+,
+]
+# Create the layout object
+DNA_Plate
+=
+BMS
+.
+Labware_Layout
+(
+"DNA Plate"
+,
+"appliedbiosystemsmicroampoptical_384_wellplate_20ul"
+)
+# And add the DNA assemblies to it
+DNA_Plate
+.
+bulk_add_content
+(
+Wells
+=
+DNA_Plate_Wells
+,
+Reagents
+=
+DNA_Plate_Content
+,
+Volumes
+=
+20
+)
+DNA_Tubes_Wells
+=
+[
+"A1"
+,
+"A2"
+]
+DNA_Tubes_Content
+=
+[
+"Positive"
+,
+"Negative"
+]
+DNA_Tubes
+=
+BMS
+.
+Labware_Layout
+(
+"DNA Tubes"
+,
+"3dprinted_24_tuberack_1500ul"
+)
+DNA_Tubes
+.
+bulk_add_content
+(
+Wells
+=
+DNA_Tubes_Wells
+,
+Reagents
+=
+DNA_Tubes_Content
+,
+Volumes
+=
+10
+)
+DNA_Source_Layouts
+=
+[
+DNA_Plate
+,
+DNA_Tubes
+]
+##########################
+# Defining Other Labware #
+##########################
+Competent_Cells_Source_Type
+=
+"3dprinted_24_tuberack_1500ul"
+Media_Source_Type
+=
+"3dprinted_15_tuberack_15000ul"
+Transformation_Destination_Type
+=
+"nunclondeltasurface163320_96_wellplate_250ul"
+Competent_Cells_Aliquot_Vol
+=
+50
+# uL
+Media_Aliquot_Vol
+=
+5000
+# uL
+Comp_Cells_Modules
+=
+[
+"temperature module gen2"
+]
+#######################
+# Protocol Parameters #
+#######################
+DNA_Per_Transformation
+=
+3
+# uL
+Competent_Cells_Volume
+=
+20
+# uL
+Final_Volume
+=
+100
+# uL
+Heat_Shock_Time
+=
+30
+# Seconds
+Heat_Shock_Temp
+=
+42
+# celcius
+Wait_Before_Shock
+=
+300
+# seconds
+Reps
+=
+1
+##########################
+# Protocol Configuration #
+##########################
+Custom_Labware_Dir
+=
+"../../../../data/custom_labware"
+Starting_20uL_Tip
+=
+"A8"
+Starting_300uL_Tip
+=
+"A1"
+##################################
+# Creating the Protocol Template #
+##################################
+Protocol_Template
+=
+Heat_Shock_Transformation
+.
+Template
+(
+Protocol
+=
+protocol
+,
+Name
+=
+metadata
+[
+"protocolName"
+],
+Metadata
+=
+metadata
+,
+DNA_Source_Layouts
+=
+DNA_Source_Layouts
+,
+Competent_Cells_Source_Type
+=
+Competent_Cells_Source_Type
+,
+Transformation_Destination_Type
+=
+Transformation_Destination_Type
+,
+Media_Source_Type
+=
+Media_Source_Type
+,
+DNA_Volume_Per_Transformation
+=
+DNA_Per_Transformation
+,
+Competent_Cell_Volume_Per_Transformation
+=
+Competent_Cells_Volume
+,
+Transformation_Final_Volume
+=
+Final_Volume
+,
+Heat_Shock_Time
+=
+Heat_Shock_Time
+,
+Heat_Shock_Temp
+=
+Heat_Shock_Temp
+,
+Media_Aliquot_Volume
+=
+Media_Aliquot_Vol
+,
+Competent_Cells_Aliquot_Volume
+=
+Competent_Cells_Aliquot_Vol
+,
+Wait_Before_Shock
+=
+Wait_Before_Shock
+,
+Replicates
+=
+Reps
+,
+Cooled_Cells_Modules
+=
+Comp_Cells_Modules
+,
+Starting_20uL_Tip
+=
+Starting_20uL_Tip
+,
+Starting_300uL_Tip
+=
+Starting_300uL_Tip
+,
+)
+Protocol_Template
+.
+custom_labware_dir
+=
+Custom_Labware_Dir
+########################
+# Running the Protocol #
+########################
+Protocol_Template
+.
+run
+()
+metadata = {
+    'protocolName': 'Transformation Example',
+    'author': 'Bradley Brown',
+    'author-email': 'b.bradley2@newcastle.ac.uk',
+    'user': '',
+    'user-email': '',
+    'source': 'BiomationScripter Examples - BMS v0.2.0.dev',
+    'apiLevel': '2.11',
+    'robotName': 'RobOT2' # This is the name of the OT2 you plan to run the protocol on
+}
+
+def run(protocol):
+    
+    ####################
+    # Defining the DNA #
+    ####################
+    
+    # Define the DNA names:
+    DNA_Plate_Content = [
+        "Assembly 1",
+        "Assembly 2",
+        "Assembly 3",
+        "Assembly 4",
+        "Assembly 5",
+        "Assembly 6",
+        "Assembly 7",
+        "Assembly 8",
+        "Assembly 9",
+        "Assembly 10",
+        "Assembly 11",
+    ]
+
+    # Then give the well locations for each DNA assembly
+    DNA_Plate_Wells = [
+        "B2",
+        "B3",
+        "B4",
+        "B5",
+        "B6",
+        "B7",
+        "B8",
+        "B9",
+        "B10",
+        "B11",
+        "B12",
+    ]
+
+    # Create the layout object
+    DNA_Plate = BMS.Labware_Layout("DNA Plate", "appliedbiosystemsmicroampoptical_384_wellplate_20ul")
+
+    # And add the DNA assemblies to it
+    DNA_Plate.bulk_add_content(
+        Wells = DNA_Plate_Wells,
+        Reagents = DNA_Plate_Content,
+        Volumes = 20
+    )
+    
+    DNA_Tubes_Wells = [
+        "A1",
+        "A2"
+    ]
+
+    DNA_Tubes_Content = [
+        "Positive",
+        "Negative"
+    ]
+
+    DNA_Tubes = BMS.Labware_Layout("DNA Tubes", "3dprinted_24_tuberack_1500ul")
+
+    DNA_Tubes.bulk_add_content(
+        Wells = DNA_Tubes_Wells,
+        Reagents = DNA_Tubes_Content,
+        Volumes = 10
+    )
+    
+    DNA_Source_Layouts = [DNA_Plate, DNA_Tubes]
+    
+    ##########################
+    # Defining Other Labware #
+    ##########################
+    
+    Competent_Cells_Source_Type = "3dprinted_24_tuberack_1500ul"
+    Media_Source_Type = "3dprinted_15_tuberack_15000ul"
+    Transformation_Destination_Type = "nunclondeltasurface163320_96_wellplate_250ul"
+    
+    Competent_Cells_Aliquot_Vol = 50 # uL
+    Media_Aliquot_Vol = 5000 # uL
+    
+    Comp_Cells_Modules = ["temperature module gen2"]
+    
+    #######################
+    # Protocol Parameters #
+    #######################
+    
+    DNA_Per_Transformation = 3 # uL
+    Competent_Cells_Volume = 20 # uL
+    Final_Volume = 100 # uL
+    Heat_Shock_Time = 30 # Seconds
+    Heat_Shock_Temp = 42 # celcius
+    Wait_Before_Shock = 300 # seconds
+    Reps = 1
+    
+    ##########################
+    # Protocol Configuration #
+    ##########################
+    
+    Custom_Labware_Dir = "../../../../data/custom_labware"
+    Starting_20uL_Tip = "A8"
+    Starting_300uL_Tip = "A1"
+    
+    ##################################
+    # Creating the Protocol Template #
+    ##################################
+    
+    Protocol_Template = Heat_Shock_Transformation.Template(
+        Protocol=protocol,
+        Name=metadata["protocolName"],
+        Metadata=metadata,
+        DNA_Source_Layouts=DNA_Source_Layouts,
+        Competent_Cells_Source_Type=Competent_Cells_Source_Type,
+        Transformation_Destination_Type=Transformation_Destination_Type,
+        Media_Source_Type=Media_Source_Type,
+        DNA_Volume_Per_Transformation=DNA_Per_Transformation,
+        Competent_Cell_Volume_Per_Transformation=Competent_Cells_Volume,
+        Transformation_Final_Volume=Final_Volume,
+        Heat_Shock_Time=Heat_Shock_Time,
+        Heat_Shock_Temp=Heat_Shock_Temp,
+        Media_Aliquot_Volume=Media_Aliquot_Vol,
+        Competent_Cells_Aliquot_Volume=Competent_Cells_Aliquot_Vol,
+        Wait_Before_Shock=Wait_Before_Shock,
+        Replicates=Reps,
+        Cooled_Cells_Modules=Comp_Cells_Modules,
+        Starting_20uL_Tip = Starting_20uL_Tip,
+        Starting_300uL_Tip = Starting_300uL_Tip,
+    )
+    Protocol_Template.custom_labware_dir = Custom_Labware_Dir
+    
+    ########################
+    # Running the Protocol #
+    ########################
+    Protocol_Template.run()
+Simulating the Protocol
+¶
+The protocol can be simulated in one of the two ways described
+here
+. For this example, we'll use the first method. Remember that this simulation code will need to be removed before running on the Opentrons.
+In [14]:
+Copied!
+######################################################################
+# Use this cell if simulating the protocol, otherwise comment it out #
+######################################################################
+##########################################################################################################
+# IMPORTANT - the protocol will not upload to the opentrons if this cell is not commented out or removed #
+##########################################################################################################
+from
+opentrons
+import
+simulate
+as
+OT2
+# This line simulates the protocol
+# Get the correct api version
+protocol
+=
+OT2
+.
+get_protocol_api
+(
+metadata
+[
+"apiLevel"
+])
+# Home the pipetting head
+protocol
+.
+home
+()
+# Call the 'run' function to run the protocol
+t
+=
+run
+(
+protocol
+)
+for
+line
+in
+protocol
+.
+commands
+():
+print
+(
+line
+)
+######################################################################
+# Use this cell if simulating the protocol, otherwise comment it out #
+######################################################################
+
+##########################################################################################################
+# IMPORTANT - the protocol will not upload to the opentrons if this cell is not commented out or removed #
+##########################################################################################################
+
+from opentrons import simulate as OT2 # This line simulates the protocol
+# Get the correct api version
+protocol = OT2.get_protocol_api(metadata["apiLevel"])
+# Home the pipetting head
+protocol.home()
+# Call the 'run' function to run the protocol
+t = run(protocol)
+for line in protocol.commands():
+    print(line)
+C:\Users\bradl\.opentrons\robot_settings.json not found. Loading defaults
+C:\Users\bradl\.opentrons\deck_calibration.json not found. Loading defaults
+Transformation Mapping
+Assembly 1 (B2 of DNA Plate on 5) -> A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Assembly 2 (B3 of DNA Plate on 5) -> B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Assembly 3 (B4 of DNA Plate on 5) -> C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Assembly 4 (B5 of DNA Plate on 5) -> D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Assembly 5 (B6 of DNA Plate on 5) -> E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Assembly 6 (B7 of DNA Plate on 5) -> F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Assembly 7 (B8 of DNA Plate on 5) -> G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Assembly 8 (B9 of DNA Plate on 5) -> H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Assembly 9 (B10 of DNA Plate on 5) -> A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Assembly 10 (B11 of DNA Plate on 5) -> B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Assembly 11 (B12 of DNA Plate on 5) -> C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Positive (A1 of DNA Tubes on 6) -> D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Negative (A2 of DNA Tubes on 6) -> E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Pausing robot operation: This protocol uses 1 20 uL tip boxes
+Pausing robot operation: This protocol uses 1 300 uL tip boxes
+Pausing robot operation: Place DNA Sample Assembly 1 at B2 of DNA Plate on 5
+Pausing robot operation: Place DNA Sample Assembly 2 at B3 of DNA Plate on 5
+Pausing robot operation: Place DNA Sample Assembly 3 at B4 of DNA Plate on 5
+Pausing robot operation: Place DNA Sample Assembly 4 at B5 of DNA Plate on 5
+Pausing robot operation: Place DNA Sample Assembly 5 at B6 of DNA Plate on 5
+Pausing robot operation: Place DNA Sample Assembly 6 at B7 of DNA Plate on 5
+Pausing robot operation: Place DNA Sample Assembly 7 at B8 of DNA Plate on 5
+Pausing robot operation: Place DNA Sample Assembly 8 at B9 of DNA Plate on 5
+Pausing robot operation: Place DNA Sample Assembly 9 at B10 of DNA Plate on 5
+Pausing robot operation: Place DNA Sample Assembly 10 at B11 of DNA Plate on 5
+Pausing robot operation: Place DNA Sample Assembly 11 at B12 of DNA Plate on 5
+Pausing robot operation: Place DNA Sample Positive at A1 of DNA Tubes on 6
+Pausing robot operation: Place DNA Sample Negative at A2 of DNA Tubes on 6
+Pausing robot operation: This protocol uses 1 aliquots of 5000 uL media, located at [A1 of 3dprinted 15 Tube Rack 15000 ÃÂµL on 7]
+Pausing robot operation: This protocol uses 6 aliquots of 50 uL competent cells, located at [A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3, B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3, C1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3, D1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3, A2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3, B2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3]
+Setting Temperature Module temperature to 4.0 Â°C (rounded off to nearest integer)
+Setting Temperature Module temperature to 4.0 Â°C (rounded off to nearest integer)
+Picking up tip from A8 of Opentrons 96 Tip Rack 20 ÂµL on 2
+Moving to A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3
+Mixing 5 times with a volume of 20.0 ul
+Aspirating 20.0 uL from A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 7.56 uL/sec
+Moving to A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 20.0 uL into A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 7.56 uL/sec
+Moving to A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Blowing out at A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Moving to B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3
+Mixing 5 times with a volume of 20.0 ul
+Aspirating 20.0 uL from B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 7.56 uL/sec
+Moving to B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 20.0 uL into B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 7.56 uL/sec
+Moving to B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Blowing out at B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Moving to C1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3
+Mixing 5 times with a volume of 20.0 ul
+Aspirating 20.0 uL from C1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into C1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from C1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into C1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from C1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into C1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from C1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into C1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from C1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into C1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from C1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 7.56 uL/sec
+Moving to C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 20.0 uL into C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 7.56 uL/sec
+Moving to C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Blowing out at C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Moving to D1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3
+Mixing 5 times with a volume of 20.0 ul
+Aspirating 20.0 uL from D1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into D1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from D1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into D1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from D1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into D1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from D1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into D1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from D1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into D1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from D1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 7.56 uL/sec
+Moving to D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 20.0 uL into D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 7.56 uL/sec
+Moving to D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Blowing out at D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Moving to A2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3
+Mixing 5 times with a volume of 20.0 ul
+Aspirating 20.0 uL from A2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into A2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from A2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into A2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from A2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into A2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from A2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into A2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from A2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into A2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from A2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 7.56 uL/sec
+Moving to E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 20.0 uL into E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 7.56 uL/sec
+Moving to E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Blowing out at E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Moving to B2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3
+Mixing 5 times with a volume of 20.0 ul
+Aspirating 20.0 uL from B2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into B2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from B2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into B2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from B2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into B2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from B2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into B2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from B2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into B2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from B2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 7.56 uL/sec
+Moving to F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 20.0 uL into F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 7.56 uL/sec
+Moving to F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Blowing out at F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Moving to A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3
+Mixing 5 times with a volume of 20.0 ul
+Aspirating 20.0 uL from A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 7.56 uL/sec
+Moving to G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 20.0 uL into G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 7.56 uL/sec
+Moving to G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Blowing out at G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Moving to B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3
+Mixing 5 times with a volume of 20.0 ul
+Aspirating 20.0 uL from B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 7.56 uL/sec
+Moving to H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 20.0 uL into H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 7.56 uL/sec
+Moving to H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Blowing out at H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Moving to C1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3
+Mixing 5 times with a volume of 20.0 ul
+Aspirating 20.0 uL from C1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into C1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from C1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into C1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from C1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into C1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from C1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into C1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from C1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into C1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from C1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 7.56 uL/sec
+Moving to A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 20.0 uL into A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 7.56 uL/sec
+Moving to A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Blowing out at A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Moving to D1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3
+Mixing 5 times with a volume of 20.0 ul
+Aspirating 20.0 uL from D1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into D1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from D1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into D1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from D1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into D1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from D1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into D1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from D1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into D1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from D1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 7.56 uL/sec
+Moving to B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 20.0 uL into B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 7.56 uL/sec
+Moving to B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Blowing out at B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Moving to A2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3
+Mixing 5 times with a volume of 20.0 ul
+Aspirating 20.0 uL from A2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into A2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from A2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into A2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from A2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into A2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from A2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into A2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from A2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into A2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from A2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 7.56 uL/sec
+Moving to C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 20.0 uL into C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 7.56 uL/sec
+Moving to C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Blowing out at C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Moving to B2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3
+Mixing 5 times with a volume of 20.0 ul
+Aspirating 20.0 uL from B2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into B2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from B2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into B2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from B2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into B2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from B2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into B2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from B2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 20.0 uL into B2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 20.0 uL from B2 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 7.56 uL/sec
+Moving to D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 20.0 uL into D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 7.56 uL/sec
+Moving to D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Blowing out at D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Moving to A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3
+Mixing 5 times with a volume of 10.0 ul
+Aspirating 10.0 uL from A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 10.0 uL into A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 10.0 uL from A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 10.0 uL into A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 10.0 uL from A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 10.0 uL into A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 10.0 uL from A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 10.0 uL into A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 10.0 uL from A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 10.0 uL into A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 10.0 uL from A1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 7.56 uL/sec
+Moving to E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 10.0 uL into E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 7.56 uL/sec
+Moving to E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Blowing out at E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Moving to B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3
+Mixing 5 times with a volume of 10.0 ul
+Aspirating 10.0 uL from B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 10.0 uL into B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 10.0 uL from B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 10.0 uL into B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 10.0 uL from B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 10.0 uL into B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 10.0 uL from B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 10.0 uL into B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 10.0 uL from B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Dispensing 10.0 uL into B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 11.34 uL/sec
+Aspirating 10.0 uL from B1 of 3dprinted 24 Tube Rack 1500 ÃÂµL on Temperature Module GEN2 on 3 at 7.56 uL/sec
+Moving to E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 10.0 uL into E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 7.56 uL/sec
+Moving to E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Blowing out at E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Dropping tip into A1 of Opentrons Fixed Trash on 12
+Picking up tip from B8 of Opentrons 96 Tip Rack 20 ÂµL on 2
+Moving to B2 of DNA Plate on 5
+Aspirating 3.0 uL from B2 of DNA Plate on 5 at 7.56 uL/sec
+Moving to A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 3.0 uL into A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 7.56 uL/sec
+Mixing 10 times with a volume of 3.0 ul
+Aspirating 3.0 uL from A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Moving to A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Blowing out at A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Dropping tip into A1 of Opentrons Fixed Trash on 12
+Picking up tip from C8 of Opentrons 96 Tip Rack 20 ÂµL on 2
+Moving to B3 of DNA Plate on 5
+Aspirating 3.0 uL from B3 of DNA Plate on 5 at 7.56 uL/sec
+Moving to B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 3.0 uL into B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 7.56 uL/sec
+Mixing 10 times with a volume of 3.0 ul
+Aspirating 3.0 uL from B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Moving to B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Blowing out at B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Dropping tip into A1 of Opentrons Fixed Trash on 12
+Picking up tip from D8 of Opentrons 96 Tip Rack 20 ÂµL on 2
+Moving to B4 of DNA Plate on 5
+Aspirating 3.0 uL from B4 of DNA Plate on 5 at 7.56 uL/sec
+Moving to C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 3.0 uL into C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 7.56 uL/sec
+Mixing 10 times with a volume of 3.0 ul
+Aspirating 3.0 uL from C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Moving to C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Blowing out at C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Dropping tip into A1 of Opentrons Fixed Trash on 12
+Picking up tip from E8 of Opentrons 96 Tip Rack 20 ÂµL on 2
+Moving to B5 of DNA Plate on 5
+Aspirating 3.0 uL from B5 of DNA Plate on 5 at 7.56 uL/sec
+Moving to D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 3.0 uL into D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 7.56 uL/sec
+Mixing 10 times with a volume of 3.0 ul
+Aspirating 3.0 uL from D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Moving to D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Blowing out at D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Dropping tip into A1 of Opentrons Fixed Trash on 12
+Picking up tip from F8 of Opentrons 96 Tip Rack 20 ÂµL on 2
+Moving to B6 of DNA Plate on 5
+Aspirating 3.0 uL from B6 of DNA Plate on 5 at 7.56 uL/sec
+Moving to E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 3.0 uL into E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 7.56 uL/sec
+Mixing 10 times with a volume of 3.0 ul
+Aspirating 3.0 uL from E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Moving to E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Blowing out at E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Dropping tip into A1 of Opentrons Fixed Trash on 12
+Picking up tip from G8 of Opentrons 96 Tip Rack 20 ÂµL on 2
+Moving to B7 of DNA Plate on 5
+Aspirating 3.0 uL from B7 of DNA Plate on 5 at 7.56 uL/sec
+Moving to F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 3.0 uL into F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 7.56 uL/sec
+Mixing 10 times with a volume of 3.0 ul
+Aspirating 3.0 uL from F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Moving to F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Blowing out at F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Dropping tip into A1 of Opentrons Fixed Trash on 12
+Picking up tip from H8 of Opentrons 96 Tip Rack 20 ÂµL on 2
+Moving to B8 of DNA Plate on 5
+Aspirating 3.0 uL from B8 of DNA Plate on 5 at 7.56 uL/sec
+Moving to G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 3.0 uL into G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 7.56 uL/sec
+Mixing 10 times with a volume of 3.0 ul
+Aspirating 3.0 uL from G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Moving to G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Blowing out at G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Dropping tip into A1 of Opentrons Fixed Trash on 12
+Picking up tip from A9 of Opentrons 96 Tip Rack 20 ÂµL on 2
+Moving to B9 of DNA Plate on 5
+Aspirating 3.0 uL from B9 of DNA Plate on 5 at 7.56 uL/sec
+Moving to H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 3.0 uL into H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 7.56 uL/sec
+Mixing 10 times with a volume of 3.0 ul
+Aspirating 3.0 uL from H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Moving to H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Blowing out at H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Dropping tip into A1 of Opentrons Fixed Trash on 12
+Picking up tip from B9 of Opentrons 96 Tip Rack 20 ÂµL on 2
+Moving to B10 of DNA Plate on 5
+Aspirating 3.0 uL from B10 of DNA Plate on 5 at 7.56 uL/sec
+Moving to A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 3.0 uL into A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 7.56 uL/sec
+Mixing 10 times with a volume of 3.0 ul
+Aspirating 3.0 uL from A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Moving to A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Blowing out at A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Dropping tip into A1 of Opentrons Fixed Trash on 12
+Picking up tip from C9 of Opentrons 96 Tip Rack 20 ÂµL on 2
+Moving to B11 of DNA Plate on 5
+Aspirating 3.0 uL from B11 of DNA Plate on 5 at 7.56 uL/sec
+Moving to B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 3.0 uL into B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 7.56 uL/sec
+Mixing 10 times with a volume of 3.0 ul
+Aspirating 3.0 uL from B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Moving to B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Blowing out at B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Dropping tip into A1 of Opentrons Fixed Trash on 12
+Picking up tip from D9 of Opentrons 96 Tip Rack 20 ÂµL on 2
+Moving to B12 of DNA Plate on 5
+Aspirating 3.0 uL from B12 of DNA Plate on 5 at 7.56 uL/sec
+Moving to C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 3.0 uL into C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 7.56 uL/sec
+Mixing 10 times with a volume of 3.0 ul
+Aspirating 3.0 uL from C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Moving to C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Blowing out at C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Dropping tip into A1 of Opentrons Fixed Trash on 12
+Picking up tip from E9 of Opentrons 96 Tip Rack 20 ÂµL on 2
+Moving to A1 of DNA Tubes on 6
+Aspirating 3.0 uL from A1 of DNA Tubes on 6 at 7.56 uL/sec
+Moving to D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 3.0 uL into D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 7.56 uL/sec
+Mixing 10 times with a volume of 3.0 ul
+Aspirating 3.0 uL from D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Moving to D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Blowing out at D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Dropping tip into A1 of Opentrons Fixed Trash on 12
+Picking up tip from F9 of Opentrons 96 Tip Rack 20 ÂµL on 2
+Moving to A2 of DNA Tubes on 6
+Aspirating 3.0 uL from A2 of DNA Tubes on 6 at 7.56 uL/sec
+Moving to E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 3.0 uL into E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 7.56 uL/sec
+Mixing 10 times with a volume of 3.0 ul
+Aspirating 3.0 uL from E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Aspirating 3.0 uL from E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Dispensing 3.0 uL into E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 15.12 uL/sec
+Moving to E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Blowing out at E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Dropping tip into A1 of Opentrons Fixed Trash on 12
+Delaying for 5 minutes and 0.0 seconds
+Setting Temperature Module temperature to 42.0 Â°C (rounded off to nearest integer)
+Delaying for 0 minutes and 30.0 seconds
+Setting Temperature Module temperature to 4.0 Â°C (rounded off to nearest integer)
+Delaying for 2 minutes and 0.0 seconds
+Pausing robot operation: Open up LB tubes
+Picking up tip from A1 of Opentrons 96 Tip Rack 300 ÂµL on 4
+Moving to A1 of 3dprinted 15 Tube Rack 15000 ÃÂµL on 7
+Aspirating 77.0 uL from A1 of 3dprinted 15 Tube Rack 15000 ÃÂµL on 7 at 92.86 uL/sec
+Moving to A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 77.0 uL into A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 92.86 uL/sec
+Blowing out at A1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Dropping tip into A1 of Opentrons Fixed Trash on 12
+Picking up tip from B1 of Opentrons 96 Tip Rack 300 ÂµL on 4
+Moving to A1 of 3dprinted 15 Tube Rack 15000 ÃÂµL on 7
+Aspirating 77.0 uL from A1 of 3dprinted 15 Tube Rack 15000 ÃÂµL on 7 at 92.86 uL/sec
+Moving to B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 77.0 uL into B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 92.86 uL/sec
+Blowing out at B1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Dropping tip into A1 of Opentrons Fixed Trash on 12
+Picking up tip from C1 of Opentrons 96 Tip Rack 300 ÂµL on 4
+Moving to A1 of 3dprinted 15 Tube Rack 15000 ÃÂµL on 7
+Aspirating 77.0 uL from A1 of 3dprinted 15 Tube Rack 15000 ÃÂµL on 7 at 92.86 uL/sec
+Moving to C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 77.0 uL into C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 92.86 uL/sec
+Blowing out at C1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Dropping tip into A1 of Opentrons Fixed Trash on 12
+Picking up tip from D1 of Opentrons 96 Tip Rack 300 ÂµL on 4
+Moving to A1 of 3dprinted 15 Tube Rack 15000 ÃÂµL on 7
+Aspirating 77.0 uL from A1 of 3dprinted 15 Tube Rack 15000 ÃÂµL on 7 at 92.86 uL/sec
+Moving to D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 77.0 uL into D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 92.86 uL/sec
+Blowing out at D1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Dropping tip into A1 of Opentrons Fixed Trash on 12
+Picking up tip from E1 of Opentrons 96 Tip Rack 300 ÂµL on 4
+Moving to A1 of 3dprinted 15 Tube Rack 15000 ÃÂµL on 7
+Aspirating 77.0 uL from A1 of 3dprinted 15 Tube Rack 15000 ÃÂµL on 7 at 92.86 uL/sec
+Moving to E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 77.0 uL into E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 92.86 uL/sec
+Blowing out at E1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Dropping tip into A1 of Opentrons Fixed Trash on 12
+Picking up tip from F1 of Opentrons 96 Tip Rack 300 ÂµL on 4
+Moving to A1 of 3dprinted 15 Tube Rack 15000 ÃÂµL on 7
+Aspirating 77.0 uL from A1 of 3dprinted 15 Tube Rack 15000 ÃÂµL on 7 at 92.86 uL/sec
+Moving to F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 77.0 uL into F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 92.86 uL/sec
+Blowing out at F1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Dropping tip into A1 of Opentrons Fixed Trash on 12
+Picking up tip from G1 of Opentrons 96 Tip Rack 300 ÂµL on 4
+Moving to A1 of 3dprinted 15 Tube Rack 15000 ÃÂµL on 7
+Aspirating 77.0 uL from A1 of 3dprinted 15 Tube Rack 15000 ÃÂµL on 7 at 92.86 uL/sec
+Moving to G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 77.0 uL into G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 92.86 uL/sec
+Blowing out at G1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Dropping tip into A1 of Opentrons Fixed Trash on 12
+Picking up tip from H1 of Opentrons 96 Tip Rack 300 ÂµL on 4
+Moving to A1 of 3dprinted 15 Tube Rack 15000 ÃÂµL on 7
+Aspirating 77.0 uL from A1 of 3dprinted 15 Tube Rack 15000 ÃÂµL on 7 at 92.86 uL/sec
+Moving to H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 77.0 uL into H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 92.86 uL/sec
+Blowing out at H1 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Dropping tip into A1 of Opentrons Fixed Trash on 12
+Picking up tip from A2 of Opentrons 96 Tip Rack 300 ÂµL on 4
+Moving to A1 of 3dprinted 15 Tube Rack 15000 ÃÂµL on 7
+Aspirating 77.0 uL from A1 of 3dprinted 15 Tube Rack 15000 ÃÂµL on 7 at 92.86 uL/sec
+Moving to A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 77.0 uL into A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 92.86 uL/sec
+Blowing out at A2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Dropping tip into A1 of Opentrons Fixed Trash on 12
+Picking up tip from B2 of Opentrons 96 Tip Rack 300 ÂµL on 4
+Moving to A1 of 3dprinted 15 Tube Rack 15000 ÃÂµL on 7
+Aspirating 77.0 uL from A1 of 3dprinted 15 Tube Rack 15000 ÃÂµL on 7 at 92.86 uL/sec
+Moving to B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 77.0 uL into B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 92.86 uL/sec
+Blowing out at B2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Dropping tip into A1 of Opentrons Fixed Trash on 12
+Picking up tip from C2 of Opentrons 96 Tip Rack 300 ÂµL on 4
+Moving to A1 of 3dprinted 15 Tube Rack 15000 ÃÂµL on 7
+Aspirating 77.0 uL from A1 of 3dprinted 15 Tube Rack 15000 ÃÂµL on 7 at 92.86 uL/sec
+Moving to C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 77.0 uL into C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 92.86 uL/sec
+Blowing out at C2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Dropping tip into A1 of Opentrons Fixed Trash on 12
+Picking up tip from D2 of Opentrons 96 Tip Rack 300 ÂµL on 4
+Moving to A1 of 3dprinted 15 Tube Rack 15000 ÃÂµL on 7
+Aspirating 77.0 uL from A1 of 3dprinted 15 Tube Rack 15000 ÃÂµL on 7 at 92.86 uL/sec
+Moving to D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 77.0 uL into D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 92.86 uL/sec
+Blowing out at D2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Dropping tip into A1 of Opentrons Fixed Trash on 12
+Picking up tip from E2 of Opentrons 96 Tip Rack 300 ÂµL on 4
+Moving to A1 of 3dprinted 15 Tube Rack 15000 ÃÂµL on 7
+Aspirating 77.0 uL from A1 of 3dprinted 15 Tube Rack 15000 ÃÂµL on 7 at 92.86 uL/sec
+Moving to E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Dispensing 77.0 uL into E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1 at 92.86 uL/sec
+Blowing out at E2 of Nunclon Delta Surface 163320 96 Well Plate 250 ÃÂµL on Temperature Module GEN2 on 1
+Touching tip
+Dropping tip into A1 of Opentrons Fixed Trash on 12
+In [ ]:
+Copied!

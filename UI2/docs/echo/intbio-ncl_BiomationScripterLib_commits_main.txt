@@ -1,0 +1,211 @@
+intbio-ncl
+/
+BiomationScripterLib
+Public
+Notifications
+You must be signed in to change notification settings
+Fork
+0
+Star
+4
+Branch selector
+main
+User selector
+All users
+All time
+Commit History
+Commits on Oct 13, 2025
+Added technical note
+Brad0440
+authored
+2d6b082
+Copy full SHA for 2d6b082
+Commits on Sep 2, 2023
+Update index.md
+Brad0440
+authored
+2aee6ba
+Copy full SHA for 2aee6ba
+Update setup.py
+Brad0440
+authored
+71cbc8e
+Copy full SHA for 71cbc8e
+Commits on Apr 16, 2023
+Merge pull request #53 from intbio-ncl/platelayoutdocs
+Show description for cdd4bb7
+Brad0440
+authored
+cdd4bb7
+Copy full SHA for cdd4bb7
+Commits on Apr 5, 2023
+Update BiomationScripter.md
+Show description for 4cba117
+davidcmarkham
+authored
+4cba117
+Copy full SHA for 4cba117
+Update BiomationScripter.md
+Show description for 5223f9c
+davidcmarkham
+authored
+5223f9c
+Copy full SHA for 5223f9c
+Update Standard_Layout_File.md
+davidcmarkham
+authored
+eb2bcff
+Copy full SHA for eb2bcff
+Add files via upload
+davidcmarkham
+authored
+962890f
+Copy full SHA for 962890f
+Create b
+davidcmarkham
+authored
+ad49139
+Copy full SHA for ad49139
+Add files via upload
+davidcmarkham
+authored
+8377a54
+Copy full SHA for 8377a54
+Update Standard_Layout_File.md
+davidcmarkham
+authored
+a5fc510
+Copy full SHA for a5fc510
+Commits on Apr 3, 2023
+Update versioning for v1.0.0
+Bradley-CPI
+committed
+055f0b7
+Copy full SHA for 055f0b7
+Commits on Mar 26, 2023
+Updated Graphical Abstract
+Brad0440
+committed
+3b9c523
+Copy full SHA for 3b9c523
+Added new logo
+Brad0440
+committed
+49b82a7
+Copy full SHA for 49b82a7
+Commits on Mar 11, 2023
+Added documentation for the iGEM calibration template
+Brad0440
+committed
+d6f5519
+Copy full SHA for d6f5519
+Fixed broken test
+Brad0440
+committed
+3c4bc83
+Copy full SHA for 3c4bc83
+Fixed bug when calculating volumes
+Brad0440
+committed
+5f75170
+Copy full SHA for 5f75170
+Fixed typos and updated docs
+Brad0440
+committed
+b29b55b
+Copy full SHA for b29b55b
+Commits on Sep 17, 2022
+Add `group_locations_by_content`
+Brad0440
+committed
+34a2977
+Copy full SHA for 34a2977
+Renamed `Mastermix_Maker` and added bug fixes
+Brad0440
+committed
+9b93cd8
+Copy full SHA for 9b93cd8
+Commits on Aug 26, 2022
+Update versions to 0.2.2
+Brad0440
+committed
+4e7b2c0
+Copy full SHA for 4e7b2c0
+Commits on Aug 25, 2022
+Removed references to `Literal`
+Show description for 6f4b5ea
+Brad0440
+committed
+6f4b5ea
+Copy full SHA for 6f4b5ea
+Commits on Aug 24, 2022
+Fix broken link
+Brad0440
+committed
+f58b3f8
+Copy full SHA for f58b3f8
+Added documentation for `bulk_add_content`
+Brad0440
+committed
+aafb38c
+Copy full SHA for aafb38c
+Updated installation instructions
+Brad0440
+committed
+90ff445
+Copy full SHA for 90ff445
+Move description location
+Brad0440
+committed
+36f3e1a
+Copy full SHA for 36f3e1a
+Create description.md
+Brad0440
+committed
+e263b17
+Copy full SHA for e263b17
+Re-added `serial_dilution_volumes`
+Brad0440
+committed
+a1f8d07
+Copy full SHA for a1f8d07
+Commits on Aug 23, 2022
+Docs update
+Brad0440
+committed
+b2e590e
+Copy full SHA for b2e590e
+Added `OTProto_Templates` walkthrough
+Brad0440
+committed
+9611394
+Copy full SHA for 9611394
+Update Primer_Mixing.py
+Brad0440
+committed
+f3a8a81
+Copy full SHA for f3a8a81
+Add Custom_Labware_Dir as argument to OTProto_Template
+Brad0440
+committed
+ef3e4c0
+Copy full SHA for ef3e4c0
+Added new BMS functions
+Brad0440
+committed
+08356bf
+Copy full SHA for 08356bf
+Fixed some broken docs links
+Brad0440
+committed
+091e9eb
+Copy full SHA for 091e9eb
+Commits on Aug 20, 2022
+Docs update
+Brad0440
+committed
+dd418fb
+Copy full SHA for dd418fb
+Pagination
+Previous
+Next

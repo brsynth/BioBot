@@ -1,0 +1,112 @@
+PyLabRobot
+/
+pylabrobot
+Public
+Notifications
+You must be signed in to change notification settings
+Fork
+141
+Star
+410
+Files
+Expand file tree
+main
+/
+pylabrobot
+/
+Copy path
+Directory actions
+More options
+More options
+Directory actions
+More options
+More options
+Latest commit
+History
+History
+History
+main
+/
+pylabrobot
+/
+Top
+Folders and files
+Name
+Name
+Last commit message
+Last commit date
+parent directory
+..
+arms
+arms
+audio
+audio
+barcode_scanners
+barcode_scanners
+centrifuge
+centrifuge
+config
+config
+heating_shaking
+heating_shaking
+io
+io
+liquid_handling
+liquid_handling
+machines
+machines
+microscopes/
+molecular_devices/
+pico
+microscopes/
+molecular_devices/
+pico
+only_fans
+only_fans
+peeling
+peeling
+plate_reading
+plate_reading
+plate_washing
+plate_washing
+powder_dispensing
+powder_dispensing
+pumps
+pumps
+resources
+resources
+scales
+scales
+sealing
+sealing
+shaking
+shaking
+storage
+storage
+temperature_controlling
+temperature_controlling
+testing/
+test_data
+testing/
+test_data
+tests
+tests
+thermocycling
+thermocycling
+tilting
+tilting
+utils
+utils
+visualizer
+visualizer
+__init__.py
+__init__.py
+__version__.py
+__version__.py
+conftest.py
+conftest.py
+serializer.py
+serializer.py
+version.txt
+version.txt
+View all files

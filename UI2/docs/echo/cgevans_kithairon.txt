@@ -1,0 +1,99 @@
+cgevans
+/
+kithairon
+Public
+Notifications
+You must be signed in to change notification settings
+Fork
+0
+Star
+1
+main
+Branches
+Tags
+Go to file
+Code
+Open more actions menu
+Folders and files
+Name
+Name
+Last commit message
+Last commit date
+Latest commit
+History
+55 Commits
+55 Commits
+.github/
+workflows
+.github/
+workflows
+docs
+docs
+src/
+kithairon
+src/
+kithairon
+tests
+tests
+.gitignore
+.gitignore
+.isort.cfg
+.isort.cfg
+.pre-commit-config.yaml
+.pre-commit-config.yaml
+.readthedocs.yml
+.readthedocs.yml
+LICENCE.txt
+LICENCE.txt
+README.md
+README.md
+pyproject.toml
+pyproject.toml
+View all files
+Repository files navigation
+kithairon: a package Python package for the Echo Liquid Handler
+This is the beginnings of a library to assist in using the Labcyte / Beckman Coulter Echo acoustic liquid handler.  If you are reading this readme in this state, then please realize that the library is currently in a likely unusably early state of development.
+About
+Python library for the Echo liquid handler
+Resources
+Readme
+License
+EUPL-1.2 license
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Activity
+Stars
+1
+star
+Watchers
+1
+watching
+Forks
+0
+forks
+Report repository
+Releases
+1
+0.2.0
+Latest
+Dec 10, 2024
+Packages
+0
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Contributors
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Languages
+Python
+100.0%

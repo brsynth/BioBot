@@ -1,0 +1,135 @@
+Pinned
+Loading
+pylabrobot
+pylabrobot
+Public
+interactive & hardware agnostic SDK for lab automation
+Python
+410
+141
+Repositories
+Loading
+Type
+All
+Public
+Sources
+Forks
+Archived
+Mirrors
+Templates
+Language
+All
+HTML
+Jupyter Notebook
+Python
+Sort
+Last updated
+Name
+Stars
+Showing 6 of 6 repositories
+pylabrobot
+Public
+interactive & hardware agnostic SDK for lab automation
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+PyLabRobot/pylabrobot’s past year of commit activity
+Python
+410
+MIT
+141
+45
+(4 issues need help)
+24
+Updated
+Mar 25, 2026
+slas_2026_demos
+Public
+PyLabRobot demos for SLAS 2026 conference
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+PyLabRobot/slas_2026_demos’s past year of commit activity
+Jupyter Notebook
+0
+Apache-2.0
+0
+0
+0
+Updated
+Feb 8, 2026
+resource-locator-program
+Public
+Utility program to find labware positions
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+PyLabRobot/resource-locator-program’s past year of commit activity
+Python
+6
+MIT
+3
+0
+0
+Updated
+Nov 9, 2024
+plr-sila-bridge
+Public
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+PyLabRobot/plr-sila-bridge’s past year of commit activity
+Python
+0
+MIT
+0
+0
+0
+Updated
+Aug 14, 2024
+demo
+Public
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+PyLabRobot/demo’s past year of commit activity
+Python
+0
+GPL-3.0
+0
+0
+0
+Updated
+Apr 24, 2023
+pylabrobot.org
+Public
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+PyLabRobot/pylabrobot.org’s past year of commit activity
+HTML
+0
+0
+0
+0
+Updated
+Jan 16, 2023
+People
+Top languages
+Loading…
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Most used topics
+Loading…
+Uh oh!
+There was an error while loading.
+Please reload this page
+.

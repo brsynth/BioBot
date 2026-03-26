@@ -1,0 +1,95 @@
+intbio-ncl
+/
+BiomationScripterLib
+Public
+Notifications
+You must be signed in to change notification settings
+Fork
+0
+Star
+4
+Files
+Expand file tree
+main
+/
+.readthedocs.yaml
+Copy path
+Blame
+More file actions
+Blame
+More file actions
+Latest commit
+History
+History
+History
+19 lines (15 loc) · 366 Bytes
+main
+/
+.readthedocs.yaml
+Top
+File metadata and controls
+Code
+Blame
+19 lines (15 loc) · 366 Bytes
+Raw
+Copy raw file
+Download raw file
+Open symbols panel
+Edit and raw actions
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+#
+.readthedocs.yaml
+#
+Read the Docs configuration file
+#
+See https://docs.readthedocs.io/en/stable/config-file/v2.html for details
+#
+Required
+version
+:
+2
+#
+Set the version of Python and other tools you might need
+build
+:
+os
+:
+ubuntu-20.04
+tools
+:
+python
+:
+"
+3.9
+"
+mkdocs
+:
+configuration
+:
+mkdocs.yml
+python
+:
+install
+:
+-
+requirements
+:
+docs/requirements.txt

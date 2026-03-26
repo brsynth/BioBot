@@ -1,0 +1,46 @@
+cgevans
+/
+kithairon
+Public
+Notifications
+You must be signed in to change notification settings
+Fork
+0
+Star
+1
+Files
+Expand file tree
+main
+/
+.isort.cfg
+Copy path
+Blame
+More file actions
+Blame
+More file actions
+Latest commit
+History
+History
+History
+3 lines (3 loc) · 57 Bytes
+main
+/
+.isort.cfg
+Top
+File metadata and controls
+Code
+Blame
+3 lines (3 loc) · 57 Bytes
+Raw
+Copy raw file
+Download raw file
+Open symbols panel
+Edit and raw actions
+1
+2
+3
+[settings]
+profile
+= black
+known_first_party
+= kithairon
