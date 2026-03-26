@@ -210,7 +210,7 @@ def index():
         session.pop("user", None)
         return redirect("/login")
 
-    return render_template("index.html", user=user)
+    return render_template("index.html", user=user, version=__version__)
 
 
 @app.route("/chat", methods=["POST"])
