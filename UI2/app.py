@@ -1,3 +1,5 @@
+__version__ = "1.0.0"
+
 from flask import Flask, request, jsonify, render_template, redirect, url_for, session, flash, Response, stream_with_context
 import uuid
 import time
