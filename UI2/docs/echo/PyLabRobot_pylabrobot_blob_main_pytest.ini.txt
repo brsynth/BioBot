@@ -1,0 +1,54 @@
+PyLabRobot
+/
+pylabrobot
+Public
+Notifications
+You must be signed in to change notification settings
+Fork
+141
+Star
+410
+Files
+Expand file tree
+main
+/
+pytest.ini
+Copy path
+Blame
+More file actions
+Blame
+More file actions
+Latest commit
+History
+History
+History
+6 lines (4 loc) · 118 Bytes
+main
+/
+pytest.ini
+Top
+File metadata and controls
+Code
+Blame
+6 lines (4 loc) · 118 Bytes
+Raw
+Copy raw file
+Download raw file
+Open symbols panel
+Edit and raw actions
+1
+2
+3
+4
+5
+6
+[pytest]
+python_files
+= *_tests.py
+markers
+= hardware: tests requiring connected devices
+addopts
+= -m
+"
+not hardware
+"

@@ -1143,3 +1143,13 @@ button.copy-btn:hover {
   font-weight: 600;
   color: var(--text-primary);
 }
+
+/* ========================================
+   VERSION'S NUMBER
+   ======================================== */
+.version-tag {
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.4);
+  letter-spacing: 0.5px;
+  margin-top: 4px;
+}

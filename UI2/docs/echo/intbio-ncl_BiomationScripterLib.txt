@@ -1,0 +1,155 @@
+intbio-ncl
+/
+BiomationScripterLib
+Public
+Notifications
+You must be signed in to change notification settings
+Fork
+0
+Star
+4
+main
+Branches
+Tags
+Go to file
+Code
+Open more actions menu
+Folders and files
+Name
+Name
+Last commit message
+Last commit date
+Latest commit
+History
+460 Commits
+460 Commits
+.github/
+workflows
+.github/
+workflows
+BiomationScripter
+BiomationScripter
+data
+data
+docs
+docs
+tests
+tests
+.gitignore
+.gitignore
+.readthedocs.yaml
+.readthedocs.yaml
+LICENSE.md
+LICENSE.md
+Methods.pdf
+Methods.pdf
+README.md
+README.md
+Supplementary Figures.pdf
+Supplementary Figures.pdf
+Technical Note - BiomationScripter.pdf
+Technical Note - BiomationScripter.pdf
+description.md
+description.md
+mkdocs.yml
+mkdocs.yml
+setup.py
+setup.py
+View all files
+Repository files navigation
+Home
+|
+Getting Started
+|
+Generic Tools
+|
+EchoProto
+|
+EchoProto Templates
+|
+OTProto
+|
+OTProto Templates
+BiomationScripter
+This is a python package containing a set of tool to help with writing automation protocols for various liquid handling robots. There are also a set of generic tools which may help with writing protocols for multiple automation equipment
+ReadTheDocs
+for the latest version.
+Installation
+To install the latest release, install with pip:
+pip install biomationscripter
+To get the development code, clone
+the repository
+in to your working area, and then choose one of the options below:
+A. Run the following command to install the python package on your machine:
+`pip install git+https://github.com/intbio-ncl/BiomationScripter.git`
+B.
+cd
+into the directory you just cloned, and run the following command to install the python package on your machine:
+`python setup.py install`
+Getting Started
+https://biomationscripterlib.readthedocs.io/en/latest/Getting-Started
+BiomationScripter - Generic Tools
+https://biomationscripterlib.readthedocs.io/en/latest/BiomationScripter
+EchoProto
+https://biomationscripterlib.readthedocs.io/en/latest/EchoProto
+https://biomationscripterlib.readthedocs.io/en/latest/EchoProto_Templates
+OTProto
+https://biomationscripterlib.readthedocs.io/en/latest/OTProto
+https://biomationscripterlib.readthedocs.io/en/latest/OTProto_Templates
+About
+A Python library to assist with scripting bio-automation protocols
+Topics
+synthetic-biology
+lab-automation
+molecular-biology
+laboratory-automation
+dna-assembly
+liquid-handling
+opentrons
+liquid-handling-robot
+Resources
+Readme
+License
+MIT license
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Activity
+Custom properties
+Stars
+4
+stars
+Watchers
+2
+watching
+Forks
+0
+forks
+Report repository
+Releases
+5
+v1.0.0
+Latest
+Sep 2, 2023
++ 4 releases
+Packages
+0
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Contributors
+Uh oh!
+There was an error while loading.
+Please reload this page
+.
+Languages
+Python
+64.6%
+Jupyter Notebook
+35.4%

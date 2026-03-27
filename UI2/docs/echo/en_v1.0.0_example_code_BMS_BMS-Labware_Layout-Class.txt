@@ -1,0 +1,1044 @@
+BMS.Labware_Layout
+Class
+¶
+The
+BMS.Labware_Layout
+class is intended to act as a universal method of capturing information about a piece of labware in BiomationScripter. This information includes the labware's type, the human-readable name of the labware, and details of any content in the wells of the labware. Depending on the context, the content of a
+Labware_Layout
+object could capture what is stored in source labware, or what is intended to be added into a destination labware.
+Creating the
+Labware_Layout
+¶
+First, the BMS generic tools module is imported as BMS
+In [1]:
+Copied!
+import
+BiomationScripter
+as
+BMS
+import BiomationScripter as BMS
+Next, the initial information for the source plate is defined
+In [2]:
+Copied!
+# The name of the labware layout is a string
+Source_Labware_Name
+=
+"Source Plate"
+## The labware type is also a string
+## The labware type can be anything, but the more information provided, the better
+Source_Labware_Type
+=
+"Greiner 96-well 2mL Masterblock (780270)"
+# The name of the labware layout is a string
+Source_Labware_Name = "Source Plate"
+## The labware type is also a string
+## The labware type can be anything, but the more information provided, the better
+Source_Labware_Type = "Greiner 96-well 2mL Masterblock (780270)"
+The Labware_Layout object can now be created using the information from above
+In [3]:
+Copied!
+Source_Labware_Layout
+=
+BMS
+.
+Labware_Layout
+(
+Source_Labware_Name
+,
+Source_Labware_Type
+)
+Source_Labware_Layout = BMS.Labware_Layout(Source_Labware_Name, Source_Labware_Type)
+The
+Source_Labware_Layout
+variable now points to a
+BMS.Labware_Layout
+object which has the name and type defined above
+However, other information is still missing, such as the number of columns and rows the labware has.
+Defining the labware layout format
+¶
+The
+define_format()
+method can be used to capture the number rows and columns the source labware posses. This information can help with downstream scripting, where the number of rows and columns can be used to automatically add content to the wells, however in other cases it may not be necessary; the coder should determine this on a case-by-case basis.
+In this case, the format is defined using the code below:
+In [4]:
+Copied!
+Source_Labware_Layout
+.
+define_format
+(
+Rows
+=
+8
+,
+Columns
+=
+12
+)
+Source_Labware_Layout.define_format(
+                          Rows = 8,
+                          Columns = 12
+)
+Retrieving labware layout format information
+¶
+Once the labware layout format is defined, a number of other
+BMS.Labware_Layout
+methods can be used.
+The
+get_format()
+method can be used to return the number of rows and columns as a
+tuple
+of
+integers
+:
+In [5]:
+Copied!
+Source_Labware_Layout
+.
+get_format
+()
+Source_Labware_Layout.get_format()
+Out[5]:
+(8, 12)
+The
+get_well_range()
+method can be used in a number of ways to get well ids as a list
+In [6]:
+Copied!
+# Without any arguments, all wells are returned:
+Source_Labware_Layout
+.
+get_well_range
+()
+# Without any arguments, all wells are returned:
+Source_Labware_Layout.get_well_range()
+Out[6]:
+['A1',
+ 'A2',
+ 'A3',
+ 'A4',
+ 'A5',
+ 'A6',
+ 'A7',
+ 'A8',
+ 'A9',
+ 'A10',
+ 'A11',
+ 'A12',
+ 'B1',
+ 'B2',
+ 'B3',
+ 'B4',
+ 'B5',
+ 'B6',
+ 'B7',
+ 'B8',
+ 'B9',
+ 'B10',
+ 'B11',
+ 'B12',
+ 'C1',
+ 'C2',
+ 'C3',
+ 'C4',
+ 'C5',
+ 'C6',
+ 'C7',
+ 'C8',
+ 'C9',
+ 'C10',
+ 'C11',
+ 'C12',
+ 'D1',
+ 'D2',
+ 'D3',
+ 'D4',
+ 'D5',
+ 'D6',
+ 'D7',
+ 'D8',
+ 'D9',
+ 'D10',
+ 'D11',
+ 'D12',
+ 'E1',
+ 'E2',
+ 'E3',
+ 'E4',
+ 'E5',
+ 'E6',
+ 'E7',
+ 'E8',
+ 'E9',
+ 'E10',
+ 'E11',
+ 'E12',
+ 'F1',
+ 'F2',
+ 'F3',
+ 'F4',
+ 'F5',
+ 'F6',
+ 'F7',
+ 'F8',
+ 'F9',
+ 'F10',
+ 'F11',
+ 'F12',
+ 'G1',
+ 'G2',
+ 'G3',
+ 'G4',
+ 'G5',
+ 'G6',
+ 'G7',
+ 'G8',
+ 'G9',
+ 'G10',
+ 'G11',
+ 'G12',
+ 'H1',
+ 'H2',
+ 'H3',
+ 'H4',
+ 'H5',
+ 'H6',
+ 'H7',
+ 'H8',
+ 'H9',
+ 'H10',
+ 'H11',
+ 'H12']
+In [7]:
+Copied!
+# The Use_Outer_wells argument can be used to exclude the outer wells of a labware - by default they are included:
+Source_Labware_Layout
+.
+get_well_range
+(
+Use_Outer_Wells
+=
+False
+)
+# The Use_Outer_wells argument can be used to exclude the outer wells of a labware - by default they are included:
+Source_Labware_Layout.get_well_range(
+                                Use_Outer_Wells = False
+)
+Out[7]:
+['B2',
+ 'B3',
+ 'B4',
+ 'B5',
+ 'B6',
+ 'B7',
+ 'B8',
+ 'B9',
+ 'B10',
+ 'B11',
+ 'C2',
+ 'C3',
+ 'C4',
+ 'C5',
+ 'C6',
+ 'C7',
+ 'C8',
+ 'C9',
+ 'C10',
+ 'C11',
+ 'D2',
+ 'D3',
+ 'D4',
+ 'D5',
+ 'D6',
+ 'D7',
+ 'D8',
+ 'D9',
+ 'D10',
+ 'D11',
+ 'E2',
+ 'E3',
+ 'E4',
+ 'E5',
+ 'E6',
+ 'E7',
+ 'E8',
+ 'E9',
+ 'E10',
+ 'E11',
+ 'F2',
+ 'F3',
+ 'F4',
+ 'F5',
+ 'F6',
+ 'F7',
+ 'F8',
+ 'F9',
+ 'F10',
+ 'F11',
+ 'G2',
+ 'G3',
+ 'G4',
+ 'G5',
+ 'G6',
+ 'G7',
+ 'G8',
+ 'G9',
+ 'G10',
+ 'G11']
+In [8]:
+Copied!
+# The order in which the wells are returned can also be specified
+# By default they are returned horizontally, reading across all wells in a row before moving down to the next row
+# Here, they are returned vertically:
+Source_Labware_Layout
+.
+get_well_range
+(
+Direction
+=
+"Vertical"
+)
+# The order in which the wells are returned can also be specified
+# By default they are returned horizontally, reading across all wells in a row before moving down to the next row
+# Here, they are returned vertically:
+Source_Labware_Layout.get_well_range(
+                                Direction = "Vertical"
+)
+Out[8]:
+['A1',
+ 'B1',
+ 'C1',
+ 'D1',
+ 'E1',
+ 'F1',
+ 'G1',
+ 'H1',
+ 'A2',
+ 'B2',
+ 'C2',
+ 'D2',
+ 'E2',
+ 'F2',
+ 'G2',
+ 'H2',
+ 'A3',
+ 'B3',
+ 'C3',
+ 'D3',
+ 'E3',
+ 'F3',
+ 'G3',
+ 'H3',
+ 'A4',
+ 'B4',
+ 'C4',
+ 'D4',
+ 'E4',
+ 'F4',
+ 'G4',
+ 'H4',
+ 'A5',
+ 'B5',
+ 'C5',
+ 'D5',
+ 'E5',
+ 'F5',
+ 'G5',
+ 'H5',
+ 'A6',
+ 'B6',
+ 'C6',
+ 'D6',
+ 'E6',
+ 'F6',
+ 'G6',
+ 'H6',
+ 'A7',
+ 'B7',
+ 'C7',
+ 'D7',
+ 'E7',
+ 'F7',
+ 'G7',
+ 'H7',
+ 'A8',
+ 'B8',
+ 'C8',
+ 'D8',
+ 'E8',
+ 'F8',
+ 'G8',
+ 'H8',
+ 'A9',
+ 'B9',
+ 'C9',
+ 'D9',
+ 'E9',
+ 'F9',
+ 'G9',
+ 'H9',
+ 'A10',
+ 'B10',
+ 'C10',
+ 'D10',
+ 'E10',
+ 'F10',
+ 'G10',
+ 'H10',
+ 'A11',
+ 'B11',
+ 'C11',
+ 'D11',
+ 'E11',
+ 'F11',
+ 'G11',
+ 'H11',
+ 'A12',
+ 'B12',
+ 'C12',
+ 'D12',
+ 'E12',
+ 'F12',
+ 'G12',
+ 'H12']
+In [9]:
+Copied!
+# A specific well range can also be given, which will return all wells in that range
+Source_Labware_Layout
+.
+get_well_range
+(
+Well_Range
+=
+"B3:D4"
+)
+# A specific well range can also be given, which will return all wells in that range
+Source_Labware_Layout.get_well_range(
+                                Well_Range = "B3:D4"
+)
+Out[9]:
+['B3',
+ 'B4',
+ 'B5',
+ 'B6',
+ 'B7',
+ 'B8',
+ 'B9',
+ 'B10',
+ 'B11',
+ 'B12',
+ 'C1',
+ 'C2',
+ 'C3',
+ 'C4',
+ 'C5',
+ 'C6',
+ 'C7',
+ 'C8',
+ 'C9',
+ 'C10',
+ 'C11',
+ 'C12',
+ 'D1',
+ 'D2',
+ 'D3',
+ 'D4']
+In [10]:
+Copied!
+# The `Box` argument can be used in conjunction with a well range to return the wells in a 'box' shape
+Source_Labware_Layout
+.
+get_well_range
+(
+Well_Range
+=
+"B3:D4"
+,
+Box
+=
+True
+)
+# The `Box` argument can be used in conjunction with a well range to return the wells in a 'box' shape
+Source_Labware_Layout.get_well_range(
+                                Well_Range = "B3:D4",
+                                Box = True
+)
+Out[10]:
+['B3', 'B4', 'C3', 'C4', 'D3', 'D4']
+In [11]:
+Copied!
+# All of these arguments can be combined to return any wells desired:
+Source_Labware_Layout
+.
+get_well_range
+(
+Well_Range
+=
+"A3:D4"
+,
+Direction
+=
+"Vertical"
+,
+Box
+=
+True
+,
+Use_Outer_Wells
+=
+False
+)
+# All of these arguments can be combined to return any wells desired:
+Source_Labware_Layout.get_well_range(
+                                Well_Range = "A3:D4",
+                                Direction = "Vertical",
+                                Box = True,
+                                Use_Outer_Wells = False
+)
+Out[11]:
+['B3', 'C3', 'D3', 'B4', 'C4', 'D4']
+A set of available wells can also be stored for a given plate. This could be useful if, for example, a destination plate has already been partially used and you do not wish add anything to these wells.
+The available wells are set using the
+set_available_wells()
+method, which takes the same arguments as
+get_well_range()
+.
+In [12]:
+Copied!
+Source_Labware_Layout
+.
+set_available_wells
+(
+Well_Range
+=
+"A3:D4"
+,
+Direction
+=
+"Vertical"
+,
+Box
+=
+True
+,
+Use_Outer_Wells
+=
+False
+)
+Source_Labware_Layout.set_available_wells(
+                                Well_Range = "A3:D4",
+                                Direction = "Vertical",
+                                Box = True,
+                                Use_Outer_Wells = False
+)
+The available wells can be retrieved using
+get_available_wells()
+In [13]:
+Copied!
+Source_Labware_Layout
+.
+get_available_wells
+()
+Source_Labware_Layout.get_available_wells()
+Out[13]:
+['B3', 'C3', 'D3', 'B4', 'C4', 'D4']
+Once available wells are set, the
+Labware_Layout
+object will keep track of which available wells are empty, and which are not. The
+get_next_empty_well
+method can be used to get the first avilable well which is empty
+In [14]:
+Copied!
+Source_Labware_Layout
+.
+get_next_empty_well
+()
+Source_Labware_Layout.get_next_empty_well()
+Out[14]:
+'B3'
+The
+check_well
+method can be used to check if a specified well exists in the labware layout
+In [15]:
+Copied!
+Source_Labware_Layout
+.
+check_well
+(
+"D4"
+)
+Source_Labware_Layout.check_well("D4")
+Out[15]:
+True
+In [16]:
+Copied!
+Source_Labware_Layout
+.
+check_well
+(
+"J22"
+)
+Source_Labware_Layout.check_well("J22")
+Out[16]:
+False
+Adding Content to Wells
+¶
+The content of a well in a labware layout refers to any liquid which resides in that well. Each well can contain any number of distinct liquids. For example, a well of a PCR plate may contain DNA polymerase, buffer, water, DNA, primers, and dNTPs. In contrast, a DNA storage plate may contain just one DNA sample.
+The
+add_content()
+method can be used to add something to a specific well of a labware layout. There are 2 attributes which must be assigned when adding content, and 1 optional attribute. The required attributes are the name and volume of the content. The name should be entered as a
+string
+, and the volume is either a
+float
+or an
+integer
+, but MUST be specified in microlitres. The optional attribute is the liquid class of the content. The liquid class refers to the properties of the content, and can be useful to let users know that, for example, the liquid in a certain well is very viscous and hence may be difficult to transfer. It is also required by the Echo 525 liquid handler, where pre-defined liquid classes are used to ensure liquid is transferred correctly.
+In [17]:
+Copied!
+# Content can be added to a single well
+Source_Labware_Layout
+.
+set_available_wells
+()
+Source_Labware_Layout
+.
+add_content
+(
+Well
+=
+"A1"
+,
+Reagent
+=
+"DNA1"
+,
+Volume
+=
+20
+,
+Liquid_Class
+=
+None
+)
+# Content can be added to a single well
+Source_Labware_Layout.set_available_wells()
+Source_Labware_Layout.add_content(
+                        Well = "A1",
+                        Reagent = "DNA1",
+                        Volume = 20,
+                        Liquid_Class = None
+)
+In [18]:
+Copied!
+# Or using a well range
+Source_Labware_Layout
+.
+add_content
+(
+Well
+=
+"B2:B6"
+,
+Reagent
+=
+"Water"
+,
+Volume
+=
+30
+,
+Liquid_Class
+=
+None
+)
+# Or using a well range
+Source_Labware_Layout.add_content(
+                        Well = "B2:B6",
+                        Reagent = "Water",
+                        Volume = 30,
+                        Liquid_Class = None
+)
+In [19]:
+Copied!
+# Or using a list of wells
+Source_Labware_Layout
+.
+add_content
+(
+Well
+=
+[
+"A5"
+,
+"C7"
+,
+"D9"
+],
+Reagent
+=
+"Buffer1"
+,
+Volume
+=
+20
+,
+Liquid_Class
+=
+None
+)
+# Or using a list of wells
+Source_Labware_Layout.add_content(
+                        Well = ["A5", "C7", "D9"],
+                        Reagent = "Buffer1",
+                        Volume = 20,
+                        Liquid_Class = None
+)
+In [20]:
+Copied!
+# Multiple liquids can also be added to a single well
+Source_Labware_Layout
+.
+add_content
+(
+Well
+=
+"C1"
+,
+Reagent
+=
+"Primer1"
+,
+Volume
+=
+10
+)
+Source_Labware_Layout
+.
+add_content
+(
+Well
+=
+"C1"
+,
+Reagent
+=
+"Primer2"
+,
+Volume
+=
+15
+)
+# Multiple liquids can also be added to a single well
+Source_Labware_Layout.add_content(
+                        Well = "C1",
+                        Reagent = "Primer1",
+                        Volume = 10
+)
+
+Source_Labware_Layout.add_content(
+                        Well = "C1",
+                        Reagent = "Primer2",
+                        Volume = 15
+)
+Retrieving Labware Content
+¶
+The
+get_content()
+method can be used to return a dictionary containing information about the content of a labware. The dictionary keys are labware wells, and the value is a list of
+BiomationScripter.Labware_Content
+objects.
+In [21]:
+Copied!
+Source_Labware_Layout
+.
+get_content
+()
+Source_Labware_Layout.get_content()
+Out[21]:
+{'A1': [<BiomationScripter.Labware_Content at 0x20b4ed41400>],
+ 'B2': [<BiomationScripter.Labware_Content at 0x20b4ed415e0>],
+ 'B3': [<BiomationScripter.Labware_Content at 0x20b4ed41070>],
+ 'B4': [<BiomationScripter.Labware_Content at 0x20b4ed41340>],
+ 'B5': [<BiomationScripter.Labware_Content at 0x20b4ed41490>],
+ 'B6': [<BiomationScripter.Labware_Content at 0x20b4ed41370>],
+ 'A5': [<BiomationScripter.Labware_Content at 0x20b4ed41a00>],
+ 'C7': [<BiomationScripter.Labware_Content at 0x20b4ed41eb0>],
+ 'D9': [<BiomationScripter.Labware_Content at 0x20b4ed41f10>],
+ 'C1': [<BiomationScripter.Labware_Content at 0x20b4ed41df0>,
+  <BiomationScripter.Labware_Content at 0x20b4ed41b50>]}
+To get human readable information about the labware content, the methods below can be used
+In [22]:
+Copied!
+for
+well
+in
+Source_Labware_Layout
+.
+get_content
+():
+print
+(
+well
+)
+for
+content
+in
+Source_Labware_Layout
+.
+get_content
+()[
+well
+]:
+print
+(
+content
+.
+get_info
+())
+for well in Source_Labware_Layout.get_content():
+    print(well)
+    for content in Source_Labware_Layout.get_content()[well]:
+        print(content.get_info())
+A1
+['DNA1', 20.0, 'Unknown']
+B2
+['Water', 30.0, 'Unknown']
+B3
+['Water', 30.0, 'Unknown']
+B4
+['Water', 30.0, 'Unknown']
+B5
+['Water', 30.0, 'Unknown']
+B6
+['Water', 30.0, 'Unknown']
+A5
+['Buffer1', 20.0, 'Unknown']
+C7
+['Buffer1', 20.0, 'Unknown']
+D9
+['Buffer1', 20.0, 'Unknown']
+C1
+['Primer1', 10.0, 'Unknown']
+['Primer2', 15.0, 'Unknown']
+For each well which contains any content, a label can be assigned for easy retrieval later
+In [23]:
+Copied!
+Source_Labware_Layout
+.
+add_well_label
+(
+"C1"
+,
+"Primer Mixture"
+)
+Source_Labware_Layout.add_well_label("C1", "Primer Mixture")
+In [24]:
+Copied!
+# The label can be used to get the well ID
+Source_Labware_Layout
+.
+get_well_location_by_label
+(
+"Primer Mixture"
+)
+# The label can be used to get the well ID
+Source_Labware_Layout.get_well_location_by_label("Primer Mixture")
+Out[24]:
+'C1'
+In [25]:
+Copied!
+# Or to get the content of that well
+Source_Labware_Layout
+.
+get_well_content_by_label
+(
+"Primer Mixture"
+)
+# Or to get the content of that well
+Source_Labware_Layout.get_well_content_by_label("Primer Mixture")
+Out[25]:
+[<BiomationScripter.Labware_Content at 0x20b4ed41df0>,
+ <BiomationScripter.Labware_Content at 0x20b4ed41b50>]
+The
+get_occupied_wells
+method can be used to return a list of all wells which have any content
+In [26]:
+Copied!
+Source_Labware_Layout
+.
+get_occupied_wells
+()
+Source_Labware_Layout.get_occupied_wells()
+Out[26]:
+['A1', 'B2', 'B3', 'B4', 'B5', 'B6', 'A5', 'C7', 'D9', 'C1']
+The
+get_liquids_in_well
+method can be used to return just the names of any liquid in a well
+In [27]:
+Copied!
+Source_Labware_Layout
+.
+get_liquids_in_well
+(
+"C1"
+)
+Source_Labware_Layout.get_liquids_in_well("C1")
+Out[27]:
+['Primer1', 'Primer2']
+get_volume_of_liquid_in_well()
+can be used to get the volume of a specific liquid in a specified well
+In [28]:
+Copied!
+Source_Labware_Layout
+.
+get_volume_of_liquid_in_well
+(
+"Primer2"
+,
+"C1"
+)
+Source_Labware_Layout.get_volume_of_liquid_in_well("Primer2", "C1")
+Out[28]:
+15.0
+The
+get_wells_containing_liquid
+method can be used to return the well ID of any wells containing a specified liquid
+In [29]:
+Copied!
+Source_Labware_Layout
+.
+get_wells_containing_liquid
+(
+"Buffer1"
+)
+Source_Labware_Layout.get_wells_containing_liquid("Buffer1")
+Out[29]:
+['A5', 'C7', 'D9']
+The
+print()
+method can be used to pretty print all details of a labware to OUT. A formatted string is also returned.
+In [30]:
+Copied!
+Source_Labware_Layout
+.
+print
+()
+Source_Labware_Layout.print()
+Information for Source Plate
+Plate Type: Greiner 96-well 2mL Masterblock (780270)
+Well	Volume(uL)	Liquid Class	Reagent
+A1	20.0		Unknown		DNA1
+B2	30.0		Unknown		Water
+B3	30.0		Unknown		Water
+B4	30.0		Unknown		Water
+B5	30.0		Unknown		Water
+B6	30.0		Unknown		Water
+A5	20.0		Unknown		Buffer1
+C7	20.0		Unknown		Buffer1
+D9	20.0		Unknown		Buffer1
+C1	10.0		Unknown		Primer1
+C1	15.0		Unknown		Primer2
+Out[30]:
+'A1\t20.0\t\tUnknown\t\tDNA1\nB2\t30.0\t\tUnknown\t\tWater\nB3\t30.0\t\tUnknown\t\tWater\nB4\t30.0\t\tUnknown\t\tWater\nB5\t30.0\t\tUnknown\t\tWater\nB6\t30.0\t\tUnknown\t\tWater\nA5\t20.0\t\tUnknown\t\tBuffer1\nC7\t20.0\t\tUnknown\t\tBuffer1\nD9\t20.0\t\tUnknown\t\tBuffer1\nC1\t10.0\t\tUnknown\t\tPrimer1\nC1\t15.0\t\tUnknown\t\tPrimer2\n'
+Modifying Labware Content
+¶
+The volume of liquid in a well can be modified at any time using
+update_volume_in_well()
+In [31]:
+Copied!
+Source_Labware_Layout
+.
+get_volume_of_liquid_in_well
+(
+"DNA1"
+,
+"A1"
+)
+Source_Labware_Layout.get_volume_of_liquid_in_well("DNA1", "A1")
+Out[31]:
+20.0
+In [32]:
+Copied!
+Source_Labware_Layout
+.
+update_volume_in_well
+(
+Volume
+=
+10
+,
+Reagent
+=
+"DNA1"
+,
+Well
+=
+"A1"
+)
+Source_Labware_Layout.update_volume_in_well(
+                                Volume = 10,
+                                Reagent = "DNA1",
+                                Well = "A1"
+)
+In [33]:
+Copied!
+Source_Labware_Layout
+.
+get_volume_of_liquid_in_well
+(
+"DNA1"
+,
+"A1"
+)
+Source_Labware_Layout.get_volume_of_liquid_in_well("DNA1", "A1")
+Out[33]:
+10.0
+It's also possible to clear all content from a specific well
+In [34]:
+Copied!
+Source_Labware_Layout
+.
+get_occupied_wells
+()
+Source_Labware_Layout.get_occupied_wells()
+Out[34]:
+['A1', 'B2', 'B3', 'B4', 'B5', 'B6', 'A5', 'C7', 'D9', 'C1']
+In [35]:
+Copied!
+Source_Labware_Layout
+.
+clear_content_from_well
+(
+"A1"
+)
+Source_Labware_Layout.clear_content_from_well("A1")
+In [36]:
+Copied!
+Source_Labware_Layout
+.
+get_occupied_wells
+()
+Source_Labware_Layout.get_occupied_wells()
+Out[36]:
+['B2', 'B3', 'B4', 'B5', 'B6', 'A5', 'C7', 'D9', 'C1']
+Or to clear all content in a labware
+In [37]:
+Copied!
+Source_Labware_Layout
+.
+clear_content
+()
+Source_Labware_Layout.clear_content()
+In [38]:
+Copied!
+Source_Labware_Layout
+.
+print
+()
+Source_Labware_Layout.print()
+Information for Source Plate
+Plate Type: Greiner 96-well 2mL Masterblock (780270)
+Well	Volume(uL)	Liquid Class	Reagent
+Out[38]:
+''
+In [ ]:
+Copied!

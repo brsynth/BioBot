@@ -1,0 +1,106 @@
+intbio-ncl
+/
+BiomationScripterLib
+Public
+Notifications
+You must be signed in to change notification settings
+Fork
+0
+Star
+4
+Files
+Expand file tree
+main
+/
+data
+/
+Copy path
+Directory actions
+More options
+More options
+Directory actions
+More options
+More options
+Latest commit
+History
+History
+History
+main
+/
+data
+/
+Top
+Folders and files
+Name
+Name
+Last commit message
+Last commit date
+parent directory
+..
+custom_labware
+custom_labware
+examples/
+OTProto
+examples/
+OTProto
+Coloured_Solutions.xlsx
+Coloured_Solutions.xlsx
+Example DNA Stocks.xlsx
+Example DNA Stocks.xlsx
+Example Plasmid Stocks.xlsx
+Example Plasmid Stocks.xlsx
+Example Primer Stocks.xlsx
+Example Primer Stocks.xlsx
+Merged Example Loop Assembly-384LDV-(Reagents).csv
+Merged Example Loop Assembly-384LDV-(Reagents).csv
+Merged Example Loop Assembly-384PP.csv
+Merged Example Loop Assembly-384PP.csv
+Merged Example Loop Assembly-6RES-(Water and Buffer Plate).csv
+Merged Example Loop Assembly-6RES-(Water and Buffer Plate).csv
+Merged Example PCR No MM-384LDV-(Reagents).csv
+Merged Example PCR No MM-384LDV-(Reagents).csv
+Merged Example PCR No MM-384PP.csv
+Merged Example PCR No MM-384PP.csv
+Merged Example PCR No MM-6RES-(Water and Buffer Plate).csv
+Merged Example PCR No MM-6RES-(Water and Buffer Plate).csv
+Merged Example PCR With MM-384LDV-(Reagents).csv
+Merged Example PCR With MM-384LDV-(Reagents).csv
+Merged Example PCR With MM-384PP.csv
+Merged Example PCR With MM-384PP.csv
+Merged Example PCR With MM-6RES-(Water and Buffer Plate).csv
+Merged Example PCR With MM-6RES-(Water and Buffer Plate).csv
+Reagents.xlsx
+Reagents.xlsx
+Unmerged Example Loop Assembly-384LDV-(Reagents).csv
+Unmerged Example Loop Assembly-384LDV-(Reagents).csv
+Unmerged Example Loop Assembly-384PP-(Example DNA Stocks).csv
+Unmerged Example Loop Assembly-384PP-(Example DNA Stocks).csv
+Unmerged Example Loop Assembly-384PP-(Example Plasmid Stocks).csv
+Unmerged Example Loop Assembly-384PP-(Example Plasmid Stocks).csv
+Unmerged Example Loop Assembly-6RES-(Water and Buffer Plate).csv
+Unmerged Example Loop Assembly-6RES-(Water and Buffer Plate).csv
+Unmerged Example PCR No MM-384LDV-(Reagents).csv
+Unmerged Example PCR No MM-384LDV-(Reagents).csv
+Unmerged Example PCR No MM-384PP-(Example DNA Stocks).csv
+Unmerged Example PCR No MM-384PP-(Example DNA Stocks).csv
+Unmerged Example PCR No MM-384PP-(Example Plasmid Stocks).csv
+Unmerged Example PCR No MM-384PP-(Example Plasmid Stocks).csv
+Unmerged Example PCR No MM-384PP-(Example Primer Stocks).csv
+Unmerged Example PCR No MM-384PP-(Example Primer Stocks).csv
+Unmerged Example PCR No MM-6RES-(Water and Buffer Plate).csv
+Unmerged Example PCR No MM-6RES-(Water and Buffer Plate).csv
+Unmerged Example PCR With MM-384LDV-(Reagents).csv
+Unmerged Example PCR With MM-384LDV-(Reagents).csv
+Unmerged Example PCR With MM-384PP-(Example DNA Stocks).csv
+Unmerged Example PCR With MM-384PP-(Example DNA Stocks).csv
+Unmerged Example PCR With MM-384PP-(Example Plasmid Stocks).csv
+Unmerged Example PCR With MM-384PP-(Example Plasmid Stocks).csv
+Unmerged Example PCR With MM-384PP-(Example Primer Stocks).csv
+Unmerged Example PCR With MM-384PP-(Example Primer Stocks).csv
+Unmerged Example PCR With MM-6RES-(Water and Buffer Plate).csv
+Unmerged Example PCR With MM-6RES-(Water and Buffer Plate).csv
+Walkthrough Example - Colour Mixing-384PP-(Coloured Solutions).csv
+Walkthrough Example - Colour Mixing-384PP-(Coloured Solutions).csv
+Water and Buffer Plate.xlsx
+Water and Buffer Plate.xlsx
+View all files

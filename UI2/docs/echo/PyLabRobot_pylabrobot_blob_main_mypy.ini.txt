@@ -1,0 +1,87 @@
+PyLabRobot
+/
+pylabrobot
+Public
+Notifications
+You must be signed in to change notification settings
+Fork
+141
+Star
+410
+Files
+Expand file tree
+main
+/
+mypy.ini
+Copy path
+Blame
+More file actions
+Blame
+More file actions
+Latest commit
+History
+History
+History
+23 lines (16 loc) · 375 Bytes
+main
+/
+mypy.ini
+Top
+File metadata and controls
+Code
+Blame
+23 lines (16 loc) · 375 Bytes
+Raw
+Copy raw file
+Download raw file
+Open symbols panel
+Edit and raw actions
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+#
+Global options:
+[mypy]
+warn_return_any
+= True
+warn_unused_configs
+= True
+check_untyped_defs
+= True
+#
+Per-module options:
+[mypy-usb.*]
+ignore_missing_imports
+= True
+[mypy-ot_api.*]
+ignore_missing_imports
+= True
+[mypy-serial.*]
+ignore_missing_imports
+= True
+[mypy-pylibftdi.*]
+ignore_missing_imports
+= True
+[mypy-opentrons_shared_data.*]
+ignore_missing_imports
+= True

@@ -1,0 +1,266 @@
+PyLabRobot
+/
+pylabrobot
+Public
+Notifications
+You must be signed in to change notification settings
+Fork
+141
+Star
+410
+Branch selector
+main
+User selector
+All users
+All time
+Commit History
+Commits on Mar 24, 2026
+Add left_side_panel_installed safety flag to STARBackend (#960)
+Show description for b17a26b
+rickwierenga
+and
+claude
+authored
+b17a26b
+Copy full SHA for b17a26b
+fix typo in docs
+rickwierenga
+committed
+3bb1aa9
+Copy full SHA for 3bb1aa9
+Commits on Mar 23, 2026
+use relative links for PLR docs in device list
+Show description for 0f7eb3c
+rickwierenga
+and
+claude
+committed
+0f7eb3c
+Copy full SHA for 0f7eb3c
+add concurrency group to docs workflow to prevent deploy race conditions
+Show description for 87b6716
+rickwierenga
+and
+claude
+committed
+87b6716
+Copy full SHA for 87b6716
+update doc switcher
+rickwierenga
+committed
+dba72c5
+Copy full SHA for dba72c5
+0.2.1
+rickwierenga
+committed
+c8c9dcb
+Copy full SHA for c8c9dcb
+Rename Thermo_TS_Nalgene_1_troughplate_300000uL_Fb to thermo_TS_nalgene_1_troughplate_300mL_Fb
+Show description for aacfe13
+rickwierenga
+and
+claude
+committed
+aacfe13
+Copy full SHA for aacfe13
+Tecan Infinite 200 PRO plate reader backend (Infinite M Plex) (#797)
+Show description for 8c05c4b
+4
+people
+authored
+8c05c4b
+Copy full SHA for 8c05c4b
+Commits on Mar 22, 2026
+Tecan spark (#798)
+Show description for 23cb24f
+4
+people
+authored
+23cb24f
+Copy full SHA for 23cb24f
+Use single persistent reader thread in Hamilton backend (#952)
+Show description for 1edfd86
+rickwierenga
+and
+claude
+authored
+1edfd86
+Copy full SHA for 1edfd86
+Add ARP fallback and streaming to SiLA discovery (#940)
+Show description for 17758b2
+rickwierenga
+and
+claude
+authored
+17758b2
+Copy full SHA for 17758b2
+Commits on Mar 20, 2026
+Update Corning 3603 with empirical cLLD height_volume_data (#948)
+Show description for f33a7c1
+BioCam
+and
+claude
+authored
+f33a7c1
+Copy full SHA for f33a7c1
+Add PlateAdapter visualization with hole grid and magnetic rack styling (#946)
+Show description for 40c0afb
+BioCam
+and
+Copilot
+authored
+40c0afb
+Copy full SHA for 40c0afb
+Rename hamilton trough 60mL and 200mL to use correct SI casing (#947)
+Show description for 1d1b586
+BioCam
+and
+claude
+authored
+1d1b586
+Copy full SHA for 1d1b586
+Commits on Mar 19, 2026
+add eppendorf_96_wellplate_500ul_Vb (#945)
+rickwierenga
+authored
+027b5b9
+Copy full SHA for 027b5b9
+Commits on Mar 18, 2026
+Optional deps should be optional (#941)
+Show description for b888ccd
+3
+people
+authored
+b888ccd
+Copy full SHA for b888ccd
+Commits on Mar 17, 2026
+unpin versions (#942)
+rickwierenga
+authored
+e5955b0
+Copy full SHA for e5955b0
+Commits on Mar 16, 2026
+add Thermo_TS_Nalgene_1_troughplate_300000uL_Fb (#939)
+harley-pioneer
+authored
+285da02
+Copy full SHA for 285da02
+Add `height_volume_data` attribute to `Container` with piecewise-linear interpolation (#938)
+Show description for c892c17
+BioCam
+and
+Copilot
+authored
+c892c17
+Copy full SHA for c892c17
+Commits on Mar 14, 2026
+update installation instructions
+rickwierenga
+committed
+97ef0af
+Copy full SHA for 97ef0af
+delete gui leftovers
+rickwierenga
+committed
+d7a2815
+Copy full SHA for d7a2815
+Limit sidebar to search-only on API pages, restore full sidebar for user guide
+Show description for e3ac28a
+rickwierenga
+and
+claude
+committed
+e3ac28a
+Copy full SHA for e3ac28a
+Remove LLM docs generation
+Show description for 40e5840
+rickwierenga
+and
+claude
+committed
+40e5840
+Copy full SHA for 40e5840
+Reduce docs size: navigation_depth, collapse sidebar, clean build artifacts
+Show description for 1bc28a5
+rickwierenga
+and
+claude
+committed
+1bc28a5
+Copy full SHA for 1bc28a5
+Commits on Mar 13, 2026
+version 0.2.0
+rickwierenga
+committed
+97c57ed
+Copy full SHA for 97c57ed
+clear changelog
+rickwierenga
+committed
+1d1f015
+Copy full SHA for 1d1f015
+Add versioned documentation with version switcher (#935)
+Show description for b781ae1
+rickwierenga
+and
+claude
+authored
+b781ae1
+Copy full SHA for b781ae1
+delete .github/workflows/python-publish.yml
+rickwierenga
+committed
+fd6175e
+Copy full SHA for fd6175e
+Independent handler levels and file path support for setup_logger; logging docs (#932)
+Show description for bbf59c8
+BioCam
+and
+claude
+authored
+bbf59c8
+Copy full SHA for bbf59c8
+Add OpentronsOT2Simulator backend for offline OT-2 protocol testing (#933)
+Show description for d719c23
+3
+people
+authored
+d719c23
+Copy full SHA for d719c23
+Commits on Mar 11, 2026
+Imcs 1ml racks (#930)
+ricomnl
+authored
+1b06c22
+Copy full SHA for 1b06c22
+Commits on Mar 9, 2026
+Liconic backend (Liconic STX series automated incubator support) (#846)
+Show description for 7bc57f5
+3
+people
+authored
+7bc57f5
+Copy full SHA for 7bc57f5
+add inheco odtc backend (#841)
+Show description for ea13043
+3
+people
+authored
+ea13043
+Copy full SHA for ea13043
+Add human-readable device names to IO layer error messages (#927)
+Show description for b842862
+rickwierenga
+and
+claude
+authored
+b842862
+Copy full SHA for b842862
+bioshake: add delay after stop shake (#926)
+xbtu2
+authored
+dc6bd9e
+Copy full SHA for dc6bd9e
+Pagination
+Previous
+Next

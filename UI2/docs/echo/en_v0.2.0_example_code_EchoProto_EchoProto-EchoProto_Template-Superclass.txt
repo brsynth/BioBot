@@ -1,0 +1,2432 @@
+EchoProto_Template
+Superclass Walkthrough
+¶
+Overview
+¶
+The
+EchoProto_Template
+class is a superclass intended to be used in the development of
+EchoProto
+templates. In BiomationScripter, Templates can be used to help code protocols which will be used often, but with different inputs or variables. For example, the Echo is commonly used to set up PCR reactions. The general steps for most PCR reactions are the same: add template DNA, a forward and reverse primer, polymerase and other reagents/buffers, and water. However, PCR protocols will differ in aspects such as the exact DNA templates, primers, polymerase and buffers used, and the final reaction volumes. In this case, an EchoProto Template can be set up for PCR reactions, where the main steps are encoded within the Template, but the exact transfer events vary based on user inputs.
+Below is an example of how the
+EchoProto_Template
+superclass can be used to write an EchoProto Template. Templates should be added into their own file named
+<PROTOCOL>.py
+and placed within the
+BiomationScripter/EchoProto/Templates
+directory.
+Defining the Protocol
+¶
+In this example, an EchoProto Template for mixing coloured solutions is created. This exact requirements for this Template are listed below:
+The Template will take a list of coloured solutions
+In a destination plate, 2-colour mixtures will be prepared
+The user should be able to define the final volume of each mixture
+The user should be able to define the ratios in which the colours are mixed
+The user should be able to define if the mixtures are permuations or combinations
+Setting Up
+¶
+To begin, the
+BMS
+generic tools and
+EchoProto
+tools are imported
+In [1]:
+Copied!
+import
+BiomationScripter
+as
+BMS
+from
+BiomationScripter
+import
+EchoProto
+import BiomationScripter as BMS
+from BiomationScripter import EchoProto
+Next, the
+Template
+class can be defined. Templates are defined as a Python
+class
+, which extends the
+EchoProto_Template
+superclass. Note that his class must be named
+Template
+:
+In [2]:
+Copied!
+class
+Template
+(
+EchoProto
+.
+EchoProto_Template
+):
+def
+__init__
+(
+self
+):
+pass
+# This is used to say "do nothing". It will be removed in the next step once we want our Template to do something.
+class Template(EchoProto.EchoProto_Template):
+    def __init__(self):
+        pass # This is used to say "do nothing". It will be removed in the next step once we want our Template to do something.
+In [3]:
+Copied!
+Protocol
+=
+Template
+()
+# This creates the protocol using our Template class. At the moment, our Template does nothing.
+print
+(
+Protocol
+)
+Protocol = Template() # This creates the protocol using our Template class. At the moment, our Template does nothing.
+print(Protocol)
+<__main__.Template object at 0x000001351F0B3310>
+Default Arguments
+¶
+The
+EchoProto_Template
+superclass takes six arguments:
+Name
+,
+Source_Plates
+,
+Destination_Plate_Layout
+,
+Picklist_Save_Directory
+,
+Metadata
+, and
+Merge
+The
+Name
+argument is the name of the protocol and has no default value.
+The
+Source_Plates
+argument is a list of
+BMS.Labware_Layout
+objects
+which hold the required source material. It has no default value.
+The
+Destination_Plate_Layout
+argument is a
+BMS.Labware_Layout
+object
+. This is used to define the type and fomrat of the destination plate, and should have no content defined. There is no default value.
+The
+Picklist_Save_Directory
+argument defines where the Echo picklists will be saved. By default, the picklists will be saved in the current directory (
+"."
+).
+The
+Metadata
+argument takes the metadata dictionary discussed
+here
+. By default,
+Metadata = None
+. For simplicity, we'll ignore this argument for now.
+The
+Merge
+argument is a
+bool
+. When
+self.merge
+is
+True
+, a picklist will be created for each source plate TYPE. When it is
+False
+, a picklist will be created for EVERY source plate.
+As a best practice, these arguments are included in the Template being written as keyword arguments. The code to include these arguments and pass them to the superclass is shown below.
+In [4]:
+Copied!
+class
+Template
+(
+EchoProto
+.
+EchoProto_Template
+):
+def
+__init__
+(
+self
+,
+**
+kwargs
+# This will make the superclass arguments available to our template as keyword arguments
+):
+super
+()
+.
+__init__
+(
+**
+kwargs
+)
+# This passes the keyword arguments to the superclass
+class Template(EchoProto.EchoProto_Template):
+    def __init__(
+        self,
+        **kwargs # This will make the superclass arguments available to our template as keyword arguments
+    ):
+        super().__init__(**kwargs) # This passes the keyword arguments to the superclass
+Let's try using these default arguments in our
+Template
+class.
+First we'll create Labware_Layout objects to supply as source and destination plates.
+For more information on creating/importing
+BMS.Labware_Layout
+objects, see
+here
+and
+here
+.
+In [5]:
+Copied!
+Colour_Source_Plates
+=
+[
+BMS
+.
+Import_Labware_Layout
+(
+"Coloured_Solutions"
+,
+path
+=
+"../../../data/"
+)]
+Mixture_Plate_Layout
+=
+BMS
+.
+Labware_Layout
+(
+"Mixture Plate"
+,
+"384 OptiAmp Plate"
+)
+Mixture_Plate_Layout
+.
+define_format
+(
+16
+,
+24
+)
+Colour_Source_Plates = [BMS.Import_Labware_Layout("Coloured_Solutions", path = "../../../data/")]
+Mixture_Plate_Layout = BMS.Labware_Layout("Mixture Plate", "384 OptiAmp Plate")
+Mixture_Plate_Layout.define_format(16,24)
+We can then pass these layouts, along with a name and save directory, to our
+Template
+class
+In [6]:
+Copied!
+Protocol
+=
+Template
+(
+Name
+=
+"Walkthrough Example - Colour Mixing"
+,
+Source_Plates
+=
+Colour_Source_Plates
+,
+Destination_Plate_Layout
+=
+Mixture_Plate_Layout
+,
+Picklist_Save_Directory
+=
+"./"
+)
+print
+(
+Protocol
+)
+print
+(
+"name:"
+,
+Protocol
+.
+name
+)
+print
+(
+"source plates:"
+,
+Protocol
+.
+source_plate_layouts
+)
+print
+(
+"destination plates:"
+,
+Protocol
+.
+destination_plate_layouts
+)
+print
+(
+"save directory:"
+,
+Protocol
+.
+save_dir
+)
+Protocol = Template(
+    Name = "Walkthrough Example - Colour Mixing",
+    Source_Plates = Colour_Source_Plates,
+    Destination_Plate_Layout = Mixture_Plate_Layout,
+    Picklist_Save_Directory = "./"
+)
+print(Protocol)
+
+print("name:", Protocol.name)
+print("source plates:", Protocol.source_plate_layouts)
+print("destination plates:", Protocol.destination_plate_layouts)
+print("save directory:", Protocol.save_dir)
+<__main__.Template object at 0x0000013547C2A0A0>
+name: Walkthrough Example - Colour Mixing
+source plates: [<BiomationScripter.Labware_Layout object at 0x000001351F0B3460>]
+destination plates: [<BiomationScripter.Labware_Layout object at 0x000001351F0B3100>]
+save directory: ./
+The superclass also sets up three other attributes, which are common to all Echo Templates. These are shown below.
+_protocol
+stores an
+EchoProto.Protocol
+object, which captures all information about the Echo protocol, and is used to generate the picklists
+In [7]:
+Copied!
+print
+(
+Protocol
+.
+_protocol
+)
+print(Protocol._protocol)
+<BiomationScripter.EchoProto.Protocol object at 0x000001351F0B3E20>
+source_plate_layouts
+and
+destination_plate_layouts
+are instantiated as empty lists, which will eventually hold
+BMS.Labware_Layout
+objects.
+In [8]:
+Copied!
+print
+(
+Protocol
+.
+source_plate_layouts
+)
+print
+(
+Protocol
+.
+destination_plate_layouts
+)
+print(Protocol.source_plate_layouts)
+print(Protocol.destination_plate_layouts)
+[<BiomationScripter.Labware_Layout object at 0x000001351F0B3460>]
+[<BiomationScripter.Labware_Layout object at 0x000001351F0B3100>]
+Custom Arguments
+¶
+For our
+Colour_Mixing
+Echo Template, based on the requirements defined above, we need four extra arguments. These are:
+Source_Colours
+: a list of strings defining the names of the colour source solutions
+Final_Volume
+: the final volume, in microlitres, of the coloured mixtures
+Mixing_Ratios
+: a list of strings which define the ratio of source colours which make up the final mixtures, e.g. ["1:1", "2:1", "1:2"]
+Permutations
+: a boolean (True/False) defining whether the full permutations of colours should be mixed. We'll give this a default value of
+False
+These arguments are added to our Template class below. We'll also add some attributes to store the values of these arguments.
+In [9]:
+Copied!
+class
+Template
+(
+EchoProto
+.
+EchoProto_Template
+):
+def
+__init__
+(
+self
+,
+Source_Colours
+,
+Final_Volume
+,
+Mixing_Ratios
+,
+Permutations
+=
+False
+,
+**
+kwargs
+# This will make the superclass arguments available to `Colour_Mixing` as keyword arguments
+):
+super
+()
+.
+__init__
+(
+**
+kwargs
+)
+# This passes the keyword arguments to the superclass
+#######################
+# User Defined Values #
+#######################
+self
+.
+source_colours
+=
+Source_Colours
+self
+.
+final_volume
+=
+Final_Volume
+# uL
+self
+.
+mixing_ratios
+=
+Mixing_Ratios
+self
+.
+permutations
+=
+Permutations
+class Template(EchoProto.EchoProto_Template):
+    def __init__(
+        self,
+        Source_Colours,
+        Final_Volume,
+        Mixing_Ratios,
+        Permutations = False,
+        **kwargs # This will make the superclass arguments available to `Colour_Mixing` as keyword arguments
+    ):
+        super().__init__(**kwargs) # This passes the keyword arguments to the superclass
+        
+        #######################
+        # User Defined Values #
+        #######################
+        self.source_colours = Source_Colours
+        self.final_volume = Final_Volume # uL
+        self.mixing_ratios = Mixing_Ratios
+        self.permutations = Permutations
+In [10]:
+Copied!
+Colour_Source_Plates
+=
+[
+BMS
+.
+Import_Labware_Layout
+(
+"Coloured_Solutions"
+,
+path
+=
+"../../../data/"
+)]
+Mixture_Plate_Layout
+=
+BMS
+.
+Labware_Layout
+(
+"Mixture Plate"
+,
+"384 OptiAmp Plate"
+)
+Mixture_Plate_Layout
+.
+define_format
+(
+16
+,
+24
+)
+Colour_Source_Plates = [BMS.Import_Labware_Layout("Coloured_Solutions", path = "../../../data/")]
+Mixture_Plate_Layout = BMS.Labware_Layout("Mixture Plate", "384 OptiAmp Plate")
+Mixture_Plate_Layout.define_format(16,24)
+In [29]:
+Copied!
+Protocol
+=
+Template
+(
+Name
+=
+"Walkthrough Example - Colour Mixing"
+,
+Source_Plates
+=
+Colour_Source_Plates
+,
+Destination_Plate_Layout
+=
+Mixture_Plate_Layout
+,
+Picklist_Save_Directory
+=
+"./"
+,
+Source_Colours
+=
+[
+"Red"
+,
+"Blue"
+,
+"Yellow"
+],
+Final_Volume
+=
+2
+,
+Mixing_Ratios
+=
+[
+"1:1"
+,
+"1:9"
+,
+"9:1"
+],
+Permutations
+=
+False
+)
+print
+(
+Protocol
+)
+print
+(
+"name:"
+,
+Protocol
+.
+name
+)
+print
+(
+"source plates:"
+,
+Protocol
+.
+source_plate_layouts
+)
+print
+(
+"destination plates:"
+,
+Protocol
+.
+destination_plate_layouts
+)
+print
+(
+"save directory:"
+,
+Protocol
+.
+save_dir
+)
+print
+(
+"source colours:"
+,
+Protocol
+.
+source_colours
+)
+print
+(
+"final volume:"
+,
+Protocol
+.
+final_volume
+)
+print
+(
+"ratios:"
+,
+Protocol
+.
+mixing_ratios
+)
+print
+(
+"permutations:"
+,
+Protocol
+.
+permutations
+)
+Protocol = Template(
+    Name = "Walkthrough Example - Colour Mixing",
+    Source_Plates = Colour_Source_Plates,
+    Destination_Plate_Layout = Mixture_Plate_Layout,
+    Picklist_Save_Directory = "./",
+    Source_Colours = ["Red", "Blue", "Yellow"],
+    Final_Volume = 2,
+    Mixing_Ratios = ["1:1", "1:9", "9:1"],
+    Permutations = False
+)
+print(Protocol)
+print("name:", Protocol.name)
+print("source plates:", Protocol.source_plate_layouts)
+print("destination plates:", Protocol.destination_plate_layouts)
+print("save directory:", Protocol.save_dir)
+print("source colours:", Protocol.source_colours)
+print("final volume:", Protocol.final_volume)
+print("ratios:", Protocol.mixing_ratios)
+print("permutations:", Protocol.permutations)
+<__main__.Template object at 0x0000013547BD8700>
+name: Walkthrough Example - Colour Mixing
+source plates: [<BiomationScripter.Labware_Layout object at 0x0000013547CC7DF0>]
+destination plates: [<BiomationScripter.Labware_Layout object at 0x0000013547C1A970>]
+save directory: ./
+source colours: ['Red', 'Blue', 'Yellow']
+final volume: 2
+ratios: ['1:1', '1:9', '9:1']
+permutations: False
+Adding Functionality
+¶
+We now have the basis of our Template class, but it still doesn't really do anything. The next step is to add code which will set up the destination plate based on the basic functionality and user inputs.
+For EchoProto Templates, this code is contained within a
+run
+method. This is method is added to our class below.
+In [12]:
+Copied!
+class
+Template
+(
+EchoProto
+.
+EchoProto_Template
+):
+def
+__init__
+(
+self
+,
+Source_Colours
+,
+Final_Volume
+,
+Mixing_Ratios
+,
+Permutations
+=
+False
+,
+**
+kwargs
+# This will make the superclass arguments available to `Colour_Mixing` as keyword arguments
+):
+super
+()
+.
+__init__
+(
+**
+kwargs
+)
+# This passes the keyword arguments to the superclass
+#######################
+# User Defined Values #
+#######################
+self
+.
+source_colours
+=
+Source_Colours
+self
+.
+final_volume
+=
+Final_Volume
+# uL
+self
+.
+mixing_ratios
+=
+Mixing_Ratios
+,
+self
+.
+permutations
+=
+Permutations
+def
+run
+(
+self
+):
+pass
+class Template(EchoProto.EchoProto_Template):
+    def __init__(
+        self,
+        Source_Colours,
+        Final_Volume,
+        Mixing_Ratios,
+        Permutations = False,
+        **kwargs # This will make the superclass arguments available to `Colour_Mixing` as keyword arguments
+    ):
+        super().__init__(**kwargs) # This passes the keyword arguments to the superclass
+        
+        #######################
+        # User Defined Values #
+        #######################
+        self.source_colours = Source_Colours
+        self.final_volume = Final_Volume # uL
+        self.mixing_ratios = Mixing_Ratios,
+        self.permutations = Permutations
+
+    def run(self):
+        pass
+We can now add our code into the
+run
+method. For the first step, we'll get a list of the different mixtures required, based on the user inputs
+In [13]:
+Copied!
+class
+Template
+(
+EchoProto
+.
+EchoProto_Template
+):
+def
+__init__
+(
+self
+,
+Source_Colours
+,
+Final_Volume
+,
+Mixing_Ratios
+,
+Permutations
+=
+False
+,
+**
+kwargs
+# This will make the superclass arguments available to `Colour_Mixing` as keyword arguments
+):
+super
+()
+.
+__init__
+(
+**
+kwargs
+)
+# This passes the keyword arguments to the superclass
+#######################
+# User Defined Values #
+#######################
+self
+.
+source_colours
+=
+Source_Colours
+self
+.
+final_volume
+=
+Final_Volume
+# uL
+self
+.
+mixing_ratios
+=
+Mixing_Ratios
+self
+.
+permutations
+=
+Permutations
+def
+run
+(
+self
+):
+# Set up an empty list in which the colour mixtures required will be added
+Colour_Mixtures
+=
+[]
+# Iterate through the list of source colours provided to create the list of mixtures.
+for
+colour_1
+in
+self
+.
+source_colours
+:
+for
+colour_2
+in
+self
+.
+source_colours
+:
+# Ignore situations where colour_1 and colour_2 are the same
+if
+colour_1
+==
+colour_2
+:
+continue
+# Unless permutations has been set to `True`, ignore situations where...
+# ...the same colours have already been mixed, just in a different order
+elif
+not
+self
+.
+permutations
+and
+[
+colour_2
+,
+colour_1
+]
+in
+Colour_Mixtures
+:
+continue
+else
+:
+# Add the two colours to the list of mixtures to prepare
+Colour_Mixtures
+.
+append
+([
+colour_1
+,
+colour_2
+])
+# Here, we'll print to OUT all of the mixtures which will be prepared
+for
+c
+in
+Colour_Mixtures
+:
+print
+(
+c
+)
+class Template(EchoProto.EchoProto_Template):
+    def __init__(
+        self,
+        Source_Colours,
+        Final_Volume,
+        Mixing_Ratios,
+        Permutations = False,
+        **kwargs # This will make the superclass arguments available to `Colour_Mixing` as keyword arguments
+    ):
+        super().__init__(**kwargs) # This passes the keyword arguments to the superclass
+        
+        #######################
+        # User Defined Values #
+        #######################
+        self.source_colours = Source_Colours
+        self.final_volume = Final_Volume # uL
+        self.mixing_ratios = Mixing_Ratios
+        self.permutations = Permutations
+
+    def run(self):
+        
+        # Set up an empty list in which the colour mixtures required will be added
+        Colour_Mixtures = []
+        
+        # Iterate through the list of source colours provided to create the list of mixtures.
+        for colour_1 in self.source_colours:
+            for colour_2 in self.source_colours:
+                # Ignore situations where colour_1 and colour_2 are the same
+                if colour_1 == colour_2:
+                    continue
+                # Unless permutations has been set to `True`, ignore situations where...
+                # ...the same colours have already been mixed, just in a different order
+                elif not self.permutations and [colour_2, colour_1] in Colour_Mixtures:
+                    continue
+                else:
+                    # Add the two colours to the list of mixtures to prepare
+                    Colour_Mixtures.append([colour_1, colour_2])
+        
+        # Here, we'll print to OUT all of the mixtures which will be prepared
+        for c in Colour_Mixtures:
+            print(c)
+We can check the functionality of our code by calling the
+run
+method on the
+Protocol
+object
+In [14]:
+Copied!
+Colour_Source_Plates
+=
+[
+BMS
+.
+Import_Labware_Layout
+(
+"Coloured_Solutions"
+,
+path
+=
+"../../../data/"
+)]
+Mixture_Plate_Layout
+=
+BMS
+.
+Labware_Layout
+(
+"Mixture Plate"
+,
+"384 OptiAmp Plate"
+)
+Mixture_Plate_Layout
+.
+define_format
+(
+16
+,
+24
+)
+Colour_Source_Plates = [BMS.Import_Labware_Layout("Coloured_Solutions", path = "../../../data/")]
+Mixture_Plate_Layout = BMS.Labware_Layout("Mixture Plate", "384 OptiAmp Plate")
+Mixture_Plate_Layout.define_format(16,24)
+In [15]:
+Copied!
+# When `Permutations` is False
+Protocol
+=
+Template
+(
+Name
+=
+"Walkthrough Example - Colour Mixing"
+,
+Source_Plates
+=
+Colour_Source_Plates
+,
+Destination_Plate_Layout
+=
+Mixture_Plate_Layout
+,
+Picklist_Save_Directory
+=
+"./"
+,
+Source_Colours
+=
+[
+"Red"
+,
+"Blue"
+,
+"Yellow"
+],
+Final_Volume
+=
+2
+,
+Mixing_Ratios
+=
+[
+"1:1"
+,
+"1:10"
+,
+"10:1"
+],
+Permutations
+=
+False
+)
+Protocol
+.
+run
+()
+# When `Permutations` is False
+Protocol = Template(
+    Name = "Walkthrough Example - Colour Mixing",
+    Source_Plates = Colour_Source_Plates,
+    Destination_Plate_Layout = Mixture_Plate_Layout,
+    Picklist_Save_Directory = "./",
+    Source_Colours = ["Red", "Blue", "Yellow"],
+    Final_Volume = 2,
+    Mixing_Ratios = ["1:1", "1:10", "10:1"],
+    Permutations = False
+)
+
+Protocol.run()
+['Red', 'Blue']
+['Red', 'Yellow']
+['Blue', 'Yellow']
+In [16]:
+Copied!
+Colour_Source_Plates
+=
+[
+BMS
+.
+Import_Labware_Layout
+(
+"Coloured_Solutions"
+,
+path
+=
+"../../../data/"
+)]
+Mixture_Plate_Layout
+=
+BMS
+.
+Labware_Layout
+(
+"Mixture Plate"
+,
+"384 OptiAmp Plate"
+)
+Mixture_Plate_Layout
+.
+define_format
+(
+16
+,
+24
+)
+Colour_Source_Plates = [BMS.Import_Labware_Layout("Coloured_Solutions", path = "../../../data/")]
+Mixture_Plate_Layout = BMS.Labware_Layout("Mixture Plate", "384 OptiAmp Plate")
+Mixture_Plate_Layout.define_format(16,24)
+In [17]:
+Copied!
+# When `Permutations` is True
+Protocol
+=
+Template
+(
+Name
+=
+"Walkthrough Example - Colour Mixing"
+,
+Source_Plates
+=
+Colour_Source_Plates
+,
+Destination_Plate_Layout
+=
+Mixture_Plate_Layout
+,
+Picklist_Save_Directory
+=
+"./"
+,
+Source_Colours
+=
+[
+"Red"
+,
+"Blue"
+,
+"Yellow"
+],
+Final_Volume
+=
+2
+,
+Mixing_Ratios
+=
+[
+"1:1"
+,
+"1:9"
+,
+"9:1"
+],
+Permutations
+=
+True
+)
+Protocol
+.
+run
+()
+# When `Permutations` is True
+Protocol = Template(
+    Name = "Walkthrough Example - Colour Mixing",
+    Source_Plates = Colour_Source_Plates,
+    Destination_Plate_Layout = Mixture_Plate_Layout,
+    Picklist_Save_Directory = "./",
+    Source_Colours = ["Red", "Blue", "Yellow"],
+    Final_Volume = 2,
+    Mixing_Ratios = ["1:1", "1:9", "9:1"],
+    Permutations = True
+)
+
+Protocol.run()
+['Red', 'Blue']
+['Red', 'Yellow']
+['Blue', 'Red']
+['Blue', 'Yellow']
+['Yellow', 'Red']
+['Yellow', 'Blue']
+Next, we'll add in code to set up the destination plate. If you're not sure how
+BMS.Labware_Layout
+objects work, check the
+documentation
+.
+In [18]:
+Copied!
+class
+Template
+(
+EchoProto
+.
+EchoProto_Template
+):
+def
+__init__
+(
+self
+,
+Source_Colours
+,
+Final_Volume
+,
+Mixing_Ratios
+,
+Permutations
+=
+False
+,
+**
+kwargs
+# This will make the superclass arguments available to `Colour_Mixing` as keyword arguments
+):
+super
+()
+.
+__init__
+(
+**
+kwargs
+)
+# This passes the keyword arguments to the superclass
+#######################
+# User Defined Values #
+#######################
+self
+.
+source_colours
+=
+Source_Colours
+self
+.
+final_volume
+=
+Final_Volume
+# uL
+self
+.
+mixing_ratios
+=
+Mixing_Ratios
+self
+.
+permutations
+=
+Permutations
+def
+run
+(
+self
+):
+# Set up an empty list in which the colour mixtures required will be added
+Colour_Mixtures
+=
+[]
+# Iterate through the list of source colours provided to create the list of mixtures.
+for
+colour_1
+in
+self
+.
+source_colours
+:
+for
+colour_2
+in
+self
+.
+source_colours
+:
+# Ignore situations where colour_1 and colour_2 are the same
+if
+colour_1
+==
+colour_2
+:
+continue
+# Unless permutations has been set to `True`, ignore situations where...
+# ...the same colours have already been mixed, just in a different order
+elif
+not
+self
+.
+permutations
+and
+[
+colour_2
+,
+colour_1
+]
+in
+Colour_Mixtures
+:
+continue
+else
+:
+# Add the two colours to the list of mixtures to prepare
+Colour_Mixtures
+.
+append
+([
+colour_1
+,
+colour_2
+])
+# Here, we'll print to OUT all of the mixtures which will be prepared
+for
+c
+in
+Colour_Mixtures
+:
+print
+(
+c
+)
+# Determine how may different mixtures will be prepared
+Number_Of_Mixtures
+=
+len
+(
+Colour_Mixtures
+)
+*
+len
+(
+self
+.
+mixing_ratios
+)
+# Use BMS.Create_Labware_Needed to ensure enough destination plates are available
+Extra_Destination_Plates_Required
+=
+BMS
+.
+Create_Labware_Needed
+(
+Labware_Format
+=
+self
+.
+destination_plate_layouts
+[
+0
+],
+N_Wells_Needed
+=
+Number_Of_Mixtures
+,
+N_Wells_Available
+=
+"All"
+,
+Return_Original_Layout
+=
+False
+)
+# If any extra plates were created, add them using the `add_destination_layout` method defined by the superclass
+for
+plate_layout
+in
+Extra_Destination_Plates_Required
+:
+self
+.
+add_destination_layout
+(
+plate_layout
+)
+# Add content to the destination plate(s)
+# A counter is used to iterate through the destination plates (if more than one)
+Destination_Plate_Index
+=
+0
+for
+mixture
+in
+Colour_Mixtures
+:
+# Get the current destination plate
+Destination_Plate
+=
+self
+.
+destination_plate_layouts
+[
+Destination_Plate_Index
+]
+# Get the colours
+colour_1
+=
+mixture
+[
+0
+]
+colour_2
+=
+mixture
+[
+1
+]
+# For every ratio defined by the user
+for
+ratio
+in
+self
+.
+mixing_ratios
+:
+# Get the ratio for each colour
+colour_1_ratio
+=
+float
+(
+ratio
+.
+split
+(
+":"
+)[
+0
+])
+colour_2_ratio
+=
+float
+(
+ratio
+.
+split
+(
+":"
+)[
+1
+])
+# Get the volumes to add for each colour
+colour_1_volume
+=
+(
+colour_1_ratio
+/
+(
+colour_1_ratio
++
+colour_2_ratio
+))
+*
+self
+.
+final_volume
+colour_2_volume
+=
+(
+colour_2_ratio
+/
+(
+colour_1_ratio
++
+colour_2_ratio
+))
+*
+self
+.
+final_volume
+# Get the next empty well in the destination plate
+well
+=
+Destination_Plate
+.
+get_next_empty_well
+()
+# If there are no empty wells left, iterate to the next plate and try again
+if
+not
+well
+:
+Destination_Plate_Index
++=
+1
+Destination_Plate
+=
+self
+.
+destination_plate_layouts
+[
+Destination_Plate_Index
+]
+well
+=
+Destination_Plate
+.
+get_next_empty_well
+()
+# Add content to the plate
+Destination_Plate
+.
+add_content
+(
+Well
+=
+well
+,
+Reagent
+=
+colour_1
+,
+Volume
+=
+colour_1_volume
+)
+Destination_Plate
+.
+add_content
+(
+Well
+=
+well
+,
+Reagent
+=
+colour_2
+,
+Volume
+=
+colour_2_volume
+)
+class Template(EchoProto.EchoProto_Template):
+    def __init__(
+        self,
+        Source_Colours,
+        Final_Volume,
+        Mixing_Ratios,
+        Permutations = False,
+        **kwargs # This will make the superclass arguments available to `Colour_Mixing` as keyword arguments
+    ):
+        super().__init__(**kwargs) # This passes the keyword arguments to the superclass
+        
+        #######################
+        # User Defined Values #
+        #######################
+        self.source_colours = Source_Colours
+        self.final_volume = Final_Volume # uL
+        self.mixing_ratios = Mixing_Ratios
+        self.permutations = Permutations
+
+    def run(self):
+        
+        # Set up an empty list in which the colour mixtures required will be added
+        Colour_Mixtures = []
+        
+        # Iterate through the list of source colours provided to create the list of mixtures.
+        for colour_1 in self.source_colours:
+            for colour_2 in self.source_colours:
+                # Ignore situations where colour_1 and colour_2 are the same
+                if colour_1 == colour_2:
+                    continue
+                # Unless permutations has been set to `True`, ignore situations where...
+                # ...the same colours have already been mixed, just in a different order
+                elif not self.permutations and [colour_2, colour_1] in Colour_Mixtures:
+                    continue
+                else:
+                    # Add the two colours to the list of mixtures to prepare
+                    Colour_Mixtures.append([colour_1, colour_2])
+        
+        # Here, we'll print to OUT all of the mixtures which will be prepared
+        for c in Colour_Mixtures:
+            print(c)
+            
+        # Determine how may different mixtures will be prepared
+        Number_Of_Mixtures = len(Colour_Mixtures) * len(self.mixing_ratios)
+        
+        # Use BMS.Create_Labware_Needed to ensure enough destination plates are available
+        Extra_Destination_Plates_Required = BMS.Create_Labware_Needed(
+            Labware_Format = self.destination_plate_layouts[0],
+            N_Wells_Needed = Number_Of_Mixtures,
+            N_Wells_Available = "All",
+            Return_Original_Layout = False
+        )
+        
+        # If any extra plates were created, add them using the `add_destination_layout` method defined by the superclass
+        for plate_layout in Extra_Destination_Plates_Required:
+            self.add_destination_layout(plate_layout)
+        
+        # Add content to the destination plate(s)
+        
+        # A counter is used to iterate through the destination plates (if more than one)
+        Destination_Plate_Index = 0
+        
+        for mixture in Colour_Mixtures:
+            # Get the current destination plate
+            Destination_Plate = self.destination_plate_layouts[Destination_Plate_Index]
+            
+            # Get the colours
+            colour_1 = mixture[0]
+            colour_2 = mixture[1]
+            
+            # For every ratio defined by the user
+            for ratio in self.mixing_ratios:
+                # Get the ratio for each colour
+                colour_1_ratio = float(ratio.split(":")[0])
+                colour_2_ratio = float(ratio.split(":")[1])
+                
+                # Get the volumes to add for each colour
+                colour_1_volume = (colour_1_ratio/(colour_1_ratio + colour_2_ratio)) * self.final_volume
+                colour_2_volume = (colour_2_ratio/(colour_1_ratio + colour_2_ratio)) * self.final_volume
+                
+                # Get the next empty well in the destination plate
+                well = Destination_Plate.get_next_empty_well()
+                # If there are no empty wells left, iterate to the next plate and try again
+                if not well:
+                    Destination_Plate_Index += 1
+                    Destination_Plate = self.destination_plate_layouts[Destination_Plate_Index]
+                    well = Destination_Plate.get_next_empty_well()
+                
+                # Add content to the plate
+                Destination_Plate.add_content(
+                    Well = well,
+                    Reagent = colour_1,
+                    Volume = colour_1_volume                    
+                )
+                Destination_Plate.add_content(
+                    Well = well,
+                    Reagent = colour_2,
+                    Volume = colour_2_volume                    
+                )
+In [19]:
+Copied!
+Colour_Source_Plates
+=
+[
+BMS
+.
+Import_Labware_Layout
+(
+"Coloured_Solutions"
+,
+path
+=
+"../../../data/"
+)]
+Mixture_Plate_Layout
+=
+BMS
+.
+Labware_Layout
+(
+"Mixture Plate"
+,
+"384 OptiAmp Plate"
+)
+Mixture_Plate_Layout
+.
+define_format
+(
+16
+,
+24
+)
+Colour_Source_Plates = [BMS.Import_Labware_Layout("Coloured_Solutions", path = "../../../data/")]
+Mixture_Plate_Layout = BMS.Labware_Layout("Mixture Plate", "384 OptiAmp Plate")
+Mixture_Plate_Layout.define_format(16,24)
+In [20]:
+Copied!
+Protocol
+=
+Template
+(
+Name
+=
+"Walkthrough Example - Colour Mixing"
+,
+Source_Plates
+=
+Colour_Source_Plates
+,
+Destination_Plate_Layout
+=
+Mixture_Plate_Layout
+,
+Picklist_Save_Directory
+=
+"./"
+,
+Source_Colours
+=
+[
+"Red"
+,
+"Blue"
+,
+"Yellow"
+],
+Final_Volume
+=
+2
+,
+Mixing_Ratios
+=
+[
+"1:1"
+,
+"1:9"
+,
+"9:1"
+],
+Permutations
+=
+False
+)
+Protocol
+.
+run
+()
+Protocol = Template(
+    Name = "Walkthrough Example - Colour Mixing",
+    Source_Plates = Colour_Source_Plates,
+    Destination_Plate_Layout = Mixture_Plate_Layout,
+    Picklist_Save_Directory = "./",
+    Source_Colours = ["Red", "Blue", "Yellow"],
+    Final_Volume = 2,
+    Mixing_Ratios = ["1:1", "1:9", "9:1"],
+    Permutations = False
+)
+Protocol.run()
+['Red', 'Blue']
+['Red', 'Yellow']
+['Blue', 'Yellow']
+We can check the destination plate(s) to see what has been added to them
+In [21]:
+Copied!
+for
+destination_plate_layout
+in
+Protocol
+.
+destination_plate_layouts
+:
+destination_plate_layout
+.
+print
+()
+for destination_plate_layout in Protocol.destination_plate_layouts:
+    destination_plate_layout.print()
+Information for Mixture Plate
+Plate Type: 384 OptiAmp Plate
+Well	Volume(uL)	Liquid Class	Reagent
+A1	1.0		Unknown		Red
+A1	1.0		Unknown		Blue
+A2	0.2		Unknown		Red
+A2	1.8		Unknown		Blue
+A3	1.8		Unknown		Red
+A3	0.2		Unknown		Blue
+A4	1.0		Unknown		Red
+A4	1.0		Unknown		Yellow
+A5	0.2		Unknown		Red
+A5	1.8		Unknown		Yellow
+A6	1.8		Unknown		Red
+A6	0.2		Unknown		Yellow
+A7	1.0		Unknown		Blue
+A7	1.0		Unknown		Yellow
+A8	0.2		Unknown		Blue
+A8	1.8		Unknown		Yellow
+A9	1.8		Unknown		Blue
+A9	0.2		Unknown		Yellow
+Generating the Picklists
+¶
+The final step in making our template class is to generate the picklist files. Luckily, the
+EchoProto_Template
+superclass has a method which handles everything for us: the
+create_picklists
+method.
+In [22]:
+Copied!
+class
+Template
+(
+EchoProto
+.
+EchoProto_Template
+):
+def
+__init__
+(
+self
+,
+Source_Colours
+,
+Final_Volume
+,
+Mixing_Ratios
+,
+Permutations
+=
+False
+,
+Merge
+=
+True
+,
+**
+kwargs
+# This will make the superclass arguments available to `Colour_Mixing` as keyword arguments
+):
+super
+()
+.
+__init__
+(
+**
+kwargs
+)
+# This passes the keyword arguments to the superclass
+#######################
+# User Defined Values #
+#######################
+self
+.
+source_colours
+=
+Source_Colours
+self
+.
+final_volume
+=
+Final_Volume
+# uL
+self
+.
+mixing_ratios
+=
+Mixing_Ratios
+self
+.
+permutations
+=
+Permutations
+self
+.
+merge
+=
+Merge
+def
+run
+(
+self
+):
+# Set up an empty list in which the colour mixtures required will be added
+Colour_Mixtures
+=
+[]
+# Iterate through the list of source colours provided to create the list of mixtures.
+for
+colour_1
+in
+self
+.
+source_colours
+:
+for
+colour_2
+in
+self
+.
+source_colours
+:
+# Ignore situations where colour_1 and colour_2 are the same
+if
+colour_1
+==
+colour_2
+:
+continue
+# Unless permutations has been set to `True`, ignore situations where...
+# ...the same colours have already been mixed, just in a different order
+elif
+not
+self
+.
+permutations
+and
+[
+colour_2
+,
+colour_1
+]
+in
+Colour_Mixtures
+:
+continue
+else
+:
+# Add the two colours to the list of mixtures to prepare
+Colour_Mixtures
+.
+append
+([
+colour_1
+,
+colour_2
+])
+# Here, we'll print to OUT all of the mixtures which will be prepared
+for
+c
+in
+Colour_Mixtures
+:
+print
+(
+c
+)
+# Determine how may different mixtures will be prepared
+Number_Of_Mixtures
+=
+len
+(
+Colour_Mixtures
+)
+*
+len
+(
+self
+.
+mixing_ratios
+)
+# Use BMS.Create_Labware_Needed to ensure enough destination plates are available
+Extra_Destination_Plates_Required
+=
+BMS
+.
+Create_Labware_Needed
+(
+Labware_Format
+=
+self
+.
+destination_plate_layouts
+[
+0
+],
+N_Wells_Needed
+=
+Number_Of_Mixtures
+,
+N_Wells_Available
+=
+"All"
+,
+Return_Original_Layout
+=
+False
+)
+# If any extra plates were created, add them using the `add_destination_layout` method defined by the superclass
+for
+plate_layout
+in
+Extra_Destination_Plates_Required
+:
+self
+.
+add_destination_layout
+(
+plate_layout
+)
+# Add content to the destination plate(s)
+# A counter is used to iterate through the destination plates (if more than one)
+Destination_Plate_Index
+=
+0
+for
+mixture
+in
+Colour_Mixtures
+:
+# Get the current destination plate
+Destination_Plate
+=
+self
+.
+destination_plate_layouts
+[
+Destination_Plate_Index
+]
+# Get the colours
+colour_1
+=
+mixture
+[
+0
+]
+colour_2
+=
+mixture
+[
+1
+]
+# For every ratio defined by the user
+for
+ratio
+in
+self
+.
+mixing_ratios
+:
+# Get the ratio for each colour
+colour_1_ratio
+=
+float
+(
+ratio
+.
+split
+(
+":"
+)[
+0
+])
+colour_2_ratio
+=
+float
+(
+ratio
+.
+split
+(
+":"
+)[
+1
+])
+# Get the volumes to add for each colour
+colour_1_volume
+=
+(
+colour_1_ratio
+/
+(
+colour_1_ratio
++
+colour_2_ratio
+))
+*
+self
+.
+final_volume
+colour_2_volume
+=
+(
+colour_2_ratio
+/
+(
+colour_1_ratio
++
+colour_2_ratio
+))
+*
+self
+.
+final_volume
+# Get the next empty well in the destination plate
+well
+=
+Destination_Plate
+.
+get_next_empty_well
+()
+# If there are no empty wells left, iterate to the next plate and try again
+if
+not
+well
+:
+Destination_Plate_Index
++=
+1
+Destination_Plate
+=
+self
+.
+destination_plate_layouts
+[
+Destination_Plate_Index
+]
+well
+=
+Destination_Plate
+.
+get_next_empty_well
+()
+# Add content to the plate
+Destination_Plate
+.
+add_content
+(
+Well
+=
+well
+,
+Reagent
+=
+colour_1
+,
+Volume
+=
+colour_1_volume
+)
+Destination_Plate
+.
+add_content
+(
+Well
+=
+well
+,
+Reagent
+=
+colour_2
+,
+Volume
+=
+colour_2_volume
+)
+self
+.
+create_picklists
+()
+class Template(EchoProto.EchoProto_Template):
+    def __init__(
+        self,
+        Source_Colours,
+        Final_Volume,
+        Mixing_Ratios,
+        Permutations = False,
+        Merge = True,
+        **kwargs # This will make the superclass arguments available to `Colour_Mixing` as keyword arguments
+    ):
+        super().__init__(**kwargs) # This passes the keyword arguments to the superclass
+        
+        #######################
+        # User Defined Values #
+        #######################
+        self.source_colours = Source_Colours
+        self.final_volume = Final_Volume # uL
+        self.mixing_ratios = Mixing_Ratios
+        self.permutations = Permutations
+        self.merge = Merge
+
+    def run(self):
+        
+        # Set up an empty list in which the colour mixtures required will be added
+        Colour_Mixtures = []
+        
+        # Iterate through the list of source colours provided to create the list of mixtures.
+        for colour_1 in self.source_colours:
+            for colour_2 in self.source_colours:
+                # Ignore situations where colour_1 and colour_2 are the same
+                if colour_1 == colour_2:
+                    continue
+                # Unless permutations has been set to `True`, ignore situations where...
+                # ...the same colours have already been mixed, just in a different order
+                elif not self.permutations and [colour_2, colour_1] in Colour_Mixtures:
+                    continue
+                else:
+                    # Add the two colours to the list of mixtures to prepare
+                    Colour_Mixtures.append([colour_1, colour_2])
+        
+        # Here, we'll print to OUT all of the mixtures which will be prepared
+        for c in Colour_Mixtures:
+            print(c)
+            
+        # Determine how may different mixtures will be prepared
+        Number_Of_Mixtures = len(Colour_Mixtures) * len(self.mixing_ratios)
+        
+        # Use BMS.Create_Labware_Needed to ensure enough destination plates are available
+        Extra_Destination_Plates_Required = BMS.Create_Labware_Needed(
+            Labware_Format = self.destination_plate_layouts[0],
+            N_Wells_Needed = Number_Of_Mixtures,
+            N_Wells_Available = "All",
+            Return_Original_Layout = False
+        )
+        
+        # If any extra plates were created, add them using the `add_destination_layout` method defined by the superclass
+        for plate_layout in Extra_Destination_Plates_Required:
+            self.add_destination_layout(plate_layout)
+        
+        # Add content to the destination plate(s)
+        
+        # A counter is used to iterate through the destination plates (if more than one)
+        Destination_Plate_Index = 0
+        
+        for mixture in Colour_Mixtures:
+            # Get the current destination plate
+            Destination_Plate = self.destination_plate_layouts[Destination_Plate_Index]
+            
+            # Get the colours
+            colour_1 = mixture[0]
+            colour_2 = mixture[1]
+            
+            # For every ratio defined by the user
+            for ratio in self.mixing_ratios:
+                # Get the ratio for each colour
+                colour_1_ratio = float(ratio.split(":")[0])
+                colour_2_ratio = float(ratio.split(":")[1])
+                
+                # Get the volumes to add for each colour
+                colour_1_volume = (colour_1_ratio/(colour_1_ratio + colour_2_ratio)) * self.final_volume
+                colour_2_volume = (colour_2_ratio/(colour_1_ratio + colour_2_ratio)) * self.final_volume
+                
+                # Get the next empty well in the destination plate
+                well = Destination_Plate.get_next_empty_well()
+                # If there are no empty wells left, iterate to the next plate and try again
+                if not well:
+                    Destination_Plate_Index += 1
+                    Destination_Plate = self.destination_plate_layouts[Destination_Plate_Index]
+                    well = Destination_Plate.get_next_empty_well()
+                
+                # Add content to the plate
+                Destination_Plate.add_content(
+                    Well = well,
+                    Reagent = colour_1,
+                    Volume = colour_1_volume                    
+                )
+                Destination_Plate.add_content(
+                    Well = well,
+                    Reagent = colour_2,
+                    Volume = colour_2_volume                    
+                )
+                
+        self.create_picklists()
+In [23]:
+Copied!
+Colour_Source_Plates
+=
+[
+BMS
+.
+Import_Labware_Layout
+(
+"Coloured_Solutions"
+,
+path
+=
+"../../../data/"
+)]
+Mixture_Plate_Layout
+=
+BMS
+.
+Labware_Layout
+(
+"Mixture Plate"
+,
+"384 OptiAmp Plate"
+)
+Mixture_Plate_Layout
+.
+define_format
+(
+16
+,
+24
+)
+Colour_Source_Plates = [BMS.Import_Labware_Layout("Coloured_Solutions", path = "../../../data/")]
+Mixture_Plate_Layout = BMS.Labware_Layout("Mixture Plate", "384 OptiAmp Plate")
+Mixture_Plate_Layout.define_format(16,24)
+In [24]:
+Copied!
+Protocol
+=
+Template
+(
+Name
+=
+"Walkthrough Example - Colour Mixing"
+,
+Source_Plates
+=
+Colour_Source_Plates
+,
+Destination_Plate_Layout
+=
+Mixture_Plate_Layout
+,
+Picklist_Save_Directory
+=
+"../../../data"
+,
+Source_Colours
+=
+[
+"Red"
+,
+"Blue"
+,
+"Yellow"
+],
+Final_Volume
+=
+2
+,
+Mixing_Ratios
+=
+[
+"1:1"
+,
+"1:9"
+,
+"9:1"
+],
+Permutations
+=
+False
+,
+Merge
+=
+True
+)
+Protocol
+.
+run
+()
+Protocol = Template(
+    Name = "Walkthrough Example - Colour Mixing",
+    Source_Plates = Colour_Source_Plates,
+    Destination_Plate_Layout = Mixture_Plate_Layout,
+    Picklist_Save_Directory = "../../../data",
+    Source_Colours = ["Red", "Blue", "Yellow"],
+    Final_Volume = 2,
+    Mixing_Ratios = ["1:1", "1:9", "9:1"],
+    Permutations = False,
+    Merge = True
+)
+Protocol.run()
+['Red', 'Blue']
+['Red', 'Yellow']
+['Blue', 'Yellow']
+..\..\..\data\Walkthrough Example - Colour Mixing-384PP-(Coloured Solutions).csv
+Preview the Created Picklist
+¶
+In [25]:
+Copied!
+picklist
+=
+open
+(
+"../../../data/Walkthrough Example - Colour Mixing-384PP-(Coloured Solutions).csv"
+,
+"r"
+)
+print
+(
+picklist
+.
+read
+())
+picklist
+.
+close
+()
+picklist = open("../../../data/Walkthrough Example - Colour Mixing-384PP-(Coloured Solutions).csv", "r")
+print(picklist.read())
+
+picklist.close()
+UID,Source Plate Name,Source Plate Type,Source Well,Destination Plate Name,Destination Plate Type,Destination Well,Transfer Volume,Reagent
+0,Coloured Solutions,384PP_AQ_BP,A3,Mixture Plate,384 OptiAmp Plate,A4,1000,Yellow
+1,Coloured Solutions,384PP_AQ_BP,A3,Mixture Plate,384 OptiAmp Plate,A5,1800,Yellow
+2,Coloured Solutions,384PP_AQ_BP,A3,Mixture Plate,384 OptiAmp Plate,A6,200,Yellow
+3,Coloured Solutions,384PP_AQ_BP,A3,Mixture Plate,384 OptiAmp Plate,A7,1000,Yellow
+4,Coloured Solutions,384PP_AQ_BP,A3,Mixture Plate,384 OptiAmp Plate,A8,1800,Yellow
+5,Coloured Solutions,384PP_AQ_BP,A3,Mixture Plate,384 OptiAmp Plate,A9,200,Yellow
+6,Coloured Solutions,384PP_AQ_BP,A1,Mixture Plate,384 OptiAmp Plate,A1,1000,Red
+7,Coloured Solutions,384PP_AQ_BP,A1,Mixture Plate,384 OptiAmp Plate,A2,200,Red
+8,Coloured Solutions,384PP_AQ_BP,A1,Mixture Plate,384 OptiAmp Plate,A3,1800,Red
+9,Coloured Solutions,384PP_AQ_BP,A1,Mixture Plate,384 OptiAmp Plate,A4,1000,Red
+10,Coloured Solutions,384PP_AQ_BP,A1,Mixture Plate,384 OptiAmp Plate,A5,200,Red
+11,Coloured Solutions,384PP_AQ_BP,A1,Mixture Plate,384 OptiAmp Plate,A6,1800,Red
+12,Coloured Solutions,384PP_AQ_BP,A2,Mixture Plate,384 OptiAmp Plate,A1,1000,Blue
+13,Coloured Solutions,384PP_AQ_BP,A2,Mixture Plate,384 OptiAmp Plate,A2,1800,Blue
+14,Coloured Solutions,384PP_AQ_BP,A2,Mixture Plate,384 OptiAmp Plate,A3,200,Blue
+15,Coloured Solutions,384PP_AQ_BP,A2,Mixture Plate,384 OptiAmp Plate,A7,1000,Blue
+16,Coloured Solutions,384PP_AQ_BP,A2,Mixture Plate,384 OptiAmp Plate,A8,200,Blue
+17,Coloured Solutions,384PP_AQ_BP,A2,Mixture Plate,384 OptiAmp Plate,A9,1800,Blue
+Adding the Template to BiomationScripter
+¶
+Custom made templates can be added to BiomationScripter. They must be contained within their own file named
+<PROTOCOL>.py
+(in this case
+Colour_Mixing.py
+) and placed within the
+BiomationScripter/EchoProto/Templates/
+directory.
+The Template created here has already been added, so can be accessed by importing the it from
+BiomationScripter.EchoProto.Templates
+module as shown below:
+In [26]:
+Copied!
+from
+BiomationScripter.EchoProto.Templates
+import
+Colour_Mixing
+from BiomationScripter.EchoProto.Templates import Colour_Mixing
+In [27]:
+Copied!
+Colour_Source_Plates
+=
+[
+BMS
+.
+Import_Labware_Layout
+(
+"Coloured_Solutions"
+,
+path
+=
+"../../../data/"
+)]
+Mixture_Plate_Layout
+=
+BMS
+.
+Labware_Layout
+(
+"Mixture Plate"
+,
+"384 OptiAmp Plate"
+)
+Mixture_Plate_Layout
+.
+define_format
+(
+16
+,
+24
+)
+Colour_Source_Plates = [BMS.Import_Labware_Layout("Coloured_Solutions", path = "../../../data/")]
+Mixture_Plate_Layout = BMS.Labware_Layout("Mixture Plate", "384 OptiAmp Plate")
+Mixture_Plate_Layout.define_format(16,24)
+In [28]:
+Copied!
+Protocol_Template
+=
+Colour_Mixing
+.
+Template
+(
+Name
+=
+"Walkthrough Example - Colour Mixing"
+,
+Source_Plates
+=
+Colour_Source_Plates
+,
+Destination_Plate_Layout
+=
+Mixture_Plate_Layout
+,
+Picklist_Save_Directory
+=
+"../../../data"
+,
+Source_Colours
+=
+[
+"Red"
+,
+"Blue"
+,
+"Yellow"
+],
+Final_Volume
+=
+2
+,
+Mixing_Ratios
+=
+[
+"1:1"
+,
+"1:9"
+,
+"9:1"
+],
+Permutations
+=
+False
+,
+Merge
+=
+True
+)
+Protocol_Template
+.
+run
+()
+Protocol_Template = Colour_Mixing.Template(
+    Name = "Walkthrough Example - Colour Mixing",
+    Source_Plates = Colour_Source_Plates,
+    Destination_Plate_Layout = Mixture_Plate_Layout,
+    Picklist_Save_Directory = "../../../data",
+    Source_Colours = ["Red", "Blue", "Yellow"],
+    Final_Volume = 2,
+    Mixing_Ratios = ["1:1", "1:9", "9:1"],
+    Permutations = False,
+    Merge = True
+)
+Protocol_Template.run()
+['Red', 'Blue']
+['Red', 'Yellow']
+['Blue', 'Yellow']
+..\..\..\data\Walkthrough Example - Colour Mixing-384PP-(Coloured Solutions).csv
+Once the template has been tested, it can be uploaded to BiomationScripter for use by others. To do this,
+open a pull request on GitHub
+. Make sure you've also added to the
+documentation
+.
+In [ ]:
+Copied!

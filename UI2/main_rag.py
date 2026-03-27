@@ -310,7 +310,7 @@ def validate_llm_review(code, handler_config, context_chunks, question):
                 "role": "system",
                 "content": f"""You are a specialized reviewer in {handler_name} liquid handling protocol automation.
 
-Your task is to compare a generated {output_type} script for a {handler_name} robot with similar existing protocols, files and references in order to determine if it is correct and functional.
+Your task is to analyze and compare a generated {output_type} script for a {handler_name} robot with similar existing protocols, files and references in order to determine if it is correct and functional.
 
 You have access to web search. USE IT to look up the official {handler_name} documentation, verify function signatures, check valid labware names, and confirm correct usage patterns.
 
@@ -324,6 +324,8 @@ Here are a suggestion of some checks to do:
 5. **Volume & parameter validity**: Are volumes within pipette capacity? Are speeds, temperatures, and other parameters within acceptable ranges?
 6. **Syntax and logic**: Is the syntax and logic correct? Would this file/script run without errors?
 7. **Completeness**: Is the output/script complete?
+
+Note that sometimes, the generated output can be a script to generate another file usable for the liquid handler (example: python script to generate csv file). Make sure to make the difference and analyze what's important.
 
 RESPONSE FORMAT:
 - If the code is correct and would work: respond with exactly "PASS" on the first line.

@@ -1,0 +1,375 @@
+#
+Synthetic biology
+Star
+Synthetic biology (SynBio) is a multidisciplinary area of research that seeks to create new biological parts, devices, and systems, or to redesign systems that are already found in nature.
+Here are
+    252 public repositories
+    matching this topic...
+Language:
+All
+Filter by language
+All
+252
+Python
+99
+Jupyter Notebook
+33
+HTML
+19
+JavaScript
+16
+MATLAB
+13
+Java
+7
+R
+5
+TypeScript
+5
+C++
+4
+F#
+3
+Sort:
+Most stars
+Sort options
+Most stars
+Fewest stars
+Most forks
+Fewest forks
+Recently updated
+Least recently updated
+CIDARLAB
+/
+cello
+Star
+861
+Genetic circuit design automation
+synthetic-biology
+circuit
+cello
+genetic-circuit-design-automation
+boolean-logic
+bio-design-automation
+Updated
+Sep 19, 2022
+Java
+bebop
+/
+poly
+Sponsor
+Star
+720
+A Go package for engineering organisms.
+go
+bioinformatics
+synthetic-biology
+computational-biology
+dna
+genbank
+alignment
+fasta
+molecular-biology
+mash
+synbio
+bioengineering
+primer-design
+golden-gate
+dna-barcode
+plasmids
+dna-barcoding
+codon-optimizer
+genetic-engineering
+sequence-hashing
+Updated
+Oct 21, 2024
+Go
+Edinburgh-Genome-Foundry
+/
+DnaFeaturesViewer
+Star
+683
+👁️ Python library to plot DNA sequence features (e.g. from Genbank files)
+visualization
+bioinformatics
+synthetic-biology
+genbank
+molecular-biology
+dna-visualization
+Updated
+Jul 2, 2025
+Python
+Lattice-Automation
+/
+seqviz
+Star
+309
+a JavaScript DNA, RNA, and protein sequence viewer
+biology
+synthetic-biology
+vector
+dna
+protein
+rna
+igem
+plasmid
+Updated
+Mar 24, 2026
+TypeScript
+Edinburgh-Genome-Foundry
+/
+DnaChisel
+Star
+265
+✏️ A versatile DNA sequence optimizer
+bioinformatics
+synthetic-biology
+synbio
+sequence-design
+dna-optimization
+codon-optimization
+Updated
+Nov 5, 2025
+Python
+Adibvafa
+/
+CodonTransformer
+Star
+199
+CodonTransformer (1M+ Downloads); The tool for codon optimization, optimizing DNA for protein expression
+machine-learning
+bioinformatics
+deep-learning
+synthetic-biology
+computational-biology
+gene-expression
+biotechnology
+codon-optimization
+codon
+codon-optimizer
+Updated
+Jul 27, 2025
+Python
+BasedLabs
+/
+NoLabs
+Star
+158
+Open source biolab
+bioinformatics
+ai
+proteins
+webserver
+synthetic-biology
+folding
+protein-design
+biolab
+Updated
+Dec 10, 2024
+JavaScript
+Merck
+/
+deepbgc
+Star
+156
+BGC Detection and Classification Using Deep Learning
+python
+deep-learning
+synthetic-biology
+bidirectional-lstm
+natural-products
+deepbgc
+pfam2vec
+biosynthetic-gene-clusters
+Updated
+Nov 11, 2023
+Jupyter Notebook
+khokao
+/
+synergetica
+Star
+118
+A modern, end-to-end genetic circuit design desktop app
+react
+python
+rust
+app
+synthetic-biology
+circuit
+genetic-circuit-design-automation
+tauri
+Updated
+Mar 26, 2025
+TypeScript
+ChristophReich1996
+/
+Cell-DETR
+Star
+109
+Official and maintained implementation of the paper "Attention-Based Transformers for Instance Segmentation of Cells in Microstructures" [BIBM 2020].
+deep-learning
+synthetic-biology
+transformer
+attention
+cell-segmentation
+instance-segmentation
+system-biology
+bibm-2020
+cell-detr
+Updated
+Mar 28, 2022
+Python
+seek4science
+/
+seek
+Star
+91
+For finding, sharing and exchanging Data, Models, Simulations and Processes in Science.
+science
+data
+synthetic-biology
+opendata
+systems-biology
+semantic-web
+isa
+publication
+fair
+datamanagement
+biohackcovid20
+Updated
+Mar 24, 2026
+Ruby
+20n
+/
+act
+Star
+91
+Computational synthetic biology: Predicting DNA edits for bioengineering
+data-mining
+deep-learning
+synthetic-biology
+biochemistry
+fermentation
+metabolic-network
+bioengineering
+computational-synthetic-biology
+acetaminophen
+reaction-operators
+metabolic-engineering
+enzyme-function
+Updated
+Mar 27, 2017
+Java
+TimothyStiles
+/
+how-to-synbio
+Sponsor
+Star
+83
+The resources I always recommend to new synthetic biologists.
+synthetic-biology
+awesome-list
+getting-started
+synbio
+genetic-engineering
+awesome-synthetic-biology
+awesome-synbio
+Updated
+Sep 18, 2021
+SynBioHub
+/
+synbiohub
+Star
+79
+Web application enabling users and software to browse, upload, and share synthetic biology designs
+rdf
+synthetic-biology
+sbol
+Updated
+Mar 4, 2026
+JavaScript
+CIDARLAB
+/
+Cello-v2
+Star
+68
+Cello v2 is the continuation of the Cello genetic circuit design software.
+synthetic-biology
+cello
+genetic-circuit-design-automation
+bio-design-automation
+Updated
+May 16, 2022
+Java
+Edinburgh-Genome-Foundry
+/
+DnaCauldron
+Star
+66
+⚗️ Simple cloning simulator (Golden Gate etc.) for single and combinatorial assemblies
+synthetic-biology
+molecular-biology
+dna-assembly
+golden-gate
+cloning-simulator
+Updated
+May 12, 2025
+Python
+brsynth
+/
+RetroPathRL
+Star
+56
+Reinforcement Learning based bioretrosynthesis tool
+synthetic-biology
+synbio
+metabolic-engineering
+retropath
+Updated
+Apr 2, 2025
+Python
+Edinburgh-Genome-Foundry
+/
+Plateo
+Star
+46
+🤖 Python biolab automation library: parsers, report generators, picklist simulators, and more
+parser
+synthetic-biology
+lab-automation
+Updated
+May 29, 2025
+Python
+hiyama341
+/
+teemi
+Star
+43
+teemi: A Python package for reproducible and FAIR microbial strain construction. Simulate the entire dbtl-cycle, generate genetic parts, design libraries, and track samples. Open-source Python platform for workflow flexibility and automated tasks, accelerating metabolic engineering. Try teemi with our Google Colab notebooks!
+synthetic-biology
+metabolic-engineering
+machine-learning-guided-engineering-of-biology
+ht-strain-construction
+bio-cad
+Updated
+Mar 23, 2026
+Jupyter Notebook
+Edinburgh-Genome-Foundry
+/
+Geneblocks
+Star
+42
+💠 Find common blocks and differences between DNA sequences
+python
+synthetic-biology
+sequence-analysis
+Updated
+Nov 5, 2025
+Python
+Load more…
+Followers
+150 followers
+Website
+github.com/topics/synthetic-biology
+Wikipedia
+Wikipedia

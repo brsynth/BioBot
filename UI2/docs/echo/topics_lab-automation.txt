@@ -1,0 +1,368 @@
+#
+lab-automation
+Star
+Here are
+    75 public repositories
+    matching this topic...
+Language:
+All
+Filter by language
+All
+75
+Python
+44
+C
+5
+C++
+4
+JavaScript
+4
+Jupyter Notebook
+3
+C#
+2
+PowerShell
+2
+Shell
+2
+TypeScript
+2
+HTML
+1
+Sort:
+Most stars
+Sort options
+Most stars
+Fewest stars
+Most forks
+Fewest forks
+Recently updated
+Least recently updated
+nickvourd
+/
+Windows-Local-Privilege-Escalation-Cookbook
+Star
+1.3k
+Windows Local Privilege Escalation Cookbook
+microsoft
+windows
+powershell
+lab
+administrator
+cookbook
+cheatsheet
+cmd
+lab-automation
+privilege-escalation
+lpe
+local-privilege-escalation
+oscp
+eop
+administrator-privileges
+misconfiguration
+oscp-prep
+osep
+local-administration
+osep-prep
+Updated
+Feb 5, 2026
+PowerShell
+PyLabRobot
+/
+pylabrobot
+Star
+410
+interactive & hardware agnostic SDK for lab automation
+lab-automation
+biotech
+Updated
+Mar 25, 2026
+Python
+pavel-a
+/
+usb-relay-hid
+Star
+275
+Software for USB-connected relays with HID interface. See the WIKI for more info.
+home-automation
+hardware
+lab-automation
+atmega
+usb-hid
+usb-relays
+Updated
+Jun 16, 2023
+C
+Edinburgh-Genome-Foundry
+/
+blabel
+Star
+198
+🏷️ Python label/sticker PDF generation. HTML templates, built-in barcodes, qr codes, and other goodies
+python
+pdf
+label
+qrcode
+barcode
+lab-automation
+datamatrix
+Updated
+Apr 9, 2025
+Python
+Edinburgh-Genome-Foundry
+/
+Taskpacker
+Star
+149
+🎒 Simple schedule optimization library for Python
+scheduling
+lab-automation
+scheduling-algorithms
+numberjack
+Updated
+Sep 25, 2020
+Python
+labjack
+/
+LabJackPython
+Star
+121
+The official Python modules and classes for interacting with the LabJack U3, U6, UE9 and U12
+windows
+macos
+linux
+data-acquisition
+lab-automation
+labjack
+Updated
+Apr 3, 2025
+Python
+beaker-project
+/
+beaker
+Star
+87
+Hardware integration testing system and lab automation for Fedora and RHEL
+python
+testing
+infrastructure
+netboot
+beaker
+provisioning
+lab-automation
+pxe
+hacktoberfest
+Updated
+Feb 17, 2026
+Python
+AD-SDL
+/
+MADSci
+Star
+50
+Main repository for the Modular Autonomous Discovery for Science (MADSci) Framework
+robotics
+lab-automation
+self-driving-laboratories
+self-driving-lab
+autonomous-discovery
+Updated
+Mar 24, 2026
+Python
+labjack
+/
+exodriver
+Star
+49
+The official LabJack UD Linux and Mac OS X USB driver
+macos
+linux
+data-acquisition
+libusb
+lab-automation
+labjack
+Updated
+May 17, 2024
+C
+Edinburgh-Genome-Foundry
+/
+Plateo
+Star
+46
+🤖 Python biolab automation library: parsers, report generators, picklist simulators, and more
+parser
+synthetic-biology
+lab-automation
+Updated
+May 29, 2025
+Python
+AccelerationConsortium
+/
+Matterix
+Star
+28
+Digital Twin for Robotics-Assisted Chemistry Lab Automation
+workflow
+state-machine
+chemistry
+robotics
+simulation
+lab-automation
+materials-science
+robot-learning
+particle-simulation
+sim2real
+digital-twin
+isaacsim
+isaaclab
+matterix
+liquid-simulation
+powder-simulation
+semantics-engine
+Updated
+Feb 9, 2026
+Python
+adaptyvbio
+/
+automancer
+Star
+26
+Automancer is a software application that enables researchers to design, automate, and manage their experiments.
+automation
+lab
+protein
+lab-automation
+microfluidics
+experimental-design
+protein-engineering
+Updated
+Jul 26, 2023
+Python
+itom-project
+/
+itom
+Star
+24
+itom core repository
+python
+opencv
+signal-processing
+ide
+lab-automation
+guis
+pointcloudlibrary
+Updated
+Mar 17, 2026
+C++
+SimpleDeviceModel
+/
+sdm
+Star
+20
+An open source instrument control and data acquisition framework
+lua
+data-acquisition
+data-visualization
+control-panel
+lab-automation
+instrument-control
+gui-builder
+Updated
+Dec 13, 2024
+C++
+pavel-a
+/
+usb-digital-io16-hid
+Star
+14
+Software for USB digital I/O with HID interface. See the wiki.
+windows
+linux
+home-automation
+gpio
+osx
+hardware
+atmega8
+lab-automation
+usb-hid
+Updated
+Jul 24, 2018
+C
+sciencecorp
+/
+galago-core
+Star
+14
+Web interface for the lab automation stack
+automation
+lab
+lab-automation
+workflows
+Updated
+Mar 13, 2026
+TypeScript
+weihuajiang
+/
+SharpHamilton
+Star
+12
+using C# code to control Hamilton STAR/STARlet/STAR plus/STAR vantage
+lab-automation
+pipette
+liquid-handling
+Updated
+Jul 19, 2024
+C#
+jgruselius
+/
+bravo-protocols
+Star
+10
+VWorks protocols and other files for the Agilent NGS Workstations at the Genomics facility at SciLifeLab.
+lab-automation
+Updated
+Mar 12, 2020
+JavaScript
+Edinburgh-Genome-Foundry
+/
+kappagate
+Star
+10
+🔮 Predict DNA assembly clone validity rates - powered by Kappa
+synthetic-biology
+biological-simulations
+lab-automation
+dna-assembly
+kappa-language
+sequence-design
+Updated
+Jul 24, 2020
+Python
+KIST-CSRC
+/
+DenseSSD
+Star
+7
+Machine vision for vial positioning detection toward the safe automation of material synthesis
+computer-vision
+deep-learning
+chemistry
+pytorch
+object-detection
+lab-automation
+material-science
+autonomous-laboratory
+Updated
+Feb 24, 2024
+Python
+Load more…
+Improve this page
+Add a description, image, and links to the
+lab-automation
+topic page so that developers can more easily learn about it.
+Curate this topic
+Add this topic to your repo
+To associate your repository with the
+lab-automation
+topic, visit your repo's landing page and select "manage topics."
+Learn more

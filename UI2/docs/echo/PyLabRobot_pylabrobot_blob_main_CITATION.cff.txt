@@ -1,0 +1,175 @@
+PyLabRobot
+/
+pylabrobot
+Public
+Notifications
+You must be signed in to change notification settings
+Fork
+141
+Star
+410
+Files
+Expand file tree
+main
+/
+CITATION.cff
+Copy path
+Blame
+More file actions
+Blame
+More file actions
+Latest commit
+History
+History
+History
+29 lines (29 loc) · 918 Bytes
+main
+/
+CITATION.cff
+Top
+File metadata and controls
+Code
+Blame
+29 lines (29 loc) · 918 Bytes
+Raw
+Copy raw file
+Download raw file
+Open symbols panel
+Edit and raw actions
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+11
+12
+13
+14
+15
+16
+17
+18
+19
+20
+21
+22
+23
+24
+25
+26
+27
+28
+29
+cff-version
+:
+1.2.0
+message
+:
+"
+If you use this software, please cite it as below.
+"
+authors
+:
+-
+family-names
+:
+"
+PyLabRobot contributors
+"
+preferred-citation
+:
+type
+:
+article
+authors
+:
+-
+family-names
+:
+Wierenga
+given-names
+:
+Rick
+-
+family-names
+:
+Golas
+given-names
+:
+Stefan
+-
+family-names
+:
+Ho
+given-names
+:
+Wilson
+-
+family-names
+:
+Coley
+given-names
+:
+Connor
+-
+family-names
+:
+Esvelt
+given-names
+:
+Kevin
+title
+:
+"
+PyLabRobot: An Open-Source, Hardware Agnostic Interface for Liquid-Handling Robots and Accessories
+"
+date-released
+:
+"
+2023-10-20
+"
+year
+:
+2023
+doi
+:
+10.1016/j.device.2023.100111
+publisher
+:
+"
+Elsevier
+"
+url
+:
+"
+https://www.cell.com/device/fulltext/S2666-9986(23)00170-9
+"
+journal
+:
+Device
+repository
+:
+"
+https://github.com/PyLabRobot/pylabrobot
+"
+repository-code
+:
+"
+https://github.com/PyLabRobot/pylabrobot
+"
+url
+:
+"
+https://docs.pylabrobot.org
+"
+type
+:
+software
+license
+:
+MIT

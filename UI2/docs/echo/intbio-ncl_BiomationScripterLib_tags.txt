@@ -1,0 +1,67 @@
+intbio-ncl
+/
+BiomationScripterLib
+Public
+Notifications
+You must be signed in to change notification settings
+Fork
+0
+Star
+4
+Tags: intbio-ncl/BiomationScripterLib
+Tags
+v1.0.0
+Toggle v1.0.0's commit message
+Verified
+Verified
+This commit was created on GitHub.com and signed with GitHub’s
+verified signature
+.
+                The key has expired.
+GPG key ID:
+4AEE18F83AFDEB23
+Expired
+Verified
+Learn about vigilant mode
+Merge pull request
+#53
+from intbio-ncl/platelayoutdocs
+
+PlateLayoutDocs
+Apr 16, 2023
+cdd4bb7
+zip
+tar.gz
+Notes
+v0.2.2
+Toggle v0.2.2's commit message
+Update versions to 0.2.2
+Aug 26, 2022
+4e7b2c0
+zip
+tar.gz
+Notes
+v0.2.0
+Toggle v0.2.0's commit message
+Re-added `serial_dilution_volumes`
+Aug 24, 2022
+a1f8d07
+zip
+tar.gz
+Notes
+v0.1.1
+Toggle v0.1.1's commit message
+Updated version number for release 0.1.1
+Mar 15, 2022
+f46d65b
+zip
+tar.gz
+Notes
+v0.1.0
+Toggle v0.1.0's commit message
+Minor formatting changes
+Feb 24, 2022
+731a4c0
+zip
+tar.gz
+Notes

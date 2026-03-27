@@ -1,0 +1,202 @@
+kithairon 0.2.0
+pip install kithairon
+Copy PIP instructions
+Latest version
+Released:
+Jun 23, 2024
+A library for the Echo liquid handler.
+Navigation
+Verified details
+These details have been
+verified by PyPI
+Maintainers
+cevans
+Unverified details
+These details have
+not
+been verified by PyPI
+Project links
+Documentation
+Homepage
+Meta
+License:
+European Union Public Licence 1.2 (EUPL 1.2) (EUROPEAN UNION PUBLIC LICENCE v. 1.2 EUPL © the European Union 2007, 2016  This European Union Publi...)
+Author:
+Constantine Evans
+Provides-Extra:
+all
+,
+docs
+,
+graphics
+,
+testing
+Classifiers
+Development Status
+2 - Pre-Alpha
+Intended Audience
+Science/Research
+License
+OSI Approved :: European Union Public Licence 1.2 (EUPL 1.2)
+Natural Language
+English
+Programming Language
+Python
+Python :: 3.10
+Python :: 3.11
+Python :: 3.12
+Topic
+Scientific/Engineering
+Scientific/Engineering :: Chemistry
+Scientific/Engineering :: Physics
+Typing
+Typed
+Report project as malware
+Project description
+kithairon: a package Python package for the Echo Liquid Handler
+This is the beginnings of a library to assist in using the Labcyte / Beckman Coulter Echo acoustic liquid handler.  If you are reading this readme in this state, then please realize that the library is currently in a likely unusably early state of development.
+Project details
+Verified details
+These details have been
+verified by PyPI
+Maintainers
+cevans
+Unverified details
+These details have
+not
+been verified by PyPI
+Project links
+Documentation
+Homepage
+Meta
+License:
+European Union Public Licence 1.2 (EUPL 1.2) (EUROPEAN UNION PUBLIC LICENCE v. 1.2 EUPL © the European Union 2007, 2016  This European Union Publi...)
+Author:
+Constantine Evans
+Provides-Extra:
+all
+,
+docs
+,
+graphics
+,
+testing
+Classifiers
+Development Status
+2 - Pre-Alpha
+Intended Audience
+Science/Research
+License
+OSI Approved :: European Union Public Licence 1.2 (EUPL 1.2)
+Natural Language
+English
+Programming Language
+Python
+Python :: 3.10
+Python :: 3.11
+Python :: 3.12
+Topic
+Scientific/Engineering
+Scientific/Engineering :: Chemistry
+Scientific/Engineering :: Physics
+Typing
+Typed
+Release history
+Release notifications
+|
+RSS feed
+This version
+0.2.0
+Jun 23, 2024
+Download files
+Download the file for your platform. If you're not sure which to choose, learn more about
+installing packages
+.
+Source Distribution
+kithairon-0.2.0.tar.gz
+(59.7 kB
+view details
+)
+Uploaded
+Jun 23, 2024
+Source
+Built Distribution
+Filter files by name, interpreter, ABI, and platform.
+If you're not sure about the file name format, learn more about
+wheel file names
+.
+The dropdown lists show the available interpreters, ABIs, and platforms.
+Enable javascript to be able to filter the list of wheel files.
+Copy a direct link to the current filters
+Copy
+File name
+Interpreter
+Interpreter
+py3
+ABI
+ABI
+none
+Platform
+Platform
+any
+kithairon-0.2.0-py3-none-any.whl
+(33.7 kB
+view details
+)
+Uploaded
+Jun 23, 2024
+Python 3
+File details
+Details for the file
+kithairon-0.2.0.tar.gz
+.
+File metadata
+Download URL:
+kithairon-0.2.0.tar.gz
+Upload date:
+Jun 23, 2024
+Size: 59.7 kB
+Tags: Source
+Uploaded using Trusted Publishing? No
+Uploaded via: twine/5.1.0 CPython/3.12.3
+File hashes
+Hashes for kithairon-0.2.0.tar.gz
+Algorithm
+Hash digest
+SHA256
+73d6717138d2d07af822dc398a1ab844839385c99d6a65d1b30089d3d68ff5d9
+Copy
+MD5
+e2b93202483df23e1262e674049210c4
+Copy
+BLAKE2b-256
+83b9a5f05c862467020e12fb1603307cc4c53aa09583273a668999267cc3d64a
+Copy
+See more details on using hashes here.
+File details
+Details for the file
+kithairon-0.2.0-py3-none-any.whl
+.
+File metadata
+Download URL:
+kithairon-0.2.0-py3-none-any.whl
+Upload date:
+Jun 23, 2024
+Size: 33.7 kB
+Tags: Python 3
+Uploaded using Trusted Publishing? No
+Uploaded via: twine/5.1.0 CPython/3.12.3
+File hashes
+Hashes for kithairon-0.2.0-py3-none-any.whl
+Algorithm
+Hash digest
+SHA256
+5febc546246cd30f94845c2d651f884a2b3c6519aff91393e6ff1731ca179d25
+Copy
+MD5
+7f30c3211c8e03adb52aae68991af4c9
+Copy
+BLAKE2b-256
+7da9d56a3d40336ea73aa6fd264f91047499e3ea0558774a3ba550f5f741ab91
+Copy
+See more details on using hashes here.

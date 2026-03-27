@@ -1,0 +1,24 @@
+intbio-ncl
+/
+BiomationScripterLib
+Public
+Notifications
+You must be signed in to change notification settings
+Fork
+0
+Star
+4
+Search
+Default
+Branch
+Updated
+Check status
+Behind
+Ahead
+Pull request
+Action menu
+main
+Copy branch name to clipboard
+Oct 13, 2025
+Delete branch
+Branch menu
