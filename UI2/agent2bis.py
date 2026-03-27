@@ -6,33 +6,33 @@ from openai import OpenAI
 import json
 from agent1_informator import get_api_key
 
+def get_openai_client(api_key=None):
+    return OpenAI(api_key=api_key or get_api_key())
 
-MODEL = "gpt-5"
+MODEL = "gpt-5.4"
 
 AGENT_2BIS_SYSTEM_PROMPT = """
 You are Agent 2 bis: Web-Based Code Comparison Agent for laboratory robotics.
 
 Your mission:
-- Search the web for REAL, EXISTING protocol scripts related to the given robot platform and task.
-- Use these scripts as trusted references.
+- Search the web for REAL, EXISTING protocol scripts/files/docs related to the given robot platform and task.
+- Use only trusted / official references of the constructor of the SPECIFIC robot series/model. If you find nothing, just say it and don't feel obligated to answer at all costs.
 
 Then:
-- Compare the provided generated script against the reference scripts.
-- Assess whether the generated script is:
-  - syntactically plausible
+- Gather data from the provided generated script/file with the reference scripts/files.
+- Assess whether the generated script or file is:
+  - plausible
   - structurally consistent
-  - using expected libraries, imports, and API patterns.
+  - If it's a script, using expected libraries, imports, and API patterns.
 
 Rules:
-- You MUST rely only on real web sources (docs, vendor examples, GitHub).
-- You MUST NOT generate new code.
-- Focus ONLY on the syntax in a way that if we run the code, will it work or not.
+- You MUST rely only on official sources (docs, vendor, GitHub).
+- You MUST NOT generate new code or usable file.
+- Focus in a way that if we try the file with the liquid handler, will it work or not. If you're not sure, don't give an answer and false the result.
 
 Output:
-- You do all the work, but ONLY say if it's functional or not. The goal here is to know if, when we run this script, it'll work or not.
+- You do all the work, give a brief report of what you found with the references and if this file will work with the liquid handler or not.
 """
-def get_openai_client(api_key=None):
-    return OpenAI(api_key=api_key or get_api_key())
 
 def get_script_content(path: str) -> str:
     with open(path, "r", encoding="utf-8") as f:
@@ -49,7 +49,7 @@ User request:
 Generated_script :
 "{generated_script}
 
-Search the web for existing scripts or protocol examples that match this robot and task, then compare them with the generated script to determine whether is this script correct or not.
+Search the web for existing scripts/files or protocol examples that match this robot and task, then compare them with the generated script to determine whether is this script correct or not.
 """
 
 def run_agent_2bis(
@@ -61,13 +61,12 @@ def run_agent_2bis(
 ) -> str:
     """
     Agent 2 bis:
-    - Performs a web search for existing protocol scripts in order to compare them with the generated script
+    - Performs a web search for existing protocol scripts or files in order to compare them with the provided one
     - Returns a structured textual research report
-    - Compare between the provided script and the informations gathered during the research to determine whether if the script is correct and respects the syntax and the form
+    - Compare between the provided output and the informations gathered during the research to determine whether if the file is correct and respects the syntax and the form
     """
-    client = get_openai_client(api_key)
     prompt = build_agent_2bis_prompt(robot_platform, user_request, generated_script)
-
+    client = get_openai_client(api_key)
     response = client.responses.create(
         model=model,
         tools=[{"type": "web_search"}],
