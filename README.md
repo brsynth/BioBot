@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="UI2/static/logo.png" alt="BioBot logo" width="300"/>
+  <img src="biobot/static/logo.png" alt="BioBot logo" width="300"/>
 </p>
 
 BioBot is a web application and chatbot designed for laboratory automation, particularly with liquid handling robots. It helps users interact with an AI assistant to get guidance, protocols, and Python code for automating lab workflows.
@@ -24,7 +24,7 @@ BioBot is a web application and chatbot designed for laboratory automation, part
 - **AI Models:** GPT-5 via OpenAI API
 - **Database:** SQLite or PostgreSQL (depending on your setup)
 - **Containerization:** Docker, Docker Compose, Docker Swarm
-- **Frontend:** HTML/CSS/JS (templates in `UI2/`)
+- **Frontend:** HTML/CSS/JS (templates in `biobot/`)
 
 ---
 
