@@ -1,6 +1,6 @@
 [tool.semantic_release]
 version_toml = []
-version_variables = ["UI2/app.py:__version__"]
+version_variables = ["biobot/app.py:__version__"]
 branch = "main"
 commit_message = "chore(release): v{version}"
 tag_format = "v{version}"
