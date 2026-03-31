@@ -398,8 +398,8 @@ def delete_chat_db(session: Session, chat_id: str):
 def _banner():
     print()
     print(_c("  ╔══════════════════════════════════════════╗", C.GREEN))
-    print(_c("  ║", C.GREEN) + _c("       🧬 BioBot CLI v" + __version__, C.BOLD + C.GREEN) + _c("              ║", C.GREEN))
-    print(_c("  ║", C.GREEN) + _c("   Lab Automation Code Generator", C.DIM + C.WHITE) + _c("        ║", C.GREEN))
+    print(_c("  ║", C.GREEN) + _c("        🧬 BioBot CLI v" + __version__, C.BOLD + C.GREEN) + _c("              ║", C.GREEN))
+    print(_c("  ║", C.GREEN) + _c("      Lab Automation Code Generator", C.DIM + C.WHITE) + _c("       ║", C.GREEN))
     print(_c("  ╚══════════════════════════════════════════╝", C.GREEN))
     print()
     print(_c("  Commands:", C.DIM))
@@ -489,7 +489,7 @@ def pick_or_create_chat(session: Session) -> str:
 
 # ── Main interaction loop ────────────────────────────────────
 
-MODEL_NAME = "gpt-5"
+MODEL_NAME = "gpt-5.4"
 
 def interactive(session: Session, chat_id: str):
     _banner()
