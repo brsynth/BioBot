@@ -1,0 +1,4 @@
+Source Plate Name,Source Well,Destination Plate Name,Destination Well,Transfer Volume,Sample ID
+Source[1],A2,Destination[1],A1,50.0,Water
+Source[1],A2,Destination[1],B1,30.0,Water
+Source[1],B1,Destination[1],C1,20.0,Buffer
