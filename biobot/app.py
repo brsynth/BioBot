@@ -19,8 +19,9 @@ from crypt import generate_salt, derive_key, encrypt, decrypt
 # App & DB init
 # ---------------------
 app = Flask(__name__)
-app.config["SESSION_PERMANENT"] = False
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "super_secret_key")
+app.config["SESSION_PERMANENT"] = True
+app.config["PERMANENT_SESSION_LIFETIME"] = 86400  # 24 hours in seconds
 
 MODEL_NAME = "gpt-5"
 
@@ -404,6 +405,10 @@ def chat_stream(chat_id):
     messages = [{"role": r["role"], "content": decrypt_text(r["content"])} for r in rows]
     user_api_key = decrypt_text(user["api_key"]) if user and user.get("api_key") else None
 
+    # Validate API key before starting the stream
+    if not user_api_key:
+        return Response("I don't have a valid API key configured. Please add your OpenAI API key in Settings.", mimetype="text/plain")
+
     # Capture encryption key before entering generator (session may not be available later)
     enc_key = get_encryption_key()
 
@@ -413,66 +418,92 @@ def chat_stream(chat_id):
         is_rag = False
 
         from engine import RAG_STATUS_PREFIX, FAILED_CODE_MARKER
-        for chunk in process_user_query(user_message, messages, MODEL_NAME, api_key=user_api_key):
-            if chunk.startswith(RAG_STATUS_PREFIX):
-                is_rag = True
-                status_text = chunk[len(RAG_STATUS_PREFIX):]
-                yield "__STATUS__:" + status_text
-                continue
-            full_reply += chunk
-            yield chunk
-
-        # Before saving: wrap RAG code in markdown fences so it renders
-        # correctly when reloaded from chat history
-        save_content = full_reply
-        if is_rag and full_reply:
-            if full_reply.startswith(FAILED_CODE_MARKER):
-                failed_content = full_reply[len(FAILED_CODE_MARKER):]
-                sep_parts = failed_content.split("___CODE_SEP___", 1)
-                message = sep_parts[0].strip() if sep_parts else ""
-                code = sep_parts[1].strip() if len(sep_parts) > 1 else ""
-                save_content = message + "\n\n```python\n" + code + "\n```" if code else message
-            else:
-                save_content = "```python\n" + full_reply + "\n```"
-
-        # Encrypt before saving
-        encrypted_content = encrypt(save_content, enc_key) if enc_key and save_content else save_content
-
-        # Save assistant message after streaming finishes
-        conn2 = None
+        
         try:
-            conn2 = get_db_connection()
-            execute(conn2,
-                """
-                INSERT INTO chat_history (user_id, chat_id, role, content, created_at)
-                VALUES (%s, %s, %s, %s, %s)
-                """,
-                (user_id, chat_id, "assistant", encrypted_content, datetime.now().isoformat()),
-                commit=True
-            )
+            result = process_user_query(user_message, messages, MODEL_NAME, api_key=user_api_key)
+            if result is None:
+                yield "Sorry, I couldn't process your request. Please try again."
+                return
+            for chunk in result:
+                if chunk.startswith(RAG_STATUS_PREFIX):
+                    is_rag = True
+                    status_text = chunk[len(RAG_STATUS_PREFIX):]
+                    yield "__STATUS__:" + status_text
+                    continue
+                full_reply += chunk
+                yield chunk
+        except Exception as e:
+            import sys
+            print(f"Stream error: {e}", file=sys.stderr, flush=True)
+            error_msg = str(e).lower()
+            if "auth" in error_msg or "api key" in error_msg or "401" in error_msg or "403" in error_msg:
+                yield "Your API key appears to be invalid or expired. Please update it in Settings."
+            elif "rate limit" in error_msg or "429" in error_msg:
+                yield "Rate limit reached. Please wait a moment and try again."
+            elif "model" in error_msg or "404" in error_msg:
+                yield "The AI model is currently unavailable. Please try again later."
+            else:
+                yield f"An error occurred: {str(e)}"
+            return
 
-            # RENAME CHAT if still "New chat"
-            title_row = fetchone_dict(conn2,
-                "SELECT name FROM chat_names WHERE chat_id = %s AND user_id = %s",
-                (chat_id, user_id)
-            )
-            if title_row:
-                decrypted_name = decrypt(title_row["name"], enc_key) if enc_key else title_row["name"]
-                if decrypted_name == "New chat":
-                    preview_words = user_message.strip().split()
-                    preview = " ".join(preview_words[:5])
-                    if len(preview_words) > 5:
-                        preview += "..."
-                    encrypted_preview = encrypt(preview, enc_key) if enc_key else preview
-                    execute(conn2,
-                        "UPDATE chat_names SET name = %s WHERE chat_id = %s AND user_id = %s",
-                        (encrypted_preview, chat_id, user_id),
-                        commit=True
-                    )
+        # --- Save to DB (after streaming is complete) ---
+        try:
+            # Before saving: wrap RAG code in markdown fences so it renders
+            # correctly when reloaded from chat history
+            save_content = full_reply
+            if is_rag and full_reply:
+                if full_reply.startswith(FAILED_CODE_MARKER):
+                    failed_content = full_reply[len(FAILED_CODE_MARKER):]
+                    sep_parts = failed_content.split("___CODE_SEP___", 1)
+                    message = sep_parts[0].strip() if sep_parts else ""
+                    code = sep_parts[1].strip() if len(sep_parts) > 1 else ""
+                    save_content = message + "\n\n```python\n" + code + "\n```" if code else message
+                else:
+                    save_content = "```python\n" + full_reply + "\n```"
 
-        finally:
-            if conn2:
-                conn2.close()
+            # Encrypt before saving
+            encrypted_content = encrypt(save_content, enc_key) if enc_key and save_content else save_content
+
+            # Save assistant message after streaming finishes
+            conn2 = None
+            try:
+                conn2 = get_db_connection()
+                execute(conn2,
+                    """
+                    INSERT INTO chat_history (user_id, chat_id, role, content, created_at)
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    (user_id, chat_id, "assistant", encrypted_content, datetime.now().isoformat()),
+                    commit=True
+                )
+
+                # RENAME CHAT if still "New chat"
+                title_row = fetchone_dict(conn2,
+                    "SELECT name FROM chat_names WHERE chat_id = %s AND user_id = %s",
+                    (chat_id, user_id)
+                )
+                if title_row:
+                    decrypted_name = decrypt(title_row["name"], enc_key) if enc_key else title_row["name"]
+                    if decrypted_name == "New chat":
+                        preview_words = user_message.strip().split()
+                        preview = " ".join(preview_words[:5])
+                        if len(preview_words) > 5:
+                            preview += "..."
+                        encrypted_preview = encrypt(preview, enc_key) if enc_key else preview
+                        execute(conn2,
+                            "UPDATE chat_names SET name = %s WHERE chat_id = %s AND user_id = %s",
+                            (encrypted_preview, chat_id, user_id),
+                            commit=True
+                        )
+
+            finally:
+                if conn2:
+                    conn2.close()
+
+        except Exception as e:
+            import sys
+            print(f"Save error (response was delivered): {e}", file=sys.stderr, flush=True)
+            # Don't yield anything here — the response already streamed successfully
 
     return Response(stream_with_context(generate()), mimetype="text/plain")
 

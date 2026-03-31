@@ -1,13 +1,13 @@
 services:
   biobot:
-    build: UI2
+    build: .
     image: biobot:latest
     ports:
       - "5000:5000"
     volumes:
-      - ./UI2/docs:/app/docs
-      - ./UI2/handlers.json:/app/handlers.json
-      - ./UI2:/app:rw
+      - ./biobot/docs:/app/docs
+      - ./biobot/handlers.json:/app/handlers.json
+      - ./biobot:/app:rw
     env_file :
       - .env
     environment:
@@ -33,6 +33,8 @@ services:
       - POSTGRES_DB=${DB_NAME}
       - POSTGRES_USER=${DB_USER}
       - POSTGRES_PASSWORD=${DB_PASSWORD}
+    ports:
+      - "127.0.0.1:5432:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
     healthcheck:
@@ -49,4 +51,4 @@ volumes:
 networks:
   db:
   biobot:
-    name: biobot 
+    name: biobot
