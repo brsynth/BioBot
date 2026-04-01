@@ -88,7 +88,7 @@ Here are the platforms already configured in our system:
 INSTRUCTIONS:
 1. Read the user's latest message AND the conversation history carefully.
 2. Identify the liquid handling platform they are referring to.
-3. If the platform matches one already configured, return its exact ID (the text in quotes above). PS: The user might point to an already configured platform uing another name (example: ot-2 for opentrons)
+3. If the platform matches one already configured, return its exact ID (the text in quotes above).
 4. If the platform is NOT in the list above, return a new short lowercase ID for it. Use the brand name in lowercase, no spaces (e.g., "opentrons", "beckman", "agilent", "eppendorf", "gilson", "biomek").
 5. If the user does NOT mention or imply any specific platform anywhere in the conversation, return "unknown".
 
@@ -124,7 +124,7 @@ Return ONLY the platform ID. One word, lowercase, no quotes, no explanation."""
         input=[
             {
                 "role": "system",
-                "content": "Return ONLY the official full name of this liquid handling robot platform/brand. No explanation, no punctuation, just the name (e.g., 'Opentrons', 'Hamilton STAR', 'Tecan Fluent')."
+                "content": "Return ONLY the official full name of this liquid handling robot platform/brand. No explanation, no punctuation, just the name (e.g., 'Opentrons OT-2', 'Hamilton STAR', 'Tecan Fluent')."
             },
             {
                 "role": "user",
@@ -300,6 +300,8 @@ def validate_llm_review(code, handler_config, context_chunks, question):
     handler_name = handler_config["name"]
     output_type = handler_config.get("output_type", "script")
 
+    # Include some documentation context for the review
+    doc_context = "\n\n".join(context_chunks[:3]) if context_chunks else "No documentation available."
 
     client = get_openai_client(user_api_key)
     response = client.responses.create(
@@ -467,7 +469,7 @@ def load_or_build_index(handler_id, handler_config, chunk_size=3000):
 
 
 # ----------- MAIN PIPELINE -------------
-def run_query_and_fix(question, chunks, chunk_sources, index, handler_config, max_attempts=5):
+def run_query_and_fix(question, chunks, chunk_sources, index, handler_config, max_attempts=3):
     print("STEP:Analyzing your request...", flush=True)
     question_embedding = np.array([get_text_embedding_with_retry(question)])
 
@@ -557,6 +559,7 @@ check_sufficient_info(user_query, chat_history, user_api_key)
 
 # 2. Consolidate the request
 consolidated_query = consolidate_request(user_query, chat_history, user_api_key)
+print("consolidated request: ", consolidated_query, file=sys.stderr)
 
 # 3. Detect which handler the user needs
 handler_id, handlers = detect_handler(user_query, chat_history, user_api_key)
@@ -581,6 +584,19 @@ final_code, sources_used, file_refs, attempts, last_error, last_code = \
     run_query_and_fix(consolidated_query, chunks, chunk_sources, index, handler_config)
 
 if final_code:
+    # Detect the output format from the content
+    content = final_code.strip()
+    if content.startswith(("import ", "from ", "#!/", "def ", "class ", "``` ","``` python ")):
+        fmt = "python"
+    elif "," in content.split("\n")[0] and not content.startswith(("#", "import", "from", "def")):
+        fmt = "csv"
+    elif content.startswith(("{", "[")):
+        fmt = "json"
+    elif content.startswith("<?xml") or content.startswith("<"):
+        fmt = "xml"
+    else:
+        fmt = "text"
+    print(f"FORMAT:{fmt}", flush=True)
     print(final_code)
 else:
     print("STEP:Generation failed — preparing last attempt for review...", flush=True)

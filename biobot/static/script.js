@@ -122,8 +122,42 @@ function escapeHtml(unsafe) {
     .replace(/>/g, "&gt;");
 }
 
+// --- Format config for code blocks ---
+const FORMAT_CONFIG = {
+  python: { label: "python", mime: "text/x-python", ext: ".py", filename: "generated_script.py" },
+  csv:    { label: "csv",    mime: "text/csv",       ext: ".csv", filename: "output.csv" },
+  json:   { label: "json",   mime: "application/json", ext: ".json", filename: "output.json" },
+  xml:    { label: "xml",    mime: "text/xml",       ext: ".xml", filename: "output.xml" },
+  text:   { label: "text",   mime: "text/plain",     ext: ".txt", filename: "output.txt" },
+};
+
+// --- Detect content format from the text itself ---
+function detectFormat(content) {
+  const trimmed = content.trim();
+  const firstLine = trimmed.split("\n")[0];
+  if (firstLine.startsWith("import ") || firstLine.startsWith("from ") ||
+      firstLine.startsWith("#!/") || firstLine.startsWith("def ") ||
+      firstLine.startsWith("class ")) {
+    return "python";
+  }
+  if (firstLine.includes(",") && !firstLine.startsWith("#") &&
+      !firstLine.startsWith("import") && !firstLine.startsWith("from") &&
+      !firstLine.startsWith("def")) {
+    return "csv";
+  }
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    return "json";
+  }
+  if (trimmed.startsWith("<?xml") || trimmed.startsWith("<")) {
+    return "xml";
+  }
+  return "text";
+}
+
 // --- Build a styled code block with copy + download buttons ---
-function buildCodeBlock(code) {
+function buildCodeBlock(code, format = "python") {
+  const config = FORMAT_CONFIG[format] || FORMAT_CONFIG.text;
+
   const wrapper = document.createElement("div");
   wrapper.className = "code-block-wrapper";
 
@@ -133,7 +167,7 @@ function buildCodeBlock(code) {
 
   const langLabel = document.createElement("span");
   langLabel.className = "code-lang-label";
-  langLabel.textContent = "python";
+  langLabel.textContent = config.label;
 
   const actions = document.createElement("div");
   actions.className = "code-actions";
@@ -154,11 +188,11 @@ function buildCodeBlock(code) {
   downloadBtn.className = "code-action-btn";
   downloadBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Download';
   downloadBtn.addEventListener("click", () => {
-    const blob = new Blob([code], { type: "text/x-python" });
+    const blob = new Blob([code], { type: config.mime });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "generated_script.py";
+    a.download = config.filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -203,7 +237,8 @@ function addMessage(text, sender) {
 function appendChunkToBotMessage(div, chunk) {
   div._buffer += chunk;
 
-  const codeBlockRegex = /```(?:\w*)\s*\n([\s\S]*?)```/g;
+  // Capture the language tag from markdown fences: ```python, ```csv, ```json, etc.
+  const codeBlockRegex = /```(\w*)\s*\n([\s\S]*?)```/g;
   let lastIndex = 0;
   let match;
   const fragments = [];
@@ -211,7 +246,7 @@ function appendChunkToBotMessage(div, chunk) {
   while ((match = codeBlockRegex.exec(div._buffer)) !== null) {
     const before = div._buffer.slice(lastIndex, match.index);
     if (before) fragments.push({ type: "text", content: before });
-    fragments.push({ type: "code", content: match[1] });
+    fragments.push({ type: "code", content: match[2], format: match[1] || "text" });
     lastIndex = codeBlockRegex.lastIndex;
   }
 
@@ -222,7 +257,7 @@ function appendChunkToBotMessage(div, chunk) {
     if (frag.type === "text") {
       div.innerHTML += escapeHtml(frag.content).replace(/\n/g, "<br>");
     } else if (frag.type === "code") {
-      div.appendChild(buildCodeBlock(frag.content));
+      div.appendChild(buildCodeBlock(frag.content, frag.format));
     }
   }
 
@@ -499,7 +534,7 @@ async function sendMessage() {
   let botDiv = null;
   let firstChunkReceived = false;
   let statusDiv = null;
-  let isRagResponse = false;  // true if we received __STATUS__ messages → content is raw code
+  let isRagResponse = false;
 
   try {
     const res = await fetch(`/chat/${currentChatId}/stream`, {
@@ -574,22 +609,20 @@ async function sendMessage() {
           const message = (sepParts[0] || "").trim();
           const code = (sepParts[1] || "").trim();
 
-          // Render the failure message as text
           if (message) {
             const msgP = document.createElement("p");
             msgP.textContent = message;
             msgP.style.marginBottom = "12px";
             botDiv.appendChild(msgP);
           }
-          // Render code block
           if (code) {
-            botDiv.appendChild(buildCodeBlock(code));
+            botDiv.appendChild(buildCodeBlock(code, detectFormat(code)));
           }
           isRagResponse = false;
         }
-        // --- RAG success: raw code ---
+        // --- RAG success: raw output ---
         else if (isRagResponse) {
-          botDiv.appendChild(buildCodeBlock(contentPart));
+          botDiv.appendChild(buildCodeBlock(contentPart, detectFormat(contentPart)));
         }
         // --- Normal streaming (general/out) ---
         else {

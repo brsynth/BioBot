@@ -104,7 +104,9 @@ def run_gpt_stream(chat_history, model=MODEL_NAME, api_key=None):
 RAG_STATUS_PREFIX = "__RAG_STATUS__:"
 RAG_STEP_PREFIX = "STEP:"
 RAG_FAILED_PREFIX = "FAILED_CODE:"
+RAG_FORMAT_PREFIX = "FORMAT:"
 FAILED_CODE_MARKER = "__FAILED_CODE__:"
+FORMAT_MARKER = "__FORMAT__:"
 
 def process_user_query(user_query, chat_history, model, api_key=None):
     history = [msg for msg in chat_history]
@@ -131,6 +133,7 @@ def process_user_query(user_query, chat_history, model, api_key=None):
             final_code_lines = []
             failed_code_content = None
             is_failed = False
+            detected_format = "python"
 
             for raw_line in proc.stdout:
                 trimmed = raw_line.strip()
@@ -142,6 +145,8 @@ def process_user_query(user_query, chat_history, model, api_key=None):
                     continue
                 if trimmed.startswith(RAG_STEP_PREFIX):
                     yield RAG_STATUS_PREFIX + trimmed[len(RAG_STEP_PREFIX):]
+                elif trimmed.startswith(RAG_FORMAT_PREFIX):
+                    detected_format = trimmed[len(RAG_FORMAT_PREFIX):]
                 elif trimmed.startswith(RAG_FAILED_PREFIX):
                     is_failed = True
                     failed_code_content = trimmed[len(RAG_FAILED_PREFIX):]
@@ -157,12 +162,17 @@ def process_user_query(user_query, chat_history, model, api_key=None):
                 stderr_out = proc.stderr.read()
                 print("main_rag.py error:", stderr_out)
 
+            # Send format + content as a single yield
             if is_failed and failed_code_content:
-                yield FAILED_CODE_MARKER + failed_code_content
+                yield FORMAT_MARKER + detected_format + "\n" + FAILED_CODE_MARKER + failed_code_content
             else:
-                yield "".join(final_code_lines).strip()
+                content = "".join(final_code_lines).strip()
+                yield FORMAT_MARKER + detected_format + "\n" + content
 
         return _rag_generator()
 
     elif classification in {"general", "out"}:
+        return run_gpt_stream(history, model, api_key=api_key)
+    
+    else:
         return run_gpt_stream(history, model, api_key=api_key)

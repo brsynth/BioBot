@@ -445,17 +445,16 @@ def chat_stream(chat_id):
         session.clear()
         return jsonify({"error": "Your session has expired. Please log in again."}), 401
 
-    # Decrypt chat history for the LLM
+    # Decrypt chat history for the LLM (enc_key is validated above, so this is safe)
     messages = [{"role": r["role"], "content": decrypt_text(r["content"])} for r in rows]
-    # Remove any messages that failed to decrypt (shouldn't happen if enc_key is valid, but safety net)
-    messages = [m for m in messages if m["content"] is not None]
 
     # ---- STREAM RESPONSE ----
     def generate():
         full_reply = ""
         is_rag = False
+        detected_format = "text"
 
-        from engine import RAG_STATUS_PREFIX, FAILED_CODE_MARKER
+        from engine import RAG_STATUS_PREFIX, FAILED_CODE_MARKER, FORMAT_MARKER
         
         try:
             result = process_user_query(user_message, messages, MODEL_NAME, api_key=user_api_key)
@@ -468,6 +467,16 @@ def chat_stream(chat_id):
                     status_text = chunk[len(RAG_STATUS_PREFIX):]
                     yield "__STATUS__:" + status_text
                     continue
+                # Extract format marker if present at start of content
+                if chunk.startswith(FORMAT_MARKER):
+                    rest = chunk[len(FORMAT_MARKER):]
+                    newline_idx = rest.find("\n")
+                    if newline_idx >= 0:
+                        detected_format = rest[:newline_idx].strip()
+                        chunk = rest[newline_idx + 1:]
+                    else:
+                        detected_format = rest.strip()
+                        continue
                 full_reply += chunk
                 yield chunk
         except Exception as e:
@@ -495,9 +504,9 @@ def chat_stream(chat_id):
                     sep_parts = failed_content.split("___CODE_SEP___", 1)
                     message = sep_parts[0].strip() if sep_parts else ""
                     code = sep_parts[1].strip() if len(sep_parts) > 1 else ""
-                    save_content = message + "\n\n```python\n" + code + "\n```" if code else message
+                    save_content = message + f"\n\n```{detected_format}\n" + code + "\n```" if code else message
                 else:
-                    save_content = "```python\n" + full_reply + "\n```"
+                    save_content = f"```{detected_format}\n" + full_reply + "\n```"
 
             # Encrypt before saving
             encrypted_content = encrypt(save_content, enc_key) if enc_key and save_content else save_content
