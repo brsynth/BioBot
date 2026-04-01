@@ -60,7 +60,7 @@ def detect_handler(query, history, api_key):
     # Build context from recent conversation
     recent = [m for m in history if m["role"] != "system"][-8:]
     conversation_context = "\n".join(
-        f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content'][:300]}"
+        f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content'][:500]}"
         for m in recent
     )
 
@@ -143,7 +143,7 @@ Return ONLY the platform ID. One word, lowercase, no quotes, no explanation."""
         "store_path": f"rag_store_{detected}.pkl",
         "simulate_cmd": None,
         "validation_strategy": "llm_review",
-        "output_type": "python",
+        "output_type": "file",
         "keywords": [detected]
     }
 
@@ -164,7 +164,7 @@ def check_sufficient_info(query, history, api_key):
 
     recent = [m for m in history if m["role"] != "system"][-8:]
     conversation = "\n".join(
-        f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content'][:400]}"
+        f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content'][:500]}"
         for m in recent
     )
 
@@ -177,10 +177,10 @@ def check_sufficient_info(query, history, api_key):
 
 DO NOT GENERATE CODE, your job is only to check whether a user's protocol request contains enough information to generate a working script.
 
-If you judge that there are enough infomations in the whole conversation, you were given the conversation history for that, ONLY reply with exactly: SUFFICIENT , nothing more.
-Ask kindly for more informations if you assume that there are not enough informations in order to generate the code. You are specialized, you know what informations to ask. 
+If you judge that there are enough infomations in the whole conversation, cause you were given the conversation history for that, ONLY reply with exactly: SUFFICIENT , nothing more.
+Ask kindly for more informations if you assume that there are not enough informations in order to generate the code. You are specialized, you know what informations to ask depending on the user query. 
 Always suggest kindly a default set up in order to help the user when he does not provide you with sufficient informations.
-If the user asks you to use a default set up, do it and don't ask for informations then which means that you will reply ONLY with exactly : SUFFICIENT."""
+If the user asks you to use a default set up, complete a setup, choose some parameters along with the infos he gave you, do it and don't ask for informations then. This means that you will reply ONLY with exactly : SUFFICIENT."""
             },
             {
                 "role": "user",
@@ -325,13 +325,13 @@ Here are a suggestion of some checks to do:
 6. **Syntax and logic**: Is the syntax and logic correct? Would this file/script run without errors?
 7. **Completeness**: Is the output/script complete?
 
-Note that sometimes, the generated output can be a script to generate another file usable for the liquid handler (example: python script to generate csv file). Make sure to make the difference and analyze what's important.
+Note that sometimes, the generated output can be a script to generate another file usable for the liquid handler (example: python script to generate csv file that will be used). Make sure to make the difference and analyze the logic of the usable file.
 
 RESPONSE FORMAT:
 - If the code is correct and would work: respond with exactly "PASS" on the first line.
 - If there are issues: respond with exactly "FAIL" on the first line.
 
-Don't be strict and accurate. Minor style issues are not failures. Focus on big issues that would prevent the code from working correctly on a real {handler_name} instrument. If you think that there aren't any or are not a big feal, you pass."""
+Don't be strict and accurate. Minor issues are not failures. Focus on big issues that would prevent the code from working correctly on a real {handler_name} instrument. If you think that there aren't any or there are minors/mid issues or are not a big deal, you pass."""
             },
             {
                 "role": "user",
