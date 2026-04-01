@@ -508,6 +508,22 @@ async function sendMessage() {
       body: JSON.stringify({ message, api_key: apiKey }),
     });
 
+    // Handle session expiration — show message, then redirect to login
+    if (res.status === 401) {
+      clearInterval(thinkingInterval);
+      const thinkingElem = document.getElementById("thinking-message");
+      if (thinkingElem) thinkingElem.remove();
+
+      const errorData = await res.json().catch(() => ({ error: "Session expired" }));
+      const botDiv = addMessage("", "bot");
+      appendChunkToBotMessage(botDiv, errorData.error || "Your session has expired. Redirecting to login...");
+
+      setTimeout(() => {
+        window.location.href = "/login";
+      }, 3000);
+      return;
+    }
+
     if (!res.body) throw new Error("No response body");
 
     const reader = res.body.getReader();

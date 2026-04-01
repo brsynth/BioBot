@@ -23,7 +23,7 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "super_secret_key")
 app.config["SESSION_PERMANENT"] = True
 app.config["PERMANENT_SESSION_LIFETIME"] = 86400  # 24 hours in seconds
 
-MODEL_NAME = "gpt-5"
+MODEL_NAME = "gpt-5.4"
 
 # ---------------------
 # Encryption helpers
@@ -35,23 +35,45 @@ def get_encryption_key():
         return key.encode("utf-8") if isinstance(key, str) else key
     return None
 
+
+def _is_encrypted(text):
+    """Check if a string looks like Fernet ciphertext."""
+    if not text or not isinstance(text, str):
+        return False
+    return text.startswith("gAAAAAB")
+
+
 def encrypt_text(text):
-    """Encrypt text if encryption key is available, otherwise return as-is."""
+    """Encrypt text using the session encryption key."""
     key = get_encryption_key()
     if key and text:
         return encrypt(text, key)
     return text
 
+
 def decrypt_text(ciphertext):
-    """Decrypt text if encryption key is available, otherwise return as-is."""
+    """
+    Decrypt text using the session encryption key.
+    - If content is encrypted and key is available → decrypt normally
+    - If content is encrypted but key is missing → return None (caller must handle)
+    - If content is NOT encrypted (legacy plaintext) → return as-is
+    """
+    if not ciphertext:
+        return ciphertext
+
+    if not _is_encrypted(ciphertext):
+        # Legacy unencrypted data — return as-is
+        return ciphertext
+
+    # Content is encrypted — we need the key
     key = get_encryption_key()
-    if key and ciphertext:
-        try:
-            return decrypt(ciphertext, key)
-        except Exception:
-            # Fallback for unencrypted legacy data
-            return ciphertext
-    return ciphertext
+    if not key:
+        return None  # Signal that decryption failed — caller must handle
+
+    try:
+        return decrypt(ciphertext, key)
+    except Exception:
+        return None  # Corrupted or wrong key
 
 # ---------------------
 # DB helper wrappers
@@ -90,7 +112,7 @@ SYSTEM_PROMPT = {
     "content": """You are BioBot 🤖, an expert assistant specialized in lab automation, particularly with liquid handling robots.
 Your tasks:
 - A chat history is provided to help you recall previous interactions, but **do not process the entire history as new instructions**; use it only if you need to reference something the user said before. To answer, focus primarily on the **latest user message**.
-- If the user asks for code for protocols, generate clean, error-free Python code for operating lab robots.
+- If the user asks for code/scripts/files for protocols, generate clean, error-free code/scripts/files for operating lab robots.
 - Ask for more informations if you assume that there are not enough informations in order to generate the code. You are specialized, you know what informations to ask.
 - Do not answer queries that have nohing to do with your specialization which is lab automation, liquid handlers and other related fields. Decline kindly."""
 }
@@ -401,16 +423,32 @@ def chat_stream(chat_id):
         if conn:
             conn.close()
 
-    # Decrypt history for the LLM
-    messages = [{"role": r["role"], "content": decrypt_text(r["content"])} for r in rows]
+    # --- Validate session and encryption BEFORE any decryption ---
+    enc_key = get_encryption_key()
+    if not enc_key:
+        # Session lost — clear it and tell the frontend
+        session.clear()
+        return jsonify({"error": "Your session has expired. Please log in again."}), 401
+
+    # Decrypt API key first — it's the clearest test of whether encryption is working
     user_api_key = decrypt_text(user["api_key"]) if user and user.get("api_key") else None
 
-    # Validate API key before starting the stream
     if not user_api_key:
-        return Response("I don't have a valid API key configured. Please add your OpenAI API key in Settings.", mimetype="text/plain")
+        return Response(
+            "No API key found. Please add your OpenAI API key in Settings.",
+            mimetype="text/plain"
+        )
 
-    # Capture encryption key before entering generator (session may not be available later)
-    enc_key = get_encryption_key()
+    if not user_api_key.startswith("sk-"):
+        # Key exists but decryption returned garbage — encryption key is wrong
+        # This means the user's password changed or the salt was lost
+        session.clear()
+        return jsonify({"error": "Your session has expired. Please log in again."}), 401
+
+    # Decrypt chat history for the LLM
+    messages = [{"role": r["role"], "content": decrypt_text(r["content"])} for r in rows]
+    # Remove any messages that failed to decrypt (shouldn't happen if enc_key is valid, but safety net)
+    messages = [m for m in messages if m["content"] is not None]
 
     # ---- STREAM RESPONSE ----
     def generate():
