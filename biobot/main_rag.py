@@ -212,7 +212,7 @@ def consolidate_request(query, history, api_key):
                 "content": """You are an expert in lab automation. 
 Given a conversation between a user and an assistant about a protocol request, 
 write a structered, complete, self-contained protocol description that consolidates 
-ALL the information provided across the entire conversation. If the user mentioned the type of the output he wants, mention it (example : txt, csv, python script, HSL etc..)
+ALL the information provided across the entire conversation. If the user mentioned the type of the output file he wants, mention it (example : txt, csv, python script, HSL etc..)
 
 Note that the request will be sent to an LLM. Restructure it and write it in natural langage in 3th person (the user wants to...) describing what the user wants to do, as if he had provided everything upfront.
 Return ONLY the consolidated request. No preamble, no explanation."""
@@ -252,7 +252,7 @@ def run_gpt(user_message, model="gpt-5.4"):
     messages = [
         {
             "role": "system",
-            "content": "You are an expert assistant specialized in lab automation with every kind of liquid handler. Generate full, clean and functional script for lab automation protocols."
+            "content": "You are an expert assistant specialized in lab automation with every kind of liquid handler. Generate full, clean and functional file for lab automation protocols."
         },
         {
             "role": "user",
@@ -586,18 +586,31 @@ final_code, sources_used, file_refs, attempts, last_error, last_code = \
 if final_code:
     # Detect the output format from the content
     content = final_code.strip()
-    if content.startswith(("import ", "from ", "#!/", "def ", "class ", "``` ","``` python ")):
-        fmt = "python"
-    elif "," in content.split("\n")[0] and not content.startswith(("#", "import", "from", "def")):
-        fmt = "csv"
-    elif content.startswith(("{", "[")):
-        fmt = "json"
-    elif content.startswith("<?xml") or content.startswith("<"):
-        fmt = "xml"
+
+    # Priority 1: Check if the LLM wrapped the output in markdown fences (```format ... ```)
+    fence_match = re.match(r'^```(\w+)\s*\n([\s\S]*?)```\s*$', content)
+    if fence_match:
+        fmt = fence_match.group(1).lower()
+        content = fence_match.group(2).strip()
+        # Normalize common aliases
+        fmt_map = {"py": "python", "javascript": "js", "yml": "yaml"}
+        fmt = fmt_map.get(fmt, fmt)
     else:
-        fmt = "text"
+        # Priority 2: Detect from content itself
+        first_line = content.split("\n")[0]
+        if first_line.startswith(("import ", "from ", "#!/", "def ", "class ")):
+            fmt = "python"
+        elif "," in first_line and not first_line.startswith(("#", "import", "from", "def")):
+            fmt = "csv"
+        elif content.startswith(("{", "[")):
+            fmt = "json"
+        elif content.startswith("<?xml") or (content.startswith("<") and not content.startswith("#")):
+            fmt = "xml"
+        else:
+            fmt = "text"
+
     print(f"FORMAT:{fmt}", flush=True)
-    print(final_code)
+    print(content)
 else:
     print("STEP:Generation failed — preparing last attempt for review...", flush=True)
     time.sleep(2)

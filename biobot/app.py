@@ -261,7 +261,7 @@ def create_chat():
             commit=True
         )
 
-        intro_message = "Hello, I'm Biobot 🤖 — your assistant specialized in lab automation..."
+        intro_message = "Hello, I'm Biobot 🤖 — your assistant specialized in lab automation."
         execute(conn,
             "INSERT INTO chat_history (user_id, chat_id, role, content) VALUES (%s, %s, %s, %s)",
             (user_id, chat_id, "assistant", encrypt_text(intro_message)),
@@ -465,7 +465,7 @@ def chat_stream(chat_id):
                 if chunk.startswith(RAG_STATUS_PREFIX):
                     is_rag = True
                     status_text = chunk[len(RAG_STATUS_PREFIX):]
-                    yield "__STATUS__:" + status_text
+                    yield "__STATUS__:" + status_text + " " * 256 + "\n"
                     continue
                 # Extract format marker if present at start of content
                 if chunk.startswith(FORMAT_MARKER):
@@ -495,18 +495,32 @@ def chat_stream(chat_id):
 
         # --- Save to DB (after streaming is complete) ---
         try:
-            # Before saving: wrap RAG code in markdown fences so it renders
-            # correctly when reloaded from chat history
             save_content = full_reply
-            if is_rag and full_reply:
+
+            if full_reply:
+                import re as _re
+
                 if full_reply.startswith(FAILED_CODE_MARKER):
+                    # Failed code generation
                     failed_content = full_reply[len(FAILED_CODE_MARKER):]
                     sep_parts = failed_content.split("___CODE_SEP___", 1)
                     message = sep_parts[0].strip() if sep_parts else ""
                     code = sep_parts[1].strip() if len(sep_parts) > 1 else ""
-                    save_content = message + f"\n\n```{detected_format}\n" + code + "\n```" if code else message
-                else:
+                    if code:
+                        fmt = detected_format if detected_format != "text" else "python"
+                        save_content = message + f"\n\n```{fmt}\n" + code + "\n```"
+                    else:
+                        save_content = message
+
+                elif _re.match(r'^```\w+\s*\n', full_reply):
+                    # Content already has markdown fences — save as-is
+                    save_content = full_reply
+
+                elif detected_format != "text":
+                    # RAG output without fences — wrap it
                     save_content = f"```{detected_format}\n" + full_reply + "\n```"
+
+                # else: normal text (general/out response) — save as-is
 
             # Encrypt before saving
             encrypted_content = encrypt(save_content, enc_key) if enc_key and save_content else save_content
@@ -552,7 +566,15 @@ def chat_stream(chat_id):
             print(f"Save error (response was delivered): {e}", file=sys.stderr, flush=True)
             # Don't yield anything here — the response already streamed successfully
 
-    return Response(stream_with_context(generate()), mimetype="text/plain")
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/plain",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",        # Disable nginx buffering
+            "Transfer-Encoding": "chunked",
+        }
+    )
 
 
 @app.route("/chat/<chat_id>", methods=["GET"])

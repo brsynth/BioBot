@@ -1,5 +1,4 @@
 FROM python:3.10-slim
-
 WORKDIR /app
 
 # System dependencies for PyMuPDF (PDF parsing)
@@ -17,7 +16,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code from biobot/ into /app/
 COPY biobot/ .
-
 RUN mkdir -p /app/data
 
 # Flask environment
@@ -28,9 +26,13 @@ ENV FLASK_ENV=development
 # Force Python to flush stdout/stderr immediately
 ENV PYTHONUNBUFFERED=1
 
-# Run Flask directly
-#CMD ["python", "-u", "app.py"]
-#CMD ["sh", "-c", "python init_db.py && python -u app.py"]
-
-# Production server
-CMD ["sh", "-c", "python init_db.py && gunicorn -w 4 -b 0.0.0.0:5000 --timeout 600 app:app"]
+# Production server — threaded workers required for streaming
+CMD ["sh", "-c", "python init_db.py && gunicorn \
+    -w 1 \
+    --threads 8 \
+    --worker-class gthread \
+    -b 0.0.0.0:5000 \
+    --timeout 1800 \
+    --graceful-timeout 1800 \
+    --keep-alive 120 \
+    app:app"]
