@@ -134,6 +134,16 @@ const FORMAT_CONFIG = {
 // --- Detect content format from the text itself ---
 function detectFormat(content) {
   const trimmed = content.trim();
+
+  // Priority 1: Check for markdown fence language tag at the start
+  const fenceMatch = trimmed.match(/^```(\w+)/);
+  if (fenceMatch) {
+    const lang = fenceMatch[1].toLowerCase();
+    const aliases = { py: "python", javascript: "js", yml: "yaml" };
+    return aliases[lang] || lang;
+  }
+
+  // Priority 2: Detect from content patterns
   const firstLine = trimmed.split("\n")[0];
   if (firstLine.startsWith("import ") || firstLine.startsWith("from ") ||
       firstLine.startsWith("#!/") || firstLine.startsWith("def ") ||
@@ -148,7 +158,7 @@ function detectFormat(content) {
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
     return "json";
   }
-  if (trimmed.startsWith("<?xml") || trimmed.startsWith("<")) {
+  if (trimmed.startsWith("<?xml") || (trimmed.startsWith("<") && !trimmed.startsWith("#"))) {
     return "xml";
   }
   return "text";
