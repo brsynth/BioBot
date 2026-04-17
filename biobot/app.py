@@ -20,10 +20,17 @@ from crypt import generate_salt, derive_key, encrypt, decrypt
 # ---------------------
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "super_secret_key")
+if not app.secret_key:
+    raise RuntimeError(
+        "FLASK_SECRET_KEY environment variable is not set. "
+        "Generate one with: python3 -c 'import secrets; print(secrets.token_hex(32))' "
+        "and add it to your .env file. Never change this value, or all existing "
+        "user sessions will be invalidated."
+    )
 app.config["SESSION_PERMANENT"] = True
 app.config["PERMANENT_SESSION_LIFETIME"] = 86400  # 24 hours in seconds
 
-MODEL_NAME = "gpt-5.4"
+MODEL_NAME = "gpt-5"
 
 # ---------------------
 # Encryption helpers
@@ -187,10 +194,38 @@ def login():
 
         if user and check_password_hash(user["password"], password):
             session["user"] = user["id"]
-            # Derive encryption key from password + stored salt
-            if user.get("encryption_salt"):
+
+            # Migrate legacy users who registered before encryption was added
+            if not user.get("encryption_salt"):
+                new_salt = generate_salt()
+                key = derive_key(password, new_salt)
+
+                # Re-encrypt the API key if it exists (it was stored as plaintext)
+                existing_api_key = user.get("api_key")
+                encrypted_api_key = existing_api_key
+                if existing_api_key and not existing_api_key.startswith("gAAAAAB"):
+                    encrypted_api_key = encrypt(existing_api_key, key)
+
+                conn = None
+                try:
+                    conn = get_db_connection()
+                    execute(conn,
+                        "UPDATE users SET encryption_salt = %s, api_key = %s WHERE id = %s",
+                        (new_salt, encrypted_api_key, user["id"]),
+                        commit=True
+                    )
+                except Exception as e:
+                    print(f"Migration error for user {user['id']}: {e}")
+                finally:
+                    if conn:
+                        conn.close()
+
+                session["encryption_key"] = key.decode("utf-8")
+            else:
+                # Normal login — derive key from stored salt
                 key = derive_key(password, user["encryption_salt"])
                 session["encryption_key"] = key.decode("utf-8")
+
             return redirect("/")
         else:
             flash("Incorrect email or password.", "error")

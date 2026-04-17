@@ -3,6 +3,7 @@ import re
 import subprocess
 import numpy as np
 import faiss
+from datetime import datetime
 import time
 import json
 from openai import OpenAI
@@ -252,7 +253,7 @@ def run_gpt(user_message, model="gpt-5.4"):
     messages = [
         {
             "role": "system",
-            "content": "You are an expert assistant specialized in lab automation with every kind of liquid handler. Generate full, clean and functional file for lab automation protocols."
+            "content": "You are an expert assistant specialized in lab automation with every kind of liquid handler. Generate full, clean and functional file for lab automation protocols. You assist the user, don't let him finish your job or fill something. Don't let anything empty, you should be sure that you completed anything no matter the file type or liquid handler."
         },
         {
             "role": "user",
@@ -300,8 +301,6 @@ def validate_llm_review(code, handler_config, context_chunks, question):
     handler_name = handler_config["name"]
     output_type = handler_config.get("output_type", "script")
 
-    # Include some documentation context for the review
-    doc_context = "\n\n".join(context_chunks[:3]) if context_chunks else "No documentation available."
 
     client = get_openai_client(user_api_key)
     response = client.responses.create(
@@ -316,24 +315,13 @@ Your task is to analyze and compare a generated {output_type} script for a {hand
 
 You have access to web search. USE IT to look up the official {handler_name} documentation, verify function signatures, check valid labware names, and confirm correct usage patterns.
 
-Here is some local documentation for reference depending on the type of the generated file:
-
-Here are a suggestion of some checks to do:
-1. **API correctness**: Search the web for {handler_name} docs and verify that the file's function/method are valid, with correct syntax, parameters, and argument types.
-2. **Import statements**: If it's code, are all necessary libraries imported? Verify import paths against official documentation.
-3. **Logic flow**: Does the output/script logically accomplish what the user requested? Are the steps in the right order?
-4. **Labware & hardware references**: Search for valid labware definitions, pipette types, module names, and deck positions for {handler_name}.
-5. **Volume & parameter validity**: Are volumes within pipette capacity? Are speeds, temperatures, and other parameters within acceptable ranges?
-6. **Syntax and logic**: Is the syntax and logic correct? Would this file/script run without errors?
-7. **Completeness**: Is the output/script complete?
-
 Note that sometimes, the generated output can be a script to generate another file usable for the liquid handler (example: python script to generate csv file that will be used). Make sure to make the difference and analyze the logic of the usable file.
 
 RESPONSE FORMAT:
-- If the code is correct and would work: respond with exactly "PASS" on the first line.
-- If there are issues: respond with exactly "FAIL" on the first line.
+- If the code is correct and would work: respond with exactly and only "PASS".
+- If there are issues: explain why
 
-Don't be strict and accurate. Minor issues are not failures. Focus on big issues that would prevent the code from working correctly on a real {handler_name} instrument. If you think that there aren't any or there are minors/mid issues or are not a big deal, you pass."""
+Don't be strict and accurate. Minor issues are not failures. Focus on big issues that would prevent the code from working correctly on a real {handler_name} instrument. You PASS if the file has the minimal satisfied conditions."""
             },
             {
                 "role": "user",
@@ -343,14 +331,13 @@ Don't be strict and accurate. Minor issues are not failures. Focus on big issues
     )
 
     review = response.output_text.strip()
+    review = str(review)
 
-    if review.upper().startswith("PASS"):
-        return True, ""
+    if "pass" in review.lower():
+        return True, "PASS"
     else:
         # Extract the feedback (everything after "FAIL")
         feedback = review
-        if feedback.upper().startswith("FAIL"):
-            feedback = feedback[4:].strip()
         return False, feedback
 
 
@@ -482,6 +469,12 @@ def run_query_and_fix(question, chunks, chunk_sources, index, handler_config, ma
     handler_name = handler_config["name"]
     strategy = handler_config.get("validation_strategy", "llm_review")
     output_type = handler_config.get("output_type", "script")
+    
+    prompt_nodoc = f"""
+Given your prior knowledge, answer the query.
+Generate a complete, functional {output_type} script for the {handler_name} platform.
+Query: {question}
+"""
 
     prompt = f"""
 Context information is below.
@@ -499,9 +492,16 @@ Query: {question}
     strategy_label = "simulation" if strategy == "simulation" else "LLM review"
 
     for attempt in range(1, max_attempts + 1):
-        response = run_gpt(prompt)
-        code = response
-
+        
+        if attempt == 1:
+            response = run_gpt(prompt_nodoc)
+            code = response
+        
+        else:
+            
+            response = run_gpt(prompt)
+            code = response
+            
         if not code:
             break
 
@@ -543,7 +543,7 @@ Here is the file that needs fixing:
 Original user request: {question}
 
 Please correct ALL the issues listed above and return the full corrected output.
-Do not ask me to complete anything — return only the complete, working output file."""
+Do not ask me to complete anything — return the complete, working output file."""
 
         last_error = feedback
 
@@ -554,12 +554,12 @@ Do not ask me to complete anything — return only the complete, working output 
 # EXECUTION
 # ============================================================
 
-# 1. Check if we have enough info
-check_sufficient_info(user_query, chat_history, user_api_key)
+# 1. Check if we have enough info (skip for one-shot mode)
+if not os.environ.get("BIOBOT_SKIP_SUFFICIENT_CHECK"):
+    check_sufficient_info(user_query, chat_history, user_api_key)
 
 # 2. Consolidate the request
 consolidated_query = consolidate_request(user_query, chat_history, user_api_key)
-print("consolidated request: ", consolidated_query, file=sys.stderr)
 
 # 3. Detect which handler the user needs
 handler_id, handlers = detect_handler(user_query, chat_history, user_api_key)
