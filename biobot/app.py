@@ -475,10 +475,13 @@ def chat_stream(chat_id):
         )
 
     if not user_api_key.startswith("sk-"):
-        # Key exists but decryption returned garbage — encryption key is wrong
-        # This means the user's password changed or the salt was lost
-        session.clear()
-        return jsonify({"error": "Your session has expired. Please log in again."}), 401
+        # Decryption failed — the key was encrypted with a different encryption key.
+        # This happens when the encryption salt was regenerated. Instead of locking
+        # the user out, ask them to re-enter their API key.
+        return Response(
+            "Your API key could not be read. Please update it in Settings.",
+            mimetype="text/plain"
+        )
 
     # Decrypt chat history for the LLM (enc_key is validated above, so this is safe)
     messages = [{"role": r["role"], "content": decrypt_text(r["content"])} for r in rows]
@@ -773,6 +776,369 @@ def update_user_profile():
             conn.close()
 
     return jsonify({"success": True})
+
+
+# ---------------------
+# Deck visualizer route
+# ---------------------
+@app.route("/deck/parse", methods=["POST"])
+def parse_deck():
+    """Parse protocol code and return visualization state JSON."""
+    user_id = session.get("user")
+    if not user_id:
+        return jsonify({"error": "Not logged in"}), 403
+
+    data = request.get_json()
+    code = data.get("code", "")
+    context = data.get("context", "")
+    chat_id = data.get("chat_id", "")
+    if not code:
+        return jsonify({"error": "No code provided"}), 400
+
+    # Get user API key for LLM fallback
+    user_api_key = None
+    conn = None
+    try:
+        conn = get_db_connection()
+        user = fetchone_dict(conn, "SELECT api_key FROM users WHERE id = %s", (user_id,))
+        if user and user.get("api_key"):
+            user_api_key = decrypt_text(user["api_key"])
+    except Exception:
+        pass
+    finally:
+        if conn:
+            conn.close()
+
+    from deck_parser import parse_any
+    try:
+        state = parse_any(code, context=context, api_key=user_api_key)
+
+        # Save to DB if we have a chat_id
+        if chat_id and not state.get("error"):
+            _save_deck_state(chat_id, state)
+
+        return jsonify(state)
+    except Exception as e:
+        return jsonify({"error": f"Parse error: {str(e)}"}), 400
+
+
+@app.route("/deck/state/<chat_id>", methods=["GET"])
+def get_deck_state(chat_id):
+    """Retrieve saved deck state for a chat."""
+    user_id = session.get("user")
+    if not user_id:
+        return jsonify({"error": "Not logged in"}), 403
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        # Verify chat belongs to user
+        chat = fetchone_dict(conn,
+            "SELECT 1 FROM chat_names WHERE chat_id = %s AND user_id = %s",
+            (chat_id, user_id))
+        if not chat:
+            return jsonify({"error": "Chat not found"}), 404
+
+        row = fetchone_dict(conn,
+            "SELECT deck_state FROM deck_states WHERE chat_id = %s",
+            (chat_id,))
+    finally:
+        if conn:
+            conn.close()
+
+    if row and row.get("deck_state"):
+        import json
+        try:
+            return jsonify(json.loads(row["deck_state"]))
+        except Exception:
+            return jsonify({"error": "Corrupt deck state"}), 500
+
+    return jsonify({"error": "No saved deck state"}), 404
+
+
+@app.route("/deck/state/<chat_id>", methods=["POST"])
+def save_deck_state_route(chat_id):
+    """Save/update deck state for a chat."""
+    user_id = session.get("user")
+    if not user_id:
+        return jsonify({"error": "Not logged in"}), 403
+
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data"}), 400
+
+    _save_deck_state(chat_id, data)
+    return jsonify({"success": True})
+
+
+def _save_deck_state(chat_id, state):
+    """Helper to upsert deck state in DB."""
+    import json
+    conn = None
+    try:
+        conn = get_db_connection()
+        execute(conn,
+            """INSERT INTO deck_states (chat_id, deck_state, created_at)
+               VALUES (%s, %s, NOW())
+               ON CONFLICT (chat_id)
+               DO UPDATE SET deck_state = EXCLUDED.deck_state, created_at = NOW()""",
+            (chat_id, json.dumps(state)),
+            commit=True)
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        print(f"Save deck state error: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+
+@app.route("/deck/generate", methods=["POST"])
+def generate_deck_code():
+    """Update code based on deck changes."""
+    user_id = session.get("user")
+    if not user_id:
+        return jsonify({"error": "Not logged in"}), 403
+
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+
+    from deck_parser import update_slots_in_code
+
+    original_code = data.get("original_code", "")
+    slot_changes = data.get("slot_changes", {})
+
+    try:
+        if original_code and slot_changes:
+            code = update_slots_in_code(original_code, slot_changes)
+        else:
+            code = original_code
+        return jsonify({"code": code})
+    except Exception as e:
+        return jsonify({"error": f"Generate error: {str(e)}"}), 400
+
+
+@app.route("/code/approve", methods=["POST"])
+def approve_code():
+    """
+    Save user-verified working code into the documentation folder.
+    This code becomes part of the RAG index on next rebuild, improving
+    future protocol generation.
+    """
+    user_id = session.get("user")
+    if not user_id:
+        return jsonify({"error": "Not logged in"}), 403
+
+    data = request.get_json()
+    code = data.get("code", "").strip()
+    chat_id = data.get("chat_id", "")
+
+    if not code:
+        return jsonify({"error": "No code provided"}), 400
+
+    from deck_parser import detect_platform
+    import hashlib
+
+    # Detect which platform this code is for
+    platform = detect_platform(code)
+
+    # Map platform to docs folder
+    platform_folders = {
+        "opentrons_ot2": "docs/opentrons/codes",
+        "hamilton_star": "docs/hamilton/codes",
+        "echo_650": "docs/echo/codes",
+    }
+
+    folder = platform_folders.get(platform, f"docs/{platform}/codes")
+
+    # Create folder if it doesn't exist
+    os.makedirs(folder, exist_ok=True)
+
+    # Generate a unique filename from a hash of the code
+    code_hash = hashlib.sha256(code.encode()).hexdigest()[:12]
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # Get user info for the file header
+    conn = None
+    username = "anonymous"
+    try:
+        conn = get_db_connection()
+        user = fetchone_dict(conn,
+            "SELECT first_name, last_name FROM users WHERE id = %s", (user_id,))
+        if user:
+            username = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip()
+    finally:
+        if conn:
+            conn.close()
+
+    # Determine file extension
+    ext = ".py"
+    if platform == "echo_650":
+        ext = ".csv"
+
+    filename = f"verified_{timestamp}_{code_hash}{ext}"
+    filepath = os.path.join(folder, filename)
+
+    # Write the file with a header comment
+    header = f"""# Verified working protocol
+# Platform: {platform}
+# Date: {datetime.now().isoformat()}
+# Chat: {chat_id}
+# ---
+"""
+    if ext == ".csv":
+        # CSV files don't use Python comments
+        header = ""
+
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(header + code)
+
+    # Invalidate the RAG cache for this platform so the new code gets indexed
+    _invalidate_rag_cache(platform)
+
+    return jsonify({"success": True, "platform": platform, "file": filename})
+
+
+def _invalidate_rag_cache(platform):
+    """Delete the cached RAG pickle file so the index rebuilds with new docs."""
+    import json
+
+    # Check handlers.json for the store_path
+    handlers_path = "handlers.json"
+    if os.path.exists(handlers_path):
+        try:
+            with open(handlers_path) as f:
+                handlers = json.load(f)
+            for handler in handlers.values() if isinstance(handlers, dict) else handlers:
+                h = handler if isinstance(handler, dict) else {}
+                if h.get("name", "").lower() in platform.lower() or \
+                   platform in h.get("keywords", []):
+                    store = h.get("store_path", "")
+                    if store and os.path.exists(store):
+                        os.remove(store)
+                        print(f"Invalidated RAG cache: {store}")
+                    return
+        except Exception as e:
+            print(f"Cache invalidation error: {e}")
+
+    # Fallback: try common store paths
+    common_stores = {
+        "opentrons_ot2": "rag_store.pkl",
+        "hamilton_star": "rag_store_hamilton.pkl",
+        "echo_650": "rag_store_echo.pkl",
+    }
+    store = common_stores.get(platform)
+    if store and os.path.exists(store):
+        os.remove(store)
+        print(f"Invalidated RAG cache: {store}")
+        
+        
+ 
+
+@app.route("/code/reject", methods=["POST"])
+def reject_code():
+    """Save user-reported failed code with their remark into the docs folder."""
+    user_id = session.get("user")
+    if not user_id:
+        return jsonify({"error": "Not logged in"}), 403
+ 
+    data = request.get_json()
+    code = data.get("code", "").strip()
+    remark = data.get("remark", "").strip()
+    chat_id = data.get("chat_id", "")
+ 
+    if not code or not remark:
+        return jsonify({"error": "Code and remark are required"}), 400
+ 
+    from deck_parser import detect_platform
+    import hashlib
+ 
+    platform = detect_platform(code)
+    code_hash = hashlib.sha256(code.encode()).hexdigest()[:12]
+ 
+    platform_folders = {
+        "opentrons_ot2": "docs/opentrons/failed_codes",
+        "hamilton_star": "docs/hamilton/failed_codes",
+        "echo_650": "docs/echo/failed_codes",
+    }
+ 
+    folder = platform_folders.get(platform, f"docs/{platform}/failed_codes")
+    os.makedirs(folder, exist_ok=True)
+ 
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+ 
+    conn = None
+    username = "anonymous"
+    try:
+        conn = get_db_connection()
+        user = fetchone_dict(conn,
+            "SELECT first_name, last_name FROM users WHERE id = %s", (user_id,))
+        if user:
+            username = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip()
+    finally:
+        if conn:
+            conn.close()
+ 
+    ext = ".csv" if platform == "echo_650" else ".py"
+    filename = f"failed_{timestamp}_{code_hash}{ext}"
+    filepath = os.path.join(folder, filename)
+ 
+    header = f"""# FAILED PROTOCOL — DO NOT USE AS A WORKING EXAMPLE
+# Platform: {platform}
+# Date: {datetime.now().isoformat()}
+# Chat: {chat_id}
+#
+# USER REMARK:
+# {remark.replace(chr(10), chr(10) + '# ')}
+#
+# The code below did NOT work on the user's machine.
+# Use this as a negative example to avoid generating similar errors.
+# ---
+"""
+    if ext == ".csv":
+        header = f"# FAILED — {remark}\n"
+ 
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(header + code)
+ 
+    _invalidate_rag_cache(platform)
+ 
+    return jsonify({"success": True, "platform": platform, "file": filename})
+ 
+ 
+def _invalidate_rag_cache(platform):
+    """Delete the cached RAG pickle file so the index rebuilds with new docs."""
+    import json
+ 
+    # Check handlers.json for the store_path
+    handlers_path = "handlers.json"
+    if os.path.exists(handlers_path):
+        try:
+            with open(handlers_path) as f:
+                handlers = json.load(f)
+            for handler in handlers.values() if isinstance(handlers, dict) else handlers:
+                h = handler if isinstance(handler, dict) else {}
+                if h.get("name", "").lower() in platform.lower() or \
+                   platform in h.get("keywords", []):
+                    store = h.get("store_path", "")
+                    if store and os.path.exists(store):
+                        os.remove(store)
+                        print(f"Invalidated RAG cache: {store}")
+                    return
+        except Exception as e:
+            print(f"Cache invalidation error: {e}")
+ 
+    # Fallback: try common store paths
+    common_stores = {
+        "opentrons_ot2": "rag_store.pkl",
+        "hamilton_star": "rag_store_hamilton.pkl",
+        "echo_650": "rag_store_echo.pkl",
+    }
+    store = common_stores.get(platform)
+    if store and os.path.exists(store):
+        os.remove(store)
+        print(f"Invalidated RAG cache: {store}")
 
 
 if __name__ == "__main__":
