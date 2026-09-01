@@ -36,11 +36,23 @@ MODEL_NAME = "gpt-5"
 # Encryption helpers
 # ---------------------
 def get_encryption_key():
-    """Retrieve the user's encryption key from the session."""
+    """Retrieve the user's encryption key from the session (for API keys only)."""
     key = session.get("encryption_key")
     if key:
         return key.encode("utf-8") if isinstance(key, str) else key
     return None
+
+
+def _get_server_key():
+    """Derive a stable encryption key from FLASK_SECRET_KEY (for chat messages).
+    This key never changes, so messages survive password resets."""
+    if not hasattr(_get_server_key, "_cached"):
+        from crypt import derive_key
+        # Use a fixed salt derived from the secret key itself
+        import hashlib
+        salt = hashlib.sha256(app.secret_key.encode()).hexdigest()[:32]
+        _get_server_key._cached = derive_key(app.secret_key, salt)
+    return _get_server_key._cached
 
 
 def _is_encrypted(text):
@@ -51,7 +63,7 @@ def _is_encrypted(text):
 
 
 def encrypt_text(text):
-    """Encrypt text using the session encryption key."""
+    """Encrypt text using the user's session key (for API keys)."""
     key = get_encryption_key()
     if key and text:
         return encrypt(text, key)
@@ -60,27 +72,56 @@ def encrypt_text(text):
 
 def decrypt_text(ciphertext):
     """
-    Decrypt text using the session encryption key.
+    Decrypt text using the session encryption key. (for API key.)
     - If content is encrypted and key is available → decrypt normally
     - If content is encrypted but key is missing → return None (caller must handle)
     - If content is NOT encrypted (legacy plaintext) → return as-is
     """
     if not ciphertext:
         return ciphertext
-
     if not _is_encrypted(ciphertext):
-        # Legacy unencrypted data — return as-is
         return ciphertext
-
-    # Content is encrypted — we need the key
     key = get_encryption_key()
     if not key:
-        return None  # Signal that decryption failed — caller must handle
-
+        return None
     try:
         return decrypt(ciphertext, key)
     except Exception:
-        return None  # Corrupted or wrong key
+        return None
+
+
+def encrypt_message(text):
+    """Encrypt a chat message using the server key (survives password resets)."""
+    if text:
+        return encrypt(text, _get_server_key())
+    return text
+
+
+def decrypt_message(ciphertext):
+    """
+    Decrypt a chat message. Tries server key first, then user key (migration),
+    then returns the raw text as fallback.
+    """
+    if not ciphertext:
+        return ciphertext
+    if not _is_encrypted(ciphertext):
+        return ciphertext
+
+    # Try server key first (new messages)
+    try:
+        return decrypt(ciphertext, _get_server_key())
+    except Exception:
+        pass
+
+    # Try user key (old messages encrypted before this change)
+    user_key = get_encryption_key()
+    if user_key:
+        try:
+            return decrypt(ciphertext, user_key)
+        except Exception:
+            pass
+
+    return "[Message encrypted with a previous password]"
 
 # ---------------------
 # DB helper wrappers
@@ -243,6 +284,129 @@ def logout():
 
 
 # ---------------------
+# Password Reset
+# ---------------------
+@app.route("/forgot-password", methods=["GET", "POST"])
+def forgot_password():
+    if request.method == "GET":
+        return render_template("forgot_password.html")
+
+    email = request.form.get("email", "").strip()
+    if not email:
+        flash("Please enter your email address.", "error")
+        return redirect("/forgot-password")
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        user = fetchone_dict(conn, "SELECT id, first_name FROM users WHERE email = %s", (email,))
+
+        if user:
+            import secrets
+            from datetime import timedelta
+            token = secrets.token_urlsafe(48)
+            expires = datetime.now() + timedelta(hours=1)
+
+            execute(conn,
+                "DELETE FROM password_reset_tokens WHERE user_id = %s AND used = FALSE",
+                (user["id"],), commit=True)
+
+            execute(conn,
+                "INSERT INTO password_reset_tokens (user_id, token, expires_at) VALUES (%s, %s, %s)",
+                (user["id"], token, expires), commit=True)
+
+            try:
+                from email_service import send_password_reset_email, is_email_configured
+                if is_email_configured():
+                    reset_url = request.host_url.rstrip("/") + f"/reset-password/{token}"
+                    send_password_reset_email(email, reset_url, user.get("first_name", ""))
+                else:
+                    print(f"SMTP not configured. Reset token for {email}: {token}")
+            except Exception as e:
+                print(f"Email send error: {e}")
+
+    except Exception as e:
+        print(f"Forgot password error: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+    flash("If an account with that email exists, we've sent a password reset link.", "success")
+    return redirect("/forgot-password")
+
+
+@app.route("/reset-password/<token>", methods=["GET", "POST"])
+def reset_password(token):
+    conn = None
+    try:
+        conn = get_db_connection()
+        row = fetchone_dict(conn,
+            """SELECT t.id, t.user_id, t.expires_at, t.used, u.email
+               FROM password_reset_tokens t
+               JOIN users u ON t.user_id = u.id
+               WHERE t.token = %s""",
+            (token,))
+    finally:
+        if conn:
+            conn.close()
+
+    if not row:
+        flash("Invalid or expired reset link.", "error")
+        return redirect("/forgot-password")
+    if row["used"]:
+        flash("This reset link has already been used.", "error")
+        return redirect("/forgot-password")
+    if row["expires_at"] < datetime.now():
+        flash("This reset link has expired. Please request a new one.", "error")
+        return redirect("/forgot-password")
+
+    if request.method == "GET":
+        return render_template("reset_password.html", token=token)
+
+    new_password = request.form.get("password", "")
+    confirm_password = request.form.get("confirm_password", "")
+
+    if not new_password or len(new_password) < 6:
+        flash("Password must be at least 6 characters.", "error")
+        return redirect(f"/reset-password/{token}")
+    if new_password != confirm_password:
+        flash("Passwords do not match.", "error")
+        return redirect(f"/reset-password/{token}")
+
+    conn = None
+    try:
+        conn = get_db_connection()
+        new_hash = generate_password_hash(new_password)
+
+        # Re-encrypt the default API key with the new password
+        new_salt = generate_salt()
+        new_enc_key = derive_key(new_password, new_salt)
+        default_api_key = get_api_key()
+        encrypted_default = encrypt(default_api_key, new_enc_key)
+
+        execute(conn,
+            "UPDATE users SET password = %s, api_key = %s, encryption_salt = %s WHERE id = %s",
+            (new_hash, encrypted_default, new_salt, row["user_id"]),
+            commit=True)
+
+        execute(conn,
+            "UPDATE password_reset_tokens SET used = TRUE WHERE id = %s",
+            (row["id"],), commit=True)
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        print(f"Password reset error: {e}")
+        flash("An error occurred. Please try again.", "error")
+        return redirect(f"/reset-password/{token}")
+    finally:
+        if conn:
+            conn.close()
+
+    flash("Password reset successful! You can now log in with your new password.", "success")
+    return redirect("/login")
+
+
+# ---------------------
 # Main routes
 # ---------------------
 @app.route("/")
@@ -285,21 +449,21 @@ def create_chat():
         conn = get_db_connection()
         execute(conn,
             "INSERT INTO chat_names (chat_id, user_id, name) VALUES (%s, %s, %s)",
-            (chat_id, user_id, encrypt_text(title)),
+            (chat_id, user_id, encrypt_message(title)),
             commit=True
         )
 
         system_message = SYSTEM_PROMPT["content"]
         execute(conn,
             "INSERT INTO chat_history (user_id, chat_id, role, content) VALUES (%s, %s, %s, %s)",
-            (user_id, chat_id, "system", encrypt_text(system_message)),
+            (user_id, chat_id, "system", encrypt_message(system_message)),
             commit=True
         )
 
         intro_message = "Hello, I'm Biobot 🤖 — your assistant specialized in lab automation."
         execute(conn,
             "INSERT INTO chat_history (user_id, chat_id, role, content) VALUES (%s, %s, %s, %s)",
-            (user_id, chat_id, "assistant", encrypt_text(intro_message)),
+            (user_id, chat_id, "assistant", encrypt_message(intro_message)),
             commit=True
         )
     except Exception as e:
@@ -338,7 +502,7 @@ def chat(chat_id):
         # insert user message (encrypted)
         execute(conn,
             "INSERT INTO chat_history (user_id, chat_id, role, content, created_at) VALUES (%s, %s, %s, %s, %s)",
-            (user_id, chat_id, "user", encrypt_text(user_message), datetime.now().isoformat()),
+            (user_id, chat_id, "user", encrypt_message(user_message), datetime.now().isoformat()),
             commit=True
         )
 
@@ -354,7 +518,7 @@ def chat(chat_id):
             conn.close()
 
     user_api_key = decrypt_text(user["api_key"]) if user and user.get("api_key") else None
-    messages = [{"role": r["role"], "content": decrypt_text(r["content"])} for r in rows]
+    messages = [{"role": r["role"], "content": decrypt_message(r["content"])} for r in rows]
 
     # call your engine
     bot_reply = process_user_query(user_message, messages, MODEL_NAME, api_key=user_api_key)
@@ -365,20 +529,20 @@ def chat(chat_id):
         conn = get_db_connection()
         execute(conn,
             "INSERT INTO chat_history (user_id, chat_id, role, content, created_at) VALUES (%s, %s, %s, %s, %s)",
-            (user_id, chat_id, "assistant", encrypt_text(bot_reply), datetime.now().isoformat()),
+            (user_id, chat_id, "assistant", encrypt_message(bot_reply), datetime.now().isoformat()),
             commit=True
         )
 
         # rename chat if still "New chat"
         title_row = fetchone_dict(conn, "SELECT name FROM chat_names WHERE chat_id = %s AND user_id = %s", (chat_id, user_id))
-        if title_row and decrypt_text(title_row.get("name")) == "New chat":
+        if title_row and decrypt_message(title_row.get("name")) == "New chat":
             preview_words = user_message.strip().split()
             preview = " ".join(preview_words[:5])
             if len(preview_words) > 5:
                 preview += "..."
             execute(conn,
                 "UPDATE chat_names SET name = %s WHERE chat_id = %s AND user_id = %s",
-                (encrypt_text(preview), chat_id, user_id),
+                (encrypt_message(preview), chat_id, user_id),
                 commit=True
             )
     except Exception as e:
@@ -421,7 +585,7 @@ def chat_stream(chat_id):
             INSERT INTO chat_history (user_id, chat_id, role, content, created_at)
             VALUES (%s, %s, %s, %s, %s)
             """,
-            (user_id, chat_id, "user", encrypt_text(user_message), datetime.now().isoformat()),
+            (user_id, chat_id, "user", encrypt_message(user_message), datetime.now().isoformat()),
             commit=True
         )
 
@@ -438,7 +602,7 @@ def chat_stream(chat_id):
                 INSERT INTO chat_history (user_id, chat_id, role, content, created_at)
                 VALUES (%s, %s, %s, %s, %s)
                 """,
-                (user_id, chat_id, "assistant", encrypt_text(intro_message), datetime.now().isoformat()),
+                (user_id, chat_id, "assistant", encrypt_message(intro_message), datetime.now().isoformat()),
                 commit=True
             )
 
@@ -484,7 +648,7 @@ def chat_stream(chat_id):
         )
 
     # Decrypt chat history for the LLM (enc_key is validated above, so this is safe)
-    messages = [{"role": r["role"], "content": decrypt_text(r["content"])} for r in rows]
+    messages = [{"role": r["role"], "content": decrypt_message(r["content"])} for r in rows]
 
     # ---- STREAM RESPONSE ----
     def generate():
@@ -560,8 +724,8 @@ def chat_stream(chat_id):
 
                 # else: normal text (general/out response) — save as-is
 
-            # Encrypt before saving
-            encrypted_content = encrypt(save_content, enc_key) if enc_key and save_content else save_content
+            # Encrypt before saving (using server key — survives password resets)
+            encrypted_content = encrypt_message(save_content)
 
             # Save assistant message after streaming finishes
             conn2 = None
@@ -582,16 +746,15 @@ def chat_stream(chat_id):
                     (chat_id, user_id)
                 )
                 if title_row:
-                    decrypted_name = decrypt(title_row["name"], enc_key) if enc_key else title_row["name"]
+                    decrypted_name = decrypt_message(title_row["name"])
                     if decrypted_name == "New chat":
                         preview_words = user_message.strip().split()
                         preview = " ".join(preview_words[:5])
                         if len(preview_words) > 5:
                             preview += "..."
-                        encrypted_preview = encrypt(preview, enc_key) if enc_key else preview
                         execute(conn2,
                             "UPDATE chat_names SET name = %s WHERE chat_id = %s AND user_id = %s",
-                            (encrypted_preview, chat_id, user_id),
+                            (encrypt_message(preview), chat_id, user_id),
                             commit=True
                         )
 
@@ -632,7 +795,7 @@ def get_history(chat_id):
         if conn:
             conn.close()
 
-    visible_messages = [{"role": r["role"], "content": decrypt_text(r["content"])} for r in rows if r["role"] != "system"]
+    visible_messages = [{"role": r["role"], "content": decrypt_message(r["content"])} for r in rows if r["role"] != "system"]
     return jsonify(visible_messages)
 
 
@@ -681,7 +844,7 @@ def list_chats():
         if conn:
             conn.close()
 
-    return jsonify([{"chat_id": r["chat_id"], "name": decrypt_text(r["name"])} for r in rows])
+    return jsonify([{"chat_id": r["chat_id"], "name": decrypt_message(r["name"])} for r in rows])
 
 
 @app.route("/chat/<chat_id>/rename", methods=["POST"])
@@ -700,7 +863,7 @@ def rename_chat(chat_id):
         conn = get_db_connection()
         execute(conn,
             "UPDATE chat_names SET name = %s WHERE chat_id = %s AND user_id = %s",
-            (encrypt_text(new_name), chat_id, user_id),
+            (encrypt_message(new_name), chat_id, user_id),
             commit=True
         )
     finally:
@@ -787,14 +950,12 @@ def parse_deck():
     user_id = session.get("user")
     if not user_id:
         return jsonify({"error": "Not logged in"}), 403
-
+ 
     data = request.get_json()
     code = data.get("code", "")
-    context = data.get("context", "")
-    chat_id = data.get("chat_id", "")
     if not code:
         return jsonify({"error": "No code provided"}), 400
-
+ 
     # Get user API key for LLM fallback
     user_api_key = None
     conn = None
@@ -808,107 +969,31 @@ def parse_deck():
     finally:
         if conn:
             conn.close()
-
+ 
     from deck_parser import parse_any
     try:
-        state = parse_any(code, context=context, api_key=user_api_key)
-
-        # Save to DB if we have a chat_id
-        if chat_id and not state.get("error"):
-            _save_deck_state(chat_id, state)
-
+        state = parse_any(code, api_key=user_api_key)
         return jsonify(state)
     except Exception as e:
         return jsonify({"error": f"Parse error: {str(e)}"}), 400
-
-
-@app.route("/deck/state/<chat_id>", methods=["GET"])
-def get_deck_state(chat_id):
-    """Retrieve saved deck state for a chat."""
-    user_id = session.get("user")
-    if not user_id:
-        return jsonify({"error": "Not logged in"}), 403
-
-    conn = None
-    try:
-        conn = get_db_connection()
-        # Verify chat belongs to user
-        chat = fetchone_dict(conn,
-            "SELECT 1 FROM chat_names WHERE chat_id = %s AND user_id = %s",
-            (chat_id, user_id))
-        if not chat:
-            return jsonify({"error": "Chat not found"}), 404
-
-        row = fetchone_dict(conn,
-            "SELECT deck_state FROM deck_states WHERE chat_id = %s",
-            (chat_id,))
-    finally:
-        if conn:
-            conn.close()
-
-    if row and row.get("deck_state"):
-        import json
-        try:
-            return jsonify(json.loads(row["deck_state"]))
-        except Exception:
-            return jsonify({"error": "Corrupt deck state"}), 500
-
-    return jsonify({"error": "No saved deck state"}), 404
-
-
-@app.route("/deck/state/<chat_id>", methods=["POST"])
-def save_deck_state_route(chat_id):
-    """Save/update deck state for a chat."""
-    user_id = session.get("user")
-    if not user_id:
-        return jsonify({"error": "Not logged in"}), 403
-
-    data = request.get_json()
-    if not data:
-        return jsonify({"error": "No data"}), 400
-
-    _save_deck_state(chat_id, data)
-    return jsonify({"success": True})
-
-
-def _save_deck_state(chat_id, state):
-    """Helper to upsert deck state in DB."""
-    import json
-    conn = None
-    try:
-        conn = get_db_connection()
-        execute(conn,
-            """INSERT INTO deck_states (chat_id, deck_state, created_at)
-               VALUES (%s, %s, NOW())
-               ON CONFLICT (chat_id)
-               DO UPDATE SET deck_state = EXCLUDED.deck_state, created_at = NOW()""",
-            (chat_id, json.dumps(state)),
-            commit=True)
-    except Exception as e:
-        if conn:
-            conn.rollback()
-        print(f"Save deck state error: {e}")
-    finally:
-        if conn:
-            conn.close()
-
-
+ 
+ 
 @app.route("/deck/generate", methods=["POST"])
 def generate_deck_code():
     """Update code based on deck changes."""
     user_id = session.get("user")
     if not user_id:
         return jsonify({"error": "Not logged in"}), 403
-
+ 
     data = request.get_json()
     if not data:
         return jsonify({"error": "No data provided"}), 400
-
+ 
     from deck_parser import update_slots_in_code
-
+ 
     original_code = data.get("original_code", "")
     slot_changes = data.get("slot_changes", {})
-
+ 
     try:
         if original_code and slot_changes:
             code = update_slots_in_code(original_code, slot_changes)
