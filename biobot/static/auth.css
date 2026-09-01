@@ -199,6 +199,13 @@ body {
   text-align: center;
 }
 
+.auth-description {
+  color: #888;
+  font-size: 0.85rem;
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
 /* Responsive */
 @media (max-width: 480px) {
   .auth-container {
