@@ -75,7 +75,7 @@ def detect_handler(query, history, api_key):
         known_list = "  (none configured)"
 
     response = client.responses.create(
-        model="gpt-5.4",
+        model="gpt-5.6",
         input=[
             {
                 "role": "system",
@@ -121,7 +121,7 @@ Return ONLY the platform ID. One word, lowercase, no quotes, no explanation."""
 
     # New handler — ask the LLM for the proper display name
     name_response = client.responses.create(
-        model="gpt-5.4",
+        model="gpt-5.6",
         input=[
             {
                 "role": "system",
@@ -160,40 +160,110 @@ Return ONLY the platform ID. One word, lowercase, no quotes, no explanation."""
 
 
 # ----------- SUFFICIENCY CHECK -------------
+SUFFICIENCY_PROMPT = """You are BioBot, an expert assistant in lab automation and liquid handling robots.
+ 
+Your job is to check whether a user's protocol request contains enough information to generate a working script.
+ 
+If the request has enough information (considering the full conversation history), reply with exactly: SUFFICIENT
+ 
+If information is missing, you MUST ask ALL your questions AT ONCE in a single response. Do NOT hold back questions for follow-ups — ask everything you need in one shot so the user only has to answer once, then code generates immediately.
+ 
+Reply with ONLY a valid JSON object (no markdown, no explanation) following this exact structure:
+ 
+{
+  "message": "A short friendly message explaining what you need",
+  "questions": [
+    {
+      "id": "unique_id",
+      "question": "The question text",
+      "type": "single or multiple",
+      "options": [
+        {"value": "internal_value", "label": "Display label shown to user"},
+        {"value": "another_value", "label": "Another option"}
+      ],
+      "allow_other": true
+    }
+  ]
+}
+ 
+RULES:
+- NEVER ask about information the user already provided. Read the conversation carefully. If the user said "opentrons" or "ot-2", do NOT ask which platform. If they mentioned a pipette, do NOT ask which pipette. Only ask what is genuinely missing.
+- ASK EVERYTHING AT ONCE. After the user answers, code generates immediately. No follow-up rounds.
+- If the user is using hamilton, ask if he's using it via pyhamilton or venus api
+- "type": "single" = user picks ONE option (radio buttons).
+- "type": "multiple" = user picks ONE OR MORE (checkboxes).
+- "allow_other": true = adds a text field for custom answers.
+- Include practical, common options with reasonable defaults.
+- For pipettes: include volume ranges in labels.
+- For labware: include well counts and volumes.
+- ALWAYS include this as the LAST question to let the user add optional details:
+  {"id": "remarks", "question": "Any additional specifications or remarks? (optional — leave empty if none)", "type": "single", "options": [{"value": "none", "label": "No, generate the protocol"}], "allow_other": true}
+- Return ONLY "SUFFICIENT" or the JSON. Nothing else.
+"""
+ 
+ 
 def check_sufficient_info(query, history, api_key):
+    """
+    Check if the user's request has enough info for code generation.
+    If not, output structured questions as JSON for the frontend to render.
+    """
+    import json
+    import sys
+ 
+    # Skip if the user already answered structured questions
+    if query.strip().startswith("[PROTOCOL_PARAMS]"):
+        return
+ 
+    # Also skip if any recent message in history contains answered params
+    for m in (history or [])[-3:]:
+        if m.get("role") == "user" and "[PROTOCOL_PARAMS]" in m.get("content", ""):
+            return
+ 
     client = get_openai_client(api_key)
-
-    recent = [m for m in history if m["role"] != "system"][-8:]
+ 
+    recent = [m for m in history if m["role"] != "system"][-6:]
     conversation = "\n".join(
-        f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content'][:500]}"
+        f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content'][:400]}"
         for m in recent
     )
-
+ 
     response = client.responses.create(
         model="gpt-4o-mini",
         input=[
-            {
-                "role": "system",
-                "content": """You are BioBot, an expert assistant in lab automation and liquid handling robots.
-
-DO NOT GENERATE CODE, your job is only to check whether a user's protocol request contains enough information to generate a working script.
-
-If you judge that there are enough infomations in the whole conversation, cause you were given the conversation history for that, ONLY reply with exactly: SUFFICIENT , nothing more.
-Ask kindly for more informations if you assume that there are not enough informations in order to generate the code. You are specialized, you know what informations to ask depending on the user query. 
-Always suggest kindly a default set up in order to help the user when he does not provide you with sufficient informations.
-If the user asks you to use a default set up, complete a setup, choose some parameters along with the infos he gave you, do it and don't ask for informations then. This means that you will reply ONLY with exactly : SUFFICIENT."""
-            },
-            {
-                "role": "user",
-                "content": f"Conversation so far:\n{conversation}\n\nLatest request: {query}"
-            }
-        ]
+            {"role": "system", "content": SUFFICIENCY_PROMPT},
+            {"role": "user", "content": f"Conversation so far:\n{conversation}\n\nLatest request: {query}"}
+        ],
     )
-
+ 
     answer = response.output_text.strip()
-    if answer != "SUFFICIENT":
-        print(answer, flush=True)
-        sys.exit(0)
+ 
+    if answer == "SUFFICIENT":
+        return  # Continue to code generation
+ 
+    # Try to parse as structured questions JSON
+    try:
+        # Clean markdown fences if present
+        cleaned = answer
+        if cleaned.startswith("```"):
+            cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3].strip()
+        if cleaned.startswith("json"):
+            cleaned = cleaned[4:].strip()
+ 
+        questions = json.loads(cleaned)
+ 
+        # Validate structure
+        if "questions" in questions and isinstance(questions["questions"], list):
+            # Output as structured questions marker
+            print("QUESTIONS:" + json.dumps(questions), flush=True)
+            sys.exit(0)
+    except (json.JSONDecodeError, KeyError):
+        pass
+ 
+    # Fallback: output as plain text (old behavior)
+    print(answer, flush=True)
+    sys.exit(0)
 
 
 def consolidate_request(query, history, api_key):
@@ -235,7 +305,7 @@ def get_text_embedding_with_retry(text, retries=5, delay=2):
             response = client.embeddings.create(
                 model="text-embedding-3-small",
                 input=text
-            )
+    )
             return response.data[0].embedding
         except Exception as e:
             if "rate limit" in str(e).lower():
@@ -248,7 +318,7 @@ def get_text_embedding_with_retry(text, retries=5, delay=2):
 
 
 # ----------- COMPLETION -------------
-def run_gpt(user_message, model="gpt-5.4"):
+def run_gpt(user_message, model="gpt-5.6"):
     client = get_openai_client(user_api_key)
     messages = [
         {
@@ -304,7 +374,7 @@ def validate_llm_review(code, handler_config, context_chunks, question):
 
     client = get_openai_client(user_api_key)
     response = client.responses.create(
-        model="gpt-5.4",
+        model="gpt-5.6",
         tools=[{"type": "web_search"}],
         input=[
             {
