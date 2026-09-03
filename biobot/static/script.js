@@ -115,6 +115,11 @@ if (sidebarOverlay) {
 }
 
 // --- Escape HTML ---
+// Fix invalid JSON from LLMs (trailing commas before ] or })
+function fixTrailingCommas(jsonStr) {
+  return jsonStr.replace(/,\s*([\]}])/g, '$1');
+}
+
 function escapeHtml(unsafe) {
   return unsafe
     .replace(/&/g, "&amp;")
@@ -211,6 +216,61 @@ function buildCodeBlock(code, format = "python") {
 
   actions.appendChild(copyBtn);
   actions.appendChild(downloadBtn);
+
+  // Add Deck button for any code that looks like a protocol/picklist
+  if (code.length > 50 && (code.includes("(") || code.includes(","))) {
+    const deckBtn = document.createElement("button");
+    deckBtn.className = "code-action-btn deck-action-btn";
+    deckBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg> Deck';
+    deckBtn.addEventListener("click", () => {
+      if (window.parseDeckFromCode) {
+        window.parseDeckFromCode(code);
+      }
+    });
+    actions.appendChild(deckBtn);
+  }
+
+  // Add thumbs-up button for code approval (stores working code in docs for RAG)
+  if (code.length > 50) {
+    const approveBtn = document.createElement("button");
+    approveBtn.className = "code-action-btn approve-action-btn";
+    approveBtn.title = "Mark as working. This code will be saved to improve future generations";
+    approveBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>';
+
+    approveBtn.addEventListener("click", async () => {
+      if (approveBtn.classList.contains("approved")) return;
+
+      try {
+        const res = await fetch("/code/approve", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code, chat_id: currentChatId || "" }),
+        });
+
+        if (res.ok) {
+          approveBtn.classList.add("approved");
+          approveBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="var(--accent)" stroke="var(--accent)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>';
+          approveBtn.title = "Saved as verified working code";
+        }
+      } catch (e) {
+        console.error("Approve error:", e);
+      }
+    });
+    actions.appendChild(approveBtn);
+
+    // Reject button (thumbs-down) — save failed code + user remark
+    const rejectBtn = document.createElement("button");
+    rejectBtn.className = "code-action-btn reject-action-btn";
+    rejectBtn.title = "Report as not working. Add a note about what went wrong";
+    rejectBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>';
+
+    rejectBtn.addEventListener("click", () => {
+      if (rejectBtn.classList.contains("rejected")) return;
+      showRejectModal(code, rejectBtn);
+    });
+    actions.appendChild(rejectBtn);
+  }
+
   toolbar.appendChild(langLabel);
   toolbar.appendChild(actions);
 
@@ -288,6 +348,9 @@ async function loadChatHistory(chatId) {
   selectChatListItem(chatId);
   closeSidebar();
 
+  // Clear and hide deck panel when switching chats
+  if (window.clearDeckPanel) window.clearDeckPanel();
+
   try {
     const res = await fetch(`/chat/${chatId}`);
     if (res.status === 404) {
@@ -300,12 +363,103 @@ async function loadChatHistory(chatId) {
     }
 
     const messages = await res.json();
-    for (const msg of messages) {
+    for (let msgIdx = 0; msgIdx < messages.length; msgIdx++) {
+      const msg = messages[msgIdx];
       if (msg.role === "user") {
-        addMessage(msg.content, "user", false);
+        // Strip [PROTOCOL_PARAMS] marker for display
+        const displayContent = (msg.content || "").replace(/^\[PROTOCOL_PARAMS\]\n?/, "");
+        addMessage(displayContent, "user", false);
       } else if (msg.role === "assistant") {
+        const content = msg.content || "";
+
+        // Skip null/empty messages
+        if (!content || content === "null" || content === "None") continue;
+
+        // Skip encrypted-but-unreadable messages
+        if (content.startsWith("gAAAAAB") || content === "[Message encrypted with a previous password]") {
+          const botDiv = addMessage("", "bot");
+          botDiv.innerHTML = `<span style="color:#888;font-style:italic">${content.startsWith("gAAAAAB") ? "[Message from a previous session]" : content}</span>`;
+          continue;
+        }
+
         const botDiv = addMessage("", "bot");
-        appendChunkToBotMessage(botDiv, msg.content);
+
+        // Check for structured questions (with or without markers/fences)
+        if (content.includes("__QUESTIONS__:") || content.includes('"questions"')) {
+          let questionsJson = content;
+          if (questionsJson.includes("__QUESTIONS__:")) {
+            questionsJson = questionsJson.split("__QUESTIONS__:").pop();
+          }
+          questionsJson = questionsJson.replace(/^```\w*\s*\n?/, "").replace(/\n?```\s*$/, "").trim();
+
+          try {
+            const questionsData = JSON.parse(fixTrailingCommas(questionsJson));
+            if (questionsData.questions) {
+              // Look ahead: were these questions already answered?
+              const nextUserMsg = messages.slice(msgIdx + 1).find(m => m.role === "user");
+              const wasAnswered = nextUserMsg && nextUserMsg.content && nextUserMsg.content.includes("[PROTOCOL_PARAMS]");
+
+              if (wasAnswered) {
+                // Show read-only summary of the answers
+                const answersText = nextUserMsg.content.replace(/^\[PROTOCOL_PARAMS\]\n?/, "");
+                const answerLines = answersText.split("\n").filter(l => l.trim());
+
+                let html = `<div class="questions-summary">`;
+                html += `<div class="summary-title">${escapeHtml(questionsData.message || "Your selections:")}</div>`;
+                for (const line of answerLines) {
+                  const qMark = line.indexOf("?");
+                  if (qMark > -1) {
+                    html += `<div class="summary-item"><span class="summary-q">${escapeHtml(line.substring(0, qMark + 1))}</span><span class="summary-a">${escapeHtml(line.substring(qMark + 1).trim())}</span></div>`;
+                  } else {
+                    html += `<div class="summary-item"><span class="summary-a">${escapeHtml(line)}</span></div>`;
+                  }
+                }
+                html += `</div>`;
+                botDiv.innerHTML = html;
+              } else if (window.renderQuestionsForm) {
+                // Not yet answered — show interactive form
+                window.renderQuestionsForm(botDiv, questionsData);
+              }
+              continue;
+            }
+          } catch (e) {
+            // Fall through to regular rendering
+          }
+        }
+
+        // Check for markdown-fenced code blocks
+        const codeBlockRegex = /```(\w*)\s*\n([\s\S]*?)```/g;
+        let match;
+        let lastIndex = 0;
+        let hasCodeBlock = false;
+
+        while ((match = codeBlockRegex.exec(content)) !== null) {
+          hasCodeBlock = true;
+          // Text before the code block
+          const before = content.slice(lastIndex, match.index).trim();
+          if (before) {
+            const textP = document.createElement("p");
+            textP.innerHTML = escapeHtml(before).replace(/\n/g, "<br>");
+            botDiv.appendChild(textP);
+          }
+          // The code block itself
+          const format = match[1] || detectFormat(match[2]);
+          botDiv.appendChild(buildCodeBlock(match[2], format));
+          lastIndex = codeBlockRegex.lastIndex;
+        }
+
+        if (hasCodeBlock) {
+          // Text after the last code block
+          const after = content.slice(lastIndex).trim();
+          if (after) {
+            const textP = document.createElement("p");
+            textP.innerHTML = escapeHtml(after).replace(/\n/g, "<br>");
+            botDiv.appendChild(textP);
+          }
+        } else {
+          // No markdown fences — render as plain text
+          botDiv.innerHTML = escapeHtml(content).replace(/\n/g, "<br>");
+        }
       }
     }
   } catch (e) {
@@ -545,6 +699,7 @@ async function sendMessage() {
   let firstChunkReceived = false;
   let statusDiv = null;
   let isRagResponse = false;
+  let finalRagCode = null;
 
   try {
     const res = await fetch(`/chat/${currentChatId}/stream`, {
@@ -612,8 +767,20 @@ async function sendMessage() {
           botDiv = addMessage("", "bot");
         }
 
+        // --- Structured questions from sufficiency check ---
+        if (contentPart.includes("__QUESTIONS__:")) {
+          const questionsJson = contentPart.split("__QUESTIONS__:").pop().trim();
+          try {
+            const questionsData = JSON.parse(fixTrailingCommas(questionsJson));
+            if (window.renderQuestionsForm) {
+              window.renderQuestionsForm(botDiv, questionsData);
+            }
+          } catch (e) {
+            appendChunkToBotMessage(botDiv, questionsJson);
+          }
+        }
         // --- RAG failure: message + code ---
-        if (contentPart.includes("__FAILED_CODE__:")) {
+        else if (contentPart.includes("__FAILED_CODE__:")) {
           const failedContent = contentPart.split("__FAILED_CODE__:").pop();
           const sepParts = failedContent.split("___CODE_SEP___");
           const message = (sepParts[0] || "").trim();
@@ -633,6 +800,8 @@ async function sendMessage() {
         // --- RAG success: raw output ---
         else if (isRagResponse) {
           botDiv.appendChild(buildCodeBlock(contentPart, detectFormat(contentPart)));
+          // Store final code — deck will be parsed ONCE after streaming completes
+          finalRagCode = contentPart;
         }
         // --- Normal streaming (general/out) ---
         else {
@@ -647,6 +816,11 @@ async function sendMessage() {
 
     await refreshChatList();
     selectChatListItem(currentChatId);
+
+    // Parse deck ONCE after streaming is fully complete (final code only)
+    if (finalRagCode && window.parseDeckFromCode && finalRagCode.length > 50) {
+      window.parseDeckFromCode(finalRagCode);
+    }
 
   } catch (err) {
     clearInterval(thinkingInterval);
@@ -678,6 +852,73 @@ document.getElementById("logout-btn").addEventListener("click", () => {
 document.addEventListener('click', () => {
   document.querySelectorAll('.chat-menu').forEach(m => m.classList.add('hidden'));
 });
+
+// --- Reject Modal ---
+function showRejectModal(code, rejectBtn) {
+  const existing = document.getElementById("reject-modal");
+  if (existing) existing.remove();
+
+  const modal = document.createElement("div");
+  modal.id = "reject-modal";
+  modal.className = "reject-modal";
+
+  modal.innerHTML = `
+    <div class="reject-modal-content">
+      <div class="reject-modal-header">
+        <h4>Report Issue</h4>
+        <button class="reject-modal-close" onclick="document.getElementById('reject-modal').remove()">&times;</button>
+      </div>
+      <p class="reject-modal-desc">Describe what went wrong when you tested this code on your machine. Your feedback helps improve future generations.</p>
+      <textarea id="reject-remark" class="reject-textarea" rows="5" placeholder="e.g. 'Labware not found on slot 3' or 'Pipette exceeded max volume' or 'Script crashed at line 42'"></textarea>
+      <div class="reject-modal-actions">
+        <button class="reject-cancel-btn" onclick="document.getElementById('reject-modal').remove()">Cancel</button>
+        <button class="reject-submit-btn" id="reject-submit-btn">Submit Report</button>
+      </div>
+    </div>
+  `;
+
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) modal.remove();
+  });
+
+  document.body.appendChild(modal);
+  setTimeout(() => document.getElementById("reject-remark")?.focus(), 100);
+
+  document.getElementById("reject-submit-btn").addEventListener("click", async () => {
+    const remark = document.getElementById("reject-remark").value.trim();
+    if (!remark) {
+      document.getElementById("reject-remark").style.borderColor = "#ff4d4d";
+      document.getElementById("reject-remark").placeholder = "Please describe the issue before submitting...";
+      return;
+    }
+
+    const submitBtn = document.getElementById("reject-submit-btn");
+    submitBtn.textContent = "Submitting...";
+    submitBtn.disabled = true;
+
+    try {
+      const res = await fetch("/code/reject", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, remark, chat_id: currentChatId || "" }),
+      });
+
+      if (res.ok) {
+        rejectBtn.classList.add("rejected");
+        rejectBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="#ff4d4d" stroke="#ff4d4d" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>';
+        rejectBtn.title = "Reported as not working";
+        modal.remove();
+      } else {
+        submitBtn.textContent = "Error — try again";
+        submitBtn.disabled = false;
+      }
+    } catch (e) {
+      console.error("Reject error:", e);
+      submitBtn.textContent = "Error — try again";
+      submitBtn.disabled = false;
+    }
+  });
+}
 
 // --- Init ---
 (async function init() {

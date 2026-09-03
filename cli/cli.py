@@ -5,11 +5,38 @@ This file lives in cli/ and imports directly from biobot/.
 No files in biobot/ are modified.
 
 Usage:
-    biobot                     Start interactive chat
-    biobot --register          Create a new account
-    biobot --new               Start a fresh chat directly
-    biobot --list              List your saved chats
-    biobot --init-db           Initialize database tables
+    # Interactive (with login + chat history)
+    biobot                              # default = chat : Start interactive chat
+    biobot chat                         # same
+    biobot chat --new                   # skip chat picker
+    biobot chat -f source.csv -f dest.csv   # attach files to first message
+
+    # One-shot (no login, no clarification, no history)
+    biobot ask "Generate an OT-2 serial dilution protocol"
+    biobot ask "..." -o response.md     # save to file
+
+    # Plate transfer generator (existing)
+    biobot generate source.csv dest.csv -o instructions.csv
+
+    # Web UI (opens browser)
+    biobot web
+    biobot web --url http://192.168.1.10:5000
+
+    # Auxiliary
+    biobot register            Create a new account
+    biobot init-db             Initialize database tables
+    biobot list                List your saved chats   
+    
+    # Commands while in chat
+    /new                       Start a new chat
+    /list                      List saved chats
+    /switch N                  Switch to chat #N
+    /save                      Save last code to file
+    /delete N                  Delete chat #N
+    /upload <path>             Attach file(s) to your next message
+    /files                     List currently attached files
+    /clear-files               Clear attached files without sending
+    /quit                      Exit
 """
 
 # ── Bootstrap: resolve paths and load env BEFORE any project imports ──
@@ -56,8 +83,8 @@ import psycopg2
 import psycopg2.extras
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from config import get_db_connection, get_api_key, init_db, wait_for_postgres
-from engine import process_user_query, RAG_STATUS_PREFIX, FAILED_CODE_MARKER
+from biobot.config import get_db_connection, get_api_key, init_db, wait_for_postgres
+from biobot.engine import process_user_query, RAG_STATUS_PREFIX, FAILED_CODE_MARKER
 
 try:
     from crypt import generate_salt, derive_key, encrypt, decrypt
@@ -403,12 +430,15 @@ def _banner():
     print(_c("  ╚══════════════════════════════════════════╝", C.GREEN))
     print()
     print(_c("  Commands:", C.DIM))
-    print(f"    {_c('/new', C.CYAN)}       start a new chat")
-    print(f"    {_c('/list', C.CYAN)}      list saved chats")
-    print(f"    {_c('/switch N', C.CYAN)}  switch to chat #N")
-    print(f"    {_c('/save', C.CYAN)}      save last code to file")
-    print(f"    {_c('/delete N', C.CYAN)} delete chat #N")
-    print(f"    {_c('/quit', C.CYAN)}      exit")
+    print(f"    {_c('/new', C.CYAN)}             start a new chat")
+    print(f"    {_c('/list', C.CYAN)}            list saved chats")
+    print(f"    {_c('/switch N', C.CYAN)}        switch to chat #N")
+    print(f"    {_c('/upload <path>', C.CYAN)}   attach file(s) to next message")
+    print(f"    {_c('/files', C.CYAN)}           show attached files")
+    print(f"    {_c('/clear-files', C.CYAN)}     clear attached files")
+    print(f"    {_c('/save', C.CYAN)}            save last code to file")
+    print(f"    {_c('/delete N', C.CYAN)}        delete chat #N")
+    print(f"    {_c('/quit', C.CYAN)}            exit")
     print()
 
 
@@ -461,6 +491,25 @@ def _print_message(role, content):
                         print(f"  {line}")
 
 
+def _read_files_for_attachment(paths):
+    """Read files and format them as a single text block for the LLM."""
+    chunks = []
+    for path in paths:
+        if not os.path.exists(path):
+            print(_c(f"  ⚠️  File not found: {path}", C.YELLOW))
+            continue
+        try:
+            with open(path, "r") as f:
+                content = f.read()
+            chunks.append(
+                f"[Attached file: {os.path.basename(path)}]\n{content}\n[End of file]"
+            )
+            print(_c(f"  📎 Attached: {path}", C.DIM))
+        except Exception as e:
+            print(_c(f"  ⚠️  Cannot read {path}: {e}", C.YELLOW))
+    return "\n\n".join(chunks)
+
+
 # ── Chat selection ───────────────────────────────────────────
 
 def pick_or_create_chat(session: Session) -> str:
@@ -491,7 +540,7 @@ def pick_or_create_chat(session: Session) -> str:
 
 MODEL_NAME = "gpt-5.4"
 
-def interactive(session: Session, chat_id: str):
+def interactive(session: Session, chat_id: str, initial_files=None):
     _banner()
 
     # Show recent history
@@ -506,6 +555,13 @@ def interactive(session: Session, chat_id: str):
         print(f"  {_c('🤖 BioBot:', C.GREEN + C.BOLD)} Hello! I'm Biobot 🧬 — ready to help with lab automation.\n")
 
     last_code = None
+    pending_files = list(initial_files) if initial_files else []
+
+    if pending_files:
+        print(_c(f"  📎 {len(pending_files)} file(s) attached — will be sent with your next message:", C.CYAN))
+        for f in pending_files:
+            print(_c(f"     • {f}", C.DIM))
+        print()
 
     while True:
         try:
@@ -591,6 +647,40 @@ def interactive(session: Session, chat_id: str):
                     print(_c("  Usage: /delete <number>", C.DIM))
                 continue
 
+            elif cmd[0] == "/upload":
+                # Use original (case-preserving) split for paths
+                raw_parts = user_input.split(maxsplit=1)
+                if len(raw_parts) < 2:
+                    print(_c("  Usage: /upload <file_path> [<file_path> ...]", C.DIM))
+                    continue
+                # Split remaining on whitespace to support multiple files
+                file_paths = raw_parts[1].split()
+                added = 0
+                for fp in file_paths:
+                    fp_expanded = os.path.expanduser(fp)
+                    if not os.path.exists(fp_expanded):
+                        print(_c(f"  ⚠️  File not found: {fp}", C.YELLOW))
+                        continue
+                    pending_files.append(fp_expanded)
+                    added += 1
+                if added:
+                    print(_c(f"  📎 {added} file(s) attached. Will be sent with your next message.", C.GREEN))
+                continue
+
+            elif cmd[0] == "/files":
+                if not pending_files:
+                    print(_c("  No files attached.", C.DIM))
+                else:
+                    print(_c("  Attached files:", C.WHITE + C.BOLD))
+                    for f in pending_files:
+                        print(f"    • {f}")
+                continue
+
+            elif cmd[0] == "/clear-files":
+                pending_files = []
+                print(_c("  Cleared all attached files.", C.GREEN))
+                continue
+
             elif cmd[0] == "/help":
                 _banner()
                 continue
@@ -600,8 +690,17 @@ def interactive(session: Session, chat_id: str):
                 continue
 
         # ── Send message to engine ──
-        save_message(session, chat_id, "user", user_input)
-        auto_rename_chat(session, chat_id, user_input)
+
+        # If there are pending files, prepend their content to the user message
+        message_to_send = user_input
+        if pending_files:
+            file_block = _read_files_for_attachment(pending_files)
+            if file_block:
+                message_to_send = f"{file_block}\n\nUser message: {user_input}"
+            pending_files = []  # consumed
+
+        save_message(session, chat_id, "user", message_to_send)
+        auto_rename_chat(session, chat_id, user_input)  # use the short version for chat name
 
         messages = get_chat_history(session, chat_id)
 
@@ -610,7 +709,7 @@ def interactive(session: Session, chat_id: str):
         is_rag = False
 
         try:
-            for chunk in process_user_query(user_input, messages, MODEL_NAME, api_key=session.api_key):
+            for chunk in process_user_query(message_to_send, messages, MODEL_NAME, api_key=session.api_key):
 
                 if chunk.startswith(RAG_STATUS_PREFIX):
                     had_status = True
@@ -679,21 +778,307 @@ def interactive(session: Session, chat_id: str):
 
 # ── Entry point ──────────────────────────────────────────────
 
+# ── Command implementations ──────────────────────────────────
+
+def cmd_generate(args):
+    """Generate transfer instructions from source/destination plate CSVs."""
+    source_path = args.source
+    dest_path = args.dest
+    output_path = args.output
+
+    print()
+    print(_c("  🧬 BioBot — Plate Transfer Instructions Generator", C.GREEN + C.BOLD))
+    print()
+
+    for path in [source_path, dest_path]:
+        if not os.path.exists(path):
+            print(_c(f"  File not found: {path}", C.RED))
+            sys.exit(1)
+
+    with open(source_path, "r") as f:
+        source_csv = f.read()
+    with open(dest_path, "r") as f:
+        dest_csv = f.read()
+
+    print(f"  Source plate:      {_c(source_path, C.CYAN)}")
+    print(f"  Destination plate: {_c(dest_path, C.CYAN)}")
+    print(f"  Output:            {_c(output_path, C.CYAN)}")
+    print()
+
+    try:
+        api_key = get_api_key()
+    except ValueError as e:
+        print(_c(f"  {e}", C.RED))
+        sys.exit(1)
+
+    _print_status("Analyzing plates and generating transfer instructions...")
+
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+
+        response = client.responses.create(
+            model="gpt-5",
+            input=[
+                {
+                    "role": "system",
+                    "content": """You are an expert in lab automation and liquid handling.
+
+You will receive two CSV files:
+1. A SOURCE PLATE: describes available reagents in each well and their volumes.
+2. A DESTINATION PLATE: describes the target composition of each well — what reagents and how much of each should end up in each well.
+
+Your task: generate a TRANSFER INSTRUCTIONS CSV that tells a liquid handler how to pipette from source wells to destination wells to achieve the desired destination plate.
+
+RULES:
+- For each destination well and each reagent it needs, find the appropriate source well that contains that reagent.
+- Each row in the output represents one transfer: from one source well to one destination well for one specific reagent.
+- Track cumulative volumes taken from each source well. If a source well runs out, flag it or split across multiple source wells if available.
+- If a reagent needed in the destination is not available in any source well, add a warning comment.
+- Output ONLY the CSV content, no markdown fences, no explanation, no preamble.
+- Use comma as delimiter.
+- Volumes in the output should use the same unit as the input files."""
+                },
+                {
+                    "role": "user",
+                    "content": f"Generate transfer instructions.\n\nSOURCE PLATE ({source_path}):\n{source_csv}\n\nDESTINATION PLATE ({dest_path}):\n{dest_csv}"
+                }
+            ]
+        )
+
+        result = response.output_text.strip()
+        if result.startswith("```"):
+            result = re.sub(r"^```(?:csv)?\n?", "", result)
+            result = re.sub(r"\n?```$", "", result)
+
+        _clear_status()
+
+        with open(output_path, "w") as f:
+            f.write(result + "\n")
+
+        lines = result.strip().split("\n")
+        num_rows = len(lines) - 1
+
+        print(f"  {_c('✅', C.GREEN)} Generated {_c(str(num_rows), C.BOLD)} transfer instructions")
+        print(f"  {_c('📄', C.GREEN)} Saved to: {_c(output_path, C.CYAN)}")
+        print()
+        print(_c("  ── Preview ──", C.DIM))
+        for line in lines[:min(10, len(lines))]:
+            print(f"  {line}")
+        if len(lines) > 10:
+            print(_c(f"  ... ({num_rows} rows total)", C.DIM))
+        print()
+
+    except Exception as e:
+        _clear_status()
+        print(_c(f"\n  Error: {e}", C.RED))
+        sys.exit(1)
+
+
+def cmd_ask(args):
+    """One-shot, non-interactive query. No login, no DB, no clarification."""
+    prompt = args.prompt
+    output = args.output
+
+    # Get API key
+    try:
+        api_key = get_api_key()
+    except ValueError as e:
+        print(_c(f"  {e}", C.RED))
+        sys.exit(1)
+
+    # Tell main_rag to skip the sufficient-info check
+    os.environ["BIOBOT_SKIP_SUFFICIENT_CHECK"] = "1"
+
+    # Build a minimal message history with just the system prompt + user prompt
+    messages = [
+        {"role": "system", "content": ONE_SHOT_SYSTEM_PROMPT},
+        {"role": "user", "content": prompt},
+    ]
+
+    print()
+    print(_c("  🧬 BioBot — One-shot query", C.GREEN + C.BOLD))
+    print()
+    print(f"  {_c('You:', C.WHITE + C.BOLD)} {prompt}")
+    print()
+
+    full_reply = ""
+    had_status = False
+
+    try:
+        for chunk in process_user_query(prompt, messages, MODEL_NAME, api_key=api_key):
+
+            if chunk.startswith(RAG_STATUS_PREFIX):
+                had_status = True
+                _print_status(chunk[len(RAG_STATUS_PREFIX):])
+                continue
+
+            if chunk.startswith(FAILED_CODE_MARKER):
+                if had_status:
+                    _clear_status()
+                content = chunk[len(FAILED_CODE_MARKER):]
+                parts = content.split("___CODE_SEP___", 1)
+                message = parts[0].strip()
+                code = parts[1].strip() if len(parts) > 1 else ""
+                print(f"\n  {_c('⚠️  BioBot:', C.YELLOW + C.BOLD)}")
+                for line in message.split("\n"):
+                    print(f"  {line}")
+                if code:
+                    _print_code(code)
+                full_reply = message + ("\n\n```python\n" + code + "\n```" if code else "")
+                continue
+
+            if had_status and not full_reply:
+                _clear_status()
+                print(f"\n  {_c('🤖 BioBot:', C.GREEN + C.BOLD)}")
+                had_status = False
+
+            if not full_reply:
+                print(f"\n  {_c('🤖 BioBot:', C.GREEN + C.BOLD)}")
+
+            full_reply += chunk
+            sys.stdout.write(chunk)
+            sys.stdout.flush()
+
+    except KeyboardInterrupt:
+        print(_c("\n  [interrupted]", C.DIM))
+        sys.exit(130)
+    except Exception as e:
+        _clear_status()
+        print(_c(f"\n  Error: {e}", C.RED))
+        sys.exit(1)
+
+    print("\n")
+
+    # Save to file if requested
+    if output and full_reply:
+        with open(output, "w") as f:
+            f.write(full_reply)
+        print(_c(f"  📄 Response saved to: {output}\n", C.GREEN))
+
+
+def cmd_web(args):
+    """Open the web UI in the default browser."""
+    import webbrowser
+    url = args.url
+
+    print()
+    print(_c("  🧬 BioBot — Web UI", C.GREEN + C.BOLD))
+    print()
+    print(f"  Opening {_c(url, C.CYAN)} in your browser...")
+    print()
+    print(_c("  If the page doesn't load, make sure the web service is running:", C.DIM))
+    print(_c("    docker compose up -d", C.DIM))
+    print()
+
+    webbrowser.open(url)
+
+
+# ── Entry point ──────────────────────────────────────────────
+
+# System prompt used specifically for one-shot queries (no clarification)
+ONE_SHOT_SYSTEM_PROMPT = (
+    "You are BioBot 🤖, an expert assistant specialized in lab automation, "
+    "particularly with liquid handling robots. Generate clean, error-free Python "
+    "code for operating lab robots when asked. Do your best with whatever info "
+    "the user provides — make reasonable assumptions if details are missing, "
+    "and state them clearly. Never ask the user for more information — always "
+    "provide a complete answer based on what was given. Decline requests "
+    "unrelated to lab automation kindly."
+)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="biobot",
         description="BioBot CLI — lab automation code generator",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    parser.add_argument("--register", action="store_true", help="Create a new account")
-    parser.add_argument("--new", action="store_true", help="Start a new chat directly")
-    parser.add_argument("--list", action="store_true", help="List saved chats and exit")
-    parser.add_argument("--init-db", action="store_true", help="Initialize database tables")
+
+    subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
+
+    # ── chat (interactive, default) ──
+    chat_p = subparsers.add_parser(
+        "chat",
+        help="Interactive chat (default)",
+        description="Start an interactive chat session. Login required.",
+    )
+    chat_p.add_argument("-f", "--files", nargs="+", metavar="FILE",
+                        help="Attach file(s) to the first message")
+    chat_p.add_argument("--new", action="store_true",
+                        help="Start a new chat directly (skip chat selection)")
+
+    # ── ask (one-shot) ──
+    ask_p = subparsers.add_parser(
+        "ask",
+        help="One-shot non-interactive query",
+        description="Send a single prompt and get a single response. No login, no clarification, no chat history.",
+    )
+    ask_p.add_argument("prompt", help="The prompt to send")
+    ask_p.add_argument("-o", "--output", help="Save the response to a file")
+
+    # ── generate (plate transfer) ──
+    gen_p = subparsers.add_parser(
+        "generate",
+        help="Generate transfer instructions from plate CSVs",
+        description="Read source and destination plate CSVs and generate liquid handler transfer instructions.",
+    )
+    gen_p.add_argument("source", metavar="SOURCE_CSV", help="Source plate CSV")
+    gen_p.add_argument("dest", metavar="DEST_CSV", help="Destination plate CSV")
+    gen_p.add_argument("-o", "--output", default="instructions.csv",
+                       help="Output path (default: instructions.csv)")
+
+    # ── web ──
+    web_p = subparsers.add_parser(
+        "web",
+        help="Open the web UI in your browser",
+        description="Open the BioBot web UI. Make sure docker compose is running.",
+    )
+    web_p.add_argument("--url", default="http://localhost:5000",
+                       help="URL to open (default: http://localhost:5000)")
+
+    # ── register ──
+    subparsers.add_parser(
+        "register",
+        help="Create a new account",
+    )
+
+    # ── init-db ──
+    subparsers.add_parser(
+        "init-db",
+        help="Initialize database tables",
+    )
+
+    # ── list ──
+    subparsers.add_parser(
+        "list",
+        help="List your saved chats",
+    )
 
     args = parser.parse_args()
 
-    # Init DB tables
-    if args.init_db:
+    # ── Default to chat if no subcommand ──
+    if args.command is None:
+        args.command = "chat"
+        args.files = None
+        args.new = False
+
+    # ── Dispatch ──
+
+    # Commands that don't need DB connection
+    if args.command == "generate":
+        cmd_generate(args)
+        return
+
+    if args.command == "ask":
+        cmd_ask(args)
+        return
+
+    if args.command == "web":
+        cmd_web(args)
+        return
+
+    if args.command == "init-db":
         try:
             wait_for_postgres()
             init_db()
@@ -703,7 +1088,7 @@ def main():
             sys.exit(1)
         return
 
-    # Check DB connectivity
+    # Commands below require DB connectivity
     try:
         conn = get_db_connection()
         conn.close()
@@ -713,16 +1098,14 @@ def main():
         print(_c("  And check your .env file in the project root.\n", C.DIM))
         sys.exit(1)
 
-    # Register
-    if args.register:
+    if args.command == "register":
         register_prompt()
         return
 
-    # Login
+    # Login required
     session = login_prompt()
 
-    # List only
-    if args.list:
+    if args.command == "list":
         chats = list_user_chats(session)
         if not chats:
             print(_c("  No saved chats.", C.DIM))
@@ -731,13 +1114,15 @@ def main():
                 print(f"  {i + 1}. {ch['name']}")
         return
 
-    # Pick or create chat
-    if args.new:
-        chat_id = create_new_chat(session)
-    else:
-        chat_id = pick_or_create_chat(session)
+    # chat command
+    if args.command == "chat":
+        if args.new:
+            chat_id = create_new_chat(session)
+        else:
+            chat_id = pick_or_create_chat(session)
 
-    interactive(session, chat_id)
+        interactive(session, chat_id, initial_files=args.files)
+        return
 
 
 if __name__ == "__main__":

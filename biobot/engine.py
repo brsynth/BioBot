@@ -51,27 +51,6 @@ Return ONLY one word: code, general, or out. No explanation, no punctuation."""
     )
     return response.output_text.strip().lower()
 
-def run_gpt(chat_history, model=MODEL_NAME, api_key=None):
-    client = get_openai_client(api_key)
-    """
-    chat_history: liste de dicts [{'role': 'system'/'user'/'assistant', 'content': ...}]
-    """
-    # On prend max 9 derniers messages + system
-    system_msg = next((m for m in chat_history if m["role"] == "system"), None)
-    non_system_msgs = [m for m in chat_history if m["role"] != "system"]
-    non_system_msgs = non_system_msgs[-9:]
-    messages = [system_msg] + non_system_msgs if system_msg else non_system_msgs
-
-    response = client.responses.create(
-        model=model,
-        input=messages
-    )
-    assistant_reply = response.output_text
-    # Met à jour l'historique
-    chat_history.append({"role": "assistant", "content": assistant_reply})
-
-    return assistant_reply
-
 def run_gpt_stream(chat_history, model=MODEL_NAME, api_key=None):
     client = get_openai_client(api_key)
     
@@ -105,8 +84,10 @@ RAG_STATUS_PREFIX = "__RAG_STATUS__:"
 RAG_STEP_PREFIX = "STEP:"
 RAG_FAILED_PREFIX = "FAILED_CODE:"
 RAG_FORMAT_PREFIX = "FORMAT:"
+RAG_QUESTIONS_PREFIX = "QUESTIONS:"
 FAILED_CODE_MARKER = "__FAILED_CODE__:"
 FORMAT_MARKER = "__FORMAT__:"
+QUESTIONS_MARKER = "__QUESTIONS__:"
 
 def process_user_query(user_query, chat_history, model, api_key=None):
     history = [msg for msg in chat_history]
@@ -143,7 +124,10 @@ def process_user_query(user_query, chat_history, model, api_key=None):
                     elif final_code_lines:
                         final_code_lines.append("\n")
                     continue
-                if trimmed.startswith(RAG_STEP_PREFIX):
+                if trimmed.startswith(RAG_QUESTIONS_PREFIX):
+                    # Structured questions from sufficiency check — pass through to frontend
+                    yield QUESTIONS_MARKER + trimmed[len(RAG_QUESTIONS_PREFIX):]
+                elif trimmed.startswith(RAG_STEP_PREFIX):
                     yield RAG_STATUS_PREFIX + trimmed[len(RAG_STEP_PREFIX):]
                 elif trimmed.startswith(RAG_FORMAT_PREFIX):
                     detected_format = trimmed[len(RAG_FORMAT_PREFIX):]
