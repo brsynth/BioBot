@@ -1,4 +1,4 @@
-__version__ = "1.0.2"
+__version__ = "1.1.0"
 
 from flask import Flask, request, jsonify, render_template, redirect, url_for, session, flash, Response, stream_with_context
 import uuid

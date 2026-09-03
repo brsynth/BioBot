@@ -2,6 +2,94 @@
 
 <!-- version list -->
 
+## v1.1.0 (2026-09-03)
+
+### Bug Fixes
+
+- **docker**: Use CMD-SHELL for postgres healthcheck
+  ([`d6588b7`](https://github.com/brsynth/BioBot/commit/d6588b77b8084d9d69b72192adc5ec8a74267074))
+
+### Chores
+
+- Add multiple actions for cli usage
+  ([`02d8a73`](https://github.com/brsynth/BioBot/commit/02d8a73735ee062c34949d288e805c6554ffcd66))
+
+- **encryption_salt**: Handle the case where it is null
+  ([`2e53ed6`](https://github.com/brsynth/BioBot/commit/2e53ed6c5204519b3105e11615ad8dd39db5a14c))
+
+- **output type**: Optimize generated file detection
+  ([`18874ae`](https://github.com/brsynth/BioBot/commit/18874ae81c53dbdfb88baafac366bc4943ec03bb))
+
+- **rag**: Optimize validation by llm review step
+  ([`eb9f467`](https://github.com/brsynth/BioBot/commit/eb9f4674c9d37acb29972f90c49e7899d9c27925))
+
+### Code Style
+
+- **auth**: Add auth-description class for helper text
+  ([`558b511`](https://github.com/brsynth/BioBot/commit/558b511e6cb789857c87e39b29776c0814572270))
+
+- **deck**: Add deck visualizer panel styles
+  ([`fdd94bb`](https://github.com/brsynth/BioBot/commit/fdd94bb16c5a3d2480fa1dfacc5c072e3cceb631))
+
+- **questions**: Add styling stepper questions UI
+  ([`ae1abd2`](https://github.com/brsynth/BioBot/commit/ae1abd27d23ade2319b800f95e4aa9d6def9716e))
+
+### Features
+
+- Add routes for deck visualization and code feedback endpoints
+  ([`62902d4`](https://github.com/brsynth/BioBot/commit/62902d403ab33988ce394cde1623e6e57ebf3604))
+
+- Update app encryption and deck routes
+  ([`6ffe8a1`](https://github.com/brsynth/BioBot/commit/6ffe8a13e0f853c31e6f20de3df80ab52a73531a))
+
+- **auth**: Add email service for password reset
+  ([`eecf0ff`](https://github.com/brsynth/BioBot/commit/eecf0ff011c4ecab95a93a0fe3980eca9b58880d))
+
+- **auth**: Add forgot password link to login page
+  ([`c4dbb22`](https://github.com/brsynth/BioBot/commit/c4dbb225345807921cc9b97bcfc97e584313489c))
+
+- **auth**: Add forgot password page
+  ([`ec1807b`](https://github.com/brsynth/BioBot/commit/ec1807b2adc434a7a0bd0f493b2238b762af75ba))
+
+- **auth**: Add reset password page
+  ([`58d23eb`](https://github.com/brsynth/BioBot/commit/58d23eb2a5ee9eccadf0e75d6945a0777935cbab))
+
+- **chat**: Add code feedback actions, deck button, and structured questions UI
+  ([`c6f4e8a`](https://github.com/brsynth/BioBot/commit/c6f4e8a50a33a6a4254b622213ea35a56463e882))
+
+- **db**: Add password reset tokens table
+  ([`9e7486a`](https://github.com/brsynth/BioBot/commit/9e7486a810692ff1c0a7bddc02b4583e108cc830))
+
+- **deck**: Add coherence validation for deck edits
+  ([`4dc8622`](https://github.com/brsynth/BioBot/commit/4dc8622ccdc47a75debd6679275614bd53354256))
+
+- **deck**: Add editable parameter panel for protocol values
+  ([`0bfeb0a`](https://github.com/brsynth/BioBot/commit/0bfeb0af15a354948b7b8777803c4dbba6e85b37))
+
+- **deck**: Add interactive deck renderer
+  ([`79364fb`](https://github.com/brsynth/BioBot/commit/79364fb980184769621395f2f6ba696f79110ed8))
+
+- **deck**: Add interactive deck renderer with drag-and-drop
+  ([`133e80b`](https://github.com/brsynth/BioBot/commit/133e80bb5d334cd6574e5ed720d61cf2062f38fc))
+
+- **deck**: Add multi-platform protocol parser
+  ([`0aab2c8`](https://github.com/brsynth/BioBot/commit/0aab2c8338b6f55ace1dc9f00402c11b376296cf))
+
+- **questions**: Add style stepper UI for sufficiency-check questions
+  ([`37645f0`](https://github.com/brsynth/BioBot/commit/37645f09744b80c3c17394873bdbc0b7ed171069))
+
+- **rag**: Emit structured questions from sufficiency check
+  ([`8d73518`](https://github.com/brsynth/BioBot/commit/8d7351814bdc5d9da962bb3060123ed21c75eca1))
+
+- **ui**: Wire up deck panel and structured questions to index page
+  ([`24387bf`](https://github.com/brsynth/BioBot/commit/24387bf1e3b9fa74dd51ce4fa4a58c9d89215e48))
+
+### Refactoring
+
+- **engine**: Stream structured questions
+  ([`db4e7db`](https://github.com/brsynth/BioBot/commit/db4e7db01b80258ffa95f3a3fbe1500ed7d1c378))
+
+
 ## v1.0.2 (2026-04-15)
 
 ### Bug Fixes
