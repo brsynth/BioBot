@@ -44,7 +44,7 @@ def discover_doc_urls(handler_name, handler_keywords, api_key):
     client = get_openai_client(api_key)
 
     response = client.responses.create(
-        model="gpt-5.4",
+        model="gpt-5.4-2026-03-05",
         tools=[{"type": "web_search"}],
         input=[
             {

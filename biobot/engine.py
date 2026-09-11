@@ -2,15 +2,13 @@ import subprocess
 import json
 from openai import OpenAI
 import os
-from config import get_api_key
+from config import get_api_key, biobot_model, light_functions_model
     
-MODEL_NAME_CLASS = "gpt-4o-mini"
-MODEL_NAME = "gpt-5.4"
 
 def get_openai_client(api_key=None):
     return OpenAI(api_key=api_key or get_api_key())
 
-def classify_prompt(prompt, chat_history=None, model_name=MODEL_NAME_CLASS, api_key=None):
+def classify_prompt(prompt, chat_history=None, model_name=light_functions_model, api_key=None):
     client = get_openai_client(api_key)
 
     # Build a conversation snippet (last 6 non-system messages) for context
@@ -51,7 +49,7 @@ Return ONLY one word: code, general, or out. No explanation, no punctuation."""
     )
     return response.output_text.strip().lower()
 
-def run_gpt_stream(chat_history, model=MODEL_NAME, api_key=None):
+def run_gpt_stream(chat_history, model=biobot_model, api_key=None):
     client = get_openai_client(api_key)
     
     system_msg = next((m for m in chat_history if m["role"] == "system"), None)

@@ -9,7 +9,7 @@ import json
 from openai import OpenAI
 import sys
 import pickle
-from config import get_api_key
+from config import get_api_key, biobot_model, light_functions_model
 from doc_loader import load_and_chunk_docs
 from doc_fetcher import fetch_documentation
 
@@ -75,7 +75,7 @@ def detect_handler(query, history, api_key):
         known_list = "  (none configured)"
 
     response = client.responses.create(
-        model="gpt-5.6",
+        model=biobot_model,
         input=[
             {
                 "role": "system",
@@ -117,11 +117,11 @@ Return ONLY the platform ID. One word, lowercase, no quotes, no explanation."""
     if detected == "unknown":
         if available_ids:
             return available_ids[0], handlers
-        detected = "opentrons"
+        detected = "unknown"
 
     # New handler — ask the LLM for the proper display name
     name_response = client.responses.create(
-        model="gpt-5.6",
+        model=biobot_model,
         input=[
             {
                 "role": "system",
@@ -168,7 +168,7 @@ If the request has enough information (considering the full conversation history
  
 If information is missing, you MUST ask ALL your questions AT ONCE in a single response. Do NOT hold back questions for follow-ups — ask everything you need in one shot so the user only has to answer once, then code generates immediately.
  
-Reply with ONLY a valid JSON object (no markdown, no explanation) following this exact structure:
+Reply with ONLY a valid JSON object (no markdown, no explanation) following this EXACT structure:
  
 {
   "message": "A short friendly message explaining what you need",
@@ -181,7 +181,7 @@ Reply with ONLY a valid JSON object (no markdown, no explanation) following this
         {"value": "internal_value", "label": "Display label shown to user"},
         {"value": "another_value", "label": "Another option"}
       ],
-      "allow_other": true
+      "allow_other": false
     }
   ]
 }
@@ -228,7 +228,7 @@ def check_sufficient_info(query, history, api_key):
     )
  
     response = client.responses.create(
-        model="gpt-4o-mini",
+        model=light_functions_model,
         input=[
             {"role": "system", "content": SUFFICIENCY_PROMPT},
             {"role": "user", "content": f"Conversation so far:\n{conversation}\n\nLatest request: {query}"}
@@ -276,7 +276,7 @@ def consolidate_request(query, history, api_key):
     )
 
     response = client.responses.create(
-        model="gpt-4o-mini",
+        model=light_functions_model,
         input=[
             {
                 "role": "system",
@@ -318,7 +318,7 @@ def get_text_embedding_with_retry(text, retries=5, delay=2):
 
 
 # ----------- COMPLETION -------------
-def run_gpt(user_message, model="gpt-5.6"):
+def run_gpt(user_message, model=biobot_model):
     client = get_openai_client(user_api_key)
     messages = [
         {
@@ -374,7 +374,7 @@ def validate_llm_review(code, handler_config, context_chunks, question):
 
     client = get_openai_client(user_api_key)
     response = client.responses.create(
-        model="gpt-5.6",
+        model=biobot_model,
         tools=[{"type": "web_search"}],
         input=[
             {

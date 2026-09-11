@@ -12,7 +12,7 @@ import psycopg2.extras
 import psycopg2.errors
 
 from engine import process_user_query
-from config import get_api_key, get_db_connection
+from config import get_api_key, get_db_connection, detect_platform, biobot_model
 from crypt import generate_salt, derive_key, encrypt, decrypt
 
 # ---------------------
@@ -29,8 +29,6 @@ if not app.secret_key:
     )
 app.config["SESSION_PERMANENT"] = True
 app.config["PERMANENT_SESSION_LIFETIME"] = 86400  # 24 hours in seconds
-
-MODEL_NAME = "gpt-5"
 
 # ---------------------
 # Encryption helpers
@@ -521,7 +519,7 @@ def chat(chat_id):
     messages = [{"role": r["role"], "content": decrypt_message(r["content"])} for r in rows]
 
     # call your engine
-    bot_reply = process_user_query(user_message, messages, MODEL_NAME, api_key=user_api_key)
+    bot_reply = process_user_query(user_message, messages, biobot_model, api_key=user_api_key)
 
     # save bot response (encrypted)
     conn = None
@@ -659,7 +657,7 @@ def chat_stream(chat_id):
         from engine import RAG_STATUS_PREFIX, FAILED_CODE_MARKER, FORMAT_MARKER
         
         try:
-            result = process_user_query(user_message, messages, MODEL_NAME, api_key=user_api_key)
+            result = process_user_query(user_message, messages, biobot_model, api_key=user_api_key)
             if result is None:
                 yield "Sorry, I couldn't process your request. Please try again."
                 return
@@ -1066,7 +1064,6 @@ def approve_code():
     if not code:
         return jsonify({"error": "No code provided"}), 400
 
-    from deck_parser import detect_platform
     import hashlib
 
     # Detect which platform this code is for
@@ -1179,8 +1176,7 @@ def reject_code():
  
     if not code or not remark:
         return jsonify({"error": "Code and remark are required"}), 400
- 
-    from deck_parser import detect_platform
+
     import hashlib
  
     platform = detect_platform(code)
