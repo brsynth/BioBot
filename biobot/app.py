@@ -944,19 +944,18 @@ def update_user_profile():
 # ---------------------
 # Deck visualizer route
 # ---------------------
-@app.route("/deck/parse", methods=["POST"])
-def parse_deck():
-    """Parse protocol code and return visualization state JSON."""
+@app.route("/deck/visualize", methods=["POST"])
+def visualize_deck():
+    """Extract deck state JSON from any protocol code using the LLM."""
     user_id = session.get("user")
     if not user_id:
         return jsonify({"error": "Not logged in"}), 403
- 
+
     data = request.get_json()
     code = data.get("code", "")
     if not code:
         return jsonify({"error": "No code provided"}), 400
- 
-    # Get user API key for LLM fallback
+
     user_api_key = None
     conn = None
     try:
@@ -969,39 +968,84 @@ def parse_deck():
     finally:
         if conn:
             conn.close()
- 
-    from deck_parser import parse_any
+
+    from deck_visualizer import generate_visualization
     try:
-        state = parse_any(code, api_key=user_api_key)
+        state = generate_visualization(code, api_key=user_api_key)
         return jsonify(state)
     except Exception as e:
-        return jsonify({"error": f"Parse error: {str(e)}"}), 400
- 
- 
-@app.route("/deck/generate", methods=["POST"])
-def generate_deck_code():
-    """Update code based on deck changes."""
+        return jsonify({"error": f"Visualization error: {str(e)}"}), 400
+
+
+@app.route("/deck/update", methods=["POST"])
+def update_deck():
+    """Apply batched deck changes to code using the LLM, then re-extract state."""
     user_id = session.get("user")
     if not user_id:
         return jsonify({"error": "Not logged in"}), 403
- 
+
     data = request.get_json()
-    if not data:
-        return jsonify({"error": "No data provided"}), 400
- 
-    from deck_parser import update_slots_in_code
- 
-    original_code = data.get("original_code", "")
-    slot_changes = data.get("slot_changes", {})
- 
+    code = data.get("code", "")
+    changes = data.get("changes", [])
+    if not code or not changes:
+        return jsonify({"error": "Missing code or changes"}), 400
+
+    user_api_key = None
+    conn = None
     try:
-        if original_code and slot_changes:
-            code = update_slots_in_code(original_code, slot_changes)
-        else:
-            code = original_code
-        return jsonify({"code": code})
+        conn = get_db_connection()
+        user = fetchone_dict(conn, "SELECT api_key FROM users WHERE id = %s", (user_id,))
+        if user and user.get("api_key"):
+            user_api_key = decrypt_text(user["api_key"])
+    except Exception:
+        pass
+    finally:
+        if conn:
+            conn.close()
+
+    from deck_visualizer import update_code_from_changes, generate_visualization
+    try:
+        updated_code = update_code_from_changes(code, changes, api_key=user_api_key)
+        new_state = generate_visualization(updated_code, api_key=user_api_key)
+        return jsonify({"code": updated_code, "state": new_state})
     except Exception as e:
-        return jsonify({"error": f"Generate error: {str(e)}"}), 400
+        return jsonify({"error": f"Update error: {str(e)}"}), 400
+
+
+@app.route("/deck/catalog", methods=["POST"])
+def deck_catalog():
+    """Get compatible hardware options for a deck position (LLM-driven)."""
+    user_id = session.get("user")
+    if not user_id:
+        return jsonify({"error": "Not logged in"}), 403
+
+    data = request.get_json()
+    platform = data.get("platform", "")
+    position_type = data.get("position_type", "labware")
+    current = data.get("current", None)
+
+    if not platform:
+        return jsonify({"error": "Platform required"}), 400
+
+    user_api_key = None
+    conn = None
+    try:
+        conn = get_db_connection()
+        user = fetchone_dict(conn, "SELECT api_key FROM users WHERE id = %s", (user_id,))
+        if user and user.get("api_key"):
+            user_api_key = decrypt_text(user["api_key"])
+    except Exception:
+        pass
+    finally:
+        if conn:
+            conn.close()
+
+    from deck_visualizer import get_catalog
+    try:
+        catalog = get_catalog(platform, position_type, current, api_key=user_api_key)
+        return jsonify(catalog)
+    except Exception as e:
+        return jsonify({"error": f"Catalog error: {str(e)}"}), 400
 
 
 @app.route("/code/approve", methods=["POST"])

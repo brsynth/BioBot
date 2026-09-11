@@ -11,7 +11,7 @@
   <link rel="stylesheet" href="/static/style.css" />
   <link rel="stylesheet" href="/static/questions.css" />
 </head>
-<body>
+<body data-user-id="{{ user.id if user else '' }}">
   <!-- Mobile sidebar overlay -->
   <div id="sidebar-overlay" class="sidebar-overlay"></div>
 
@@ -19,7 +19,6 @@
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
         <img src="/static/logo.png" alt="BioBot Logo" class="sidebar-logo">
-        <span class="version-tag">v{{ version }}</span>
       </div>
 
       <button id="new-chat" class="new-chat-btn">
@@ -163,14 +162,9 @@
       <button id="notification-ok-btn" class="btn btn-primary" style="width:100%">OK</button>
     </div>
   </div>
-  <script src="/static/questions_renderer.js"></script>
+
   <script src="/static/script.js"></script>
-  <script src="/static/ot2_catalog.js"></script>
-  <script src="/static/hamilton_catalog.js"></script>
-  <script src="/static/deck_coherence.js"></script>
-  <script src="/static/deck_params.js"></script>
-  <script src="/static/deck_renderer.js"></script>
-  <script src="/static/echo_renderer.js"></script>
-  <script src="/static/hamilton_renderer.js"></script>
+  <script src="/static/questions_renderer.js"></script>
+  <script src="/static/deck_universal.js"></script>
 </body>
 </html>
