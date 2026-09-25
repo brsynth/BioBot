@@ -2,6 +2,30 @@
 
 <!-- version list -->
 
+## v1.2.0 (2026-09-25)
+
+### Documentation
+
+- Add MIT license
+  ([`e8b9d6b`](https://github.com/brsynth/BioBot/commit/e8b9d6bf7da95faff3e9c7ec75c9e5ef42d7ab6d))
+
+- Rewrite README with detailed pipeline description and setup guide
+  ([`1b7a855`](https://github.com/brsynth/BioBot/commit/1b7a8557750445b380f51c971cfa912103bfeb48))
+
+### Features
+
+- Add feasibility check to validation pipeline
+  ([`057eabe`](https://github.com/brsynth/BioBot/commit/057eabe8bf4bbef617430aa4bc27fd6324f791e3))
+
+### Refactoring
+
+- **deck**: Generalize deck implementation and give up on parsing
+  ([`7131f9a`](https://github.com/brsynth/BioBot/commit/7131f9a3919f9778cd2d1e00ba2700e1d57c8267))
+
+- **deck title**: Remove hardcoded title
+  ([`a5b1211`](https://github.com/brsynth/BioBot/commit/a5b121103eb1634244e89a7fb95d9458265378c8))
+
+
 ## v1.1.0 (2026-09-03)
 
 ### Bug Fixes
