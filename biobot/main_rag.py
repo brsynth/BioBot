@@ -12,6 +12,7 @@ import pickle
 from config import get_api_key, biobot_model, light_functions_model
 from doc_loader import load_and_chunk_docs
 from doc_fetcher import fetch_documentation
+from feasibility_check import check_feasibility, format_feasibility_response
 
 # ----------- ARGS & AUTH -------------
 if len(sys.argv) > 1:
@@ -526,7 +527,7 @@ def load_or_build_index(handler_id, handler_config, chunk_size=3000):
 
 
 # ----------- MAIN PIPELINE -------------
-def run_query_and_fix(question, chunks, chunk_sources, index, handler_config, max_attempts=3):
+def run_query_and_fix(question, chunks, chunk_sources, index, handler_config, max_attempts=5):
     print("STEP:Analyzing your request...", flush=True)
     question_embedding = np.array([get_text_embedding_with_retry(question)])
 
@@ -539,14 +540,8 @@ def run_query_and_fix(question, chunks, chunk_sources, index, handler_config, ma
     handler_name = handler_config["name"]
     strategy = handler_config.get("validation_strategy", "llm_review")
     output_type = handler_config.get("output_type", "script")
-    
-    prompt_nodoc = f"""
-Given your prior knowledge, answer the query.
-Generate a complete, functional {output_type} script for the {handler_name} platform.
-Query: {question}
-"""
 
-    prompt = f"""
+    prompt_rag = f"""
 Context information is below.
 ---------------------
 {context}
@@ -564,7 +559,7 @@ Query: {question}
     for attempt in range(1, max_attempts + 1):
         
         if attempt == 1:
-            response = run_gpt(prompt_nodoc)
+            response = run_gpt(prompt_rag)
             code = response
         
         else:
@@ -630,6 +625,20 @@ if not os.environ.get("BIOBOT_SKIP_SUFFICIENT_CHECK"):
 
 # 2. Consolidate the request
 consolidated_query = consolidate_request(user_query, chat_history, user_api_key)
+
+# 2b. Feasibility check — is the protocol physically/logically possible?
+print("STEP:Checking protocol feasibility...", flush=True)
+feasibility_result = check_feasibility(consolidated_query, user_api_key)
+
+if feasibility_result is not None:
+    if not feasibility_result.get("feasible"):
+        # Protocol is NOT feasible — tell user and stop
+        print(format_feasibility_response(feasibility_result), flush=True)
+        sys.exit(0)
+    else:
+        # Feasible with warnings — print them inline and continue
+        warnings_msg = format_feasibility_response(feasibility_result)
+        print(warnings_msg, flush=True)
 
 # 3. Detect which handler the user needs
 handler_id, handlers = detect_handler(user_query, chat_history, user_api_key)
