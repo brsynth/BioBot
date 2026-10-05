@@ -443,11 +443,64 @@ body {
 }
 
 .chat-user {
+  background: transparent;
+  padding: 0;
+  align-self: flex-end;
+  font-weight: 500;
+}
+
+.user-message-content {
   background: var(--accent);
   color: var(--text-on-accent);
-  align-self: flex-end;
+  padding: 14px 18px;
+  border-radius: var(--radius-lg);
   border-bottom-right-radius: 6px;
-  font-weight: 500;
+}
+
+.message-edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  color: var(--text-secondary);
+  border: 0;
+  border-radius: 6px;
+  padding: 6px;
+  cursor: pointer;
+}
+
+.message-edit-btn:hover,
+.message-edit-btn:focus-visible {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.message-edit-input {
+  display: block;
+  width: 100%;
+  min-height: 100px;
+  box-sizing: border-box;
+  resize: vertical;
+  font: inherit;
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.message-edit-note {
+  color: var(--text-secondary);
+  white-space: normal;
+  font-size: 0.8rem;
+  margin-top: 8px;
+}
+
+.message-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 4px;
+  white-space: normal;
 }
 
 .chat-bot {

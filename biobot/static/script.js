@@ -286,14 +286,14 @@ function buildCodeBlock(code, format = "python") {
 }
 
 // --- Create a message element ---
-function addMessage(text, sender) {
+function addMessage(text, sender, messageId = null) {
   const div = document.createElement("div");
   div.className = `chat-message ${sender === "user" ? "chat-user" : "chat-bot"}`;
   chatHistoryElem.appendChild(div);
   scrollToBottom();
 
   if (sender === "user") {
-    div.textContent = text;
+    renderUserMessage(div, text, messageId);
     scrollToBottom();
     return div;
   }
@@ -301,6 +301,92 @@ function addMessage(text, sender) {
   // For bot: initially empty, we'll stream into this div
   div._buffer = "";
   return div;
+}
+
+// --- Edit a saved prompt and regenerate its continuation ---
+function renderUserMessage(div, text, messageId) {
+  div.replaceChildren();
+  const content = document.createElement("div");
+  content.className = "user-message-content";
+  content.textContent = text.replace(/^\[PROTOCOL_PARAMS\]\n?/, "");
+  div.appendChild(content);
+  if (!messageId) return;
+
+  const editBtn = document.createElement("button");
+  editBtn.className = "message-edit-btn";
+  editBtn.title = "Edit prompt";
+  editBtn.setAttribute("aria-label", "Edit prompt");
+  editBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m16 3 5 5-12 12-6 1 1-6Z"/><path d="m14 5 5 5"/></svg>';
+  editBtn.addEventListener("click", () => {
+    if (isTyping) return;
+    const chatId = currentChatId;
+    const textarea = document.createElement("textarea");
+    textarea.className = "message-edit-input";
+    textarea.setAttribute("aria-label", "Edit your prompt");
+    textarea.value = content.textContent;
+    const note = document.createElement("div");
+    note.className = "message-edit-note";
+    note.textContent = "Saving replaces the replies and messages after this prompt.";
+    const actions = document.createElement("div");
+    actions.className = "message-edit-actions";
+    const save = document.createElement("button");
+    save.className = "message-edit-btn";
+    save.title = "Save & regenerate";
+    save.setAttribute("aria-label", "Save & regenerate");
+    save.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>';
+    save.addEventListener("click", () => {
+      const edited = textarea.value.trim();
+      if (!edited || isTyping || currentChatId !== chatId) return;
+      const message = text.startsWith("[PROTOCOL_PARAMS]") ? "[PROTOCOL_PARAMS]\n" + edited : edited;
+      sendMessage({ message, messageId, div });
+    });
+    const cancel = document.createElement("button");
+    cancel.className = "message-edit-btn";
+    cancel.title = "Cancel editing";
+    cancel.setAttribute("aria-label", "Cancel editing");
+    cancel.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg>';
+    cancel.addEventListener("click", () => renderUserMessage(div, text, messageId));
+    textarea.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") cancel.click();
+    });
+    actions.append(save, cancel);
+    const editor = document.createElement("div");
+    editor.className = "user-message-content";
+    editor.appendChild(textarea);
+    div.replaceChildren(editor, note, actions);
+    textarea.focus();
+  });
+  const copyBtn = document.createElement("button");
+  copyBtn.className = "message-edit-btn";
+  copyBtn.title = "Copy prompt";
+  copyBtn.setAttribute("aria-label", "Copy prompt");
+  copyBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+  copyBtn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(content.textContent);
+      copyBtn.title = "Copied!";
+      copyBtn.setAttribute("aria-label", "Copied!");
+      setTimeout(() => {
+        copyBtn.title = "Copy prompt";
+        copyBtn.setAttribute("aria-label", "Copy prompt");
+      }, 1500);
+    } catch (error) {
+      copyBtn.title = "Unable to copy. Please select the text and copy it.";
+    }
+  });
+  const regenerateBtn = document.createElement("button");
+  regenerateBtn.className = "message-edit-btn";
+  regenerateBtn.title = "Regenerate response (replaces following messages)";
+  regenerateBtn.setAttribute("aria-label", "Regenerate response");
+  regenerateBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 7v5h-5M4 17v-5h5"/><path d="M6.1 7a7 7 0 0 1 11.6-2L20 8M4 16l2.3 3A7 7 0 0 0 17.9 17"/></svg>';
+  regenerateBtn.addEventListener("click", () => {
+    if (isTyping) return;
+    sendMessage({ message: text, messageId, div });
+  });
+  const actions = document.createElement("div");
+  actions.className = "message-edit-actions";
+  actions.append(copyBtn, editBtn, regenerateBtn);
+  div.appendChild(actions);
 }
 
 // --- Append chunk to bot message (handles code blocks) ---
@@ -341,7 +427,7 @@ function appendChunkToBotMessage(div, chunk) {
 
 // --- Load chat history ---
 async function loadChatHistory(chatId) {
-  if (!chatId) return;
+  if (!chatId || isTyping) return;
   currentChatId = chatId;
   localStorage.setItem("lastChatId", chatId);
   chatHistoryElem.innerHTML = "";
@@ -367,8 +453,7 @@ async function loadChatHistory(chatId) {
       const msg = messages[msgIdx];
       if (msg.role === "user") {
         // Strip [PROTOCOL_PARAMS] marker for display
-        const displayContent = (msg.content || "").replace(/^\[PROTOCOL_PARAMS\]\n?/, "");
-        addMessage(displayContent, "user", false);
+        addMessage(msg.content || "", "user", msg.id);
       } else if (msg.role === "assistant") {
         const content = msg.content || "";
 
@@ -607,6 +692,7 @@ function selectChatListItem(chatId) {
 
 // --- Create new chat ---
 async function createNewChat() {
+  if (isTyping) return;
   try {
     const res = await fetch("/chat", { method: "POST" });
     if (!res.ok) throw new Error("Error creating chat");
@@ -680,21 +766,25 @@ function typewriterAppend(div, text, delay = 18) {
 }
 
 // --- Send message ---
-async function sendMessage() {
+async function sendMessage(edit = {}) {
   const input = document.getElementById("user-input");
-  const message = input.value.trim();
-  if (!message || !currentChatId) return;
+  const message = edit.message || input.value.trim();
+  if (!message || !currentChatId || isTyping) return;
+  const chatId = currentChatId;
+  isTyping = true;
+  sendBtn.disabled = true;
 
   // User just sent a message — re-enable auto-scroll
   autoScrollEnabled = true;
 
-  addMessage(message, "user");
-  input.value = "";
-  input.style.height = "auto";
+  const userDiv = edit.messageId ? edit.div : addMessage(message, "user");
+  if (!edit.messageId) {
+    input.value = "";
+    input.style.height = "auto";
+  }
 
   const thinkingInterval = addThinkingMessage();
 
-  let apiKey = localStorage.getItem("userApiKey") || "";
   let botDiv = null;
   let firstChunkReceived = false;
   let statusDiv = null;
@@ -702,10 +792,10 @@ async function sendMessage() {
   let finalRagCode = null;
 
   try {
-    const res = await fetch(`/chat/${currentChatId}/stream`, {
+    const res = await fetch(`/chat/${chatId}/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, api_key: apiKey }),
+      body: JSON.stringify({ message, message_id: edit.messageId }),
     });
 
     // Handle session expiration — show message, then redirect to login
@@ -724,6 +814,21 @@ async function sendMessage() {
       return;
     }
 
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      throw new Error(error.error || "Unable to send your prompt.");
+    }
+    const messageId = Number(res.headers.get("X-User-Message-Id"));
+    if (edit.messageId) {
+      let next = userDiv.nextElementSibling;
+      while (next) {
+        const following = next.nextElementSibling;
+        if (next.id !== "thinking-message") next.remove();
+        next = following;
+      }
+      if (window.clearDeckPanel) window.clearDeckPanel();
+    }
+    renderUserMessage(userDiv, message, messageId || edit.messageId);
     if (!res.body) throw new Error("No response body");
 
     const reader = res.body.getReader();
@@ -828,8 +933,13 @@ async function sendMessage() {
     if (thinkingElem) thinkingElem.remove();
 
     const errorDiv = addMessage("", "bot");
-    appendChunkToBotMessage(errorDiv, "Error: Unable to get a response. Please try again.");
+    appendChunkToBotMessage(errorDiv, "Error: " + err.message);
     console.error(err);
+  } finally {
+    clearInterval(thinkingInterval);
+    document.getElementById("thinking-message")?.remove();
+    isTyping = false;
+    sendBtn.disabled = false;
   }
 }
 

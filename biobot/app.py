@@ -553,10 +553,18 @@ def chat_stream(chat_id):
     if not user_id:
         return jsonify({"error": "Not logged in"}), 403
 
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     user_message = data.get("message")
-    if not user_message:
+    if not isinstance(user_message, str) or not user_message.strip():
         return jsonify({"error": "Message required"}), 400
+    user_message = user_message.strip()
+    edit_id = data.get("message_id")
+    if edit_id is not None and (type(edit_id) is not int or edit_id <= 0):
+        return jsonify({"error": "Invalid message ID"}), 400
+
+    if not get_encryption_key():
+        session.clear()
+        return jsonify({"error": "Your session has expired. Please log in again."}), 401
 
     conn = None
     try:
@@ -564,21 +572,37 @@ def chat_stream(chat_id):
 
         # verify chat exists
         chat_exists = fetchone_dict(conn,
-            "SELECT 1 FROM chat_names WHERE chat_id = %s AND user_id = %s",
+            "SELECT 1 FROM chat_names WHERE chat_id = %s AND user_id = %s FOR UPDATE",
             (chat_id, user_id)
         )
         if not chat_exists:
             return jsonify({"error": "Chat not found"}), 404
 
-        # insert user message immediately (encrypted)
-        execute(conn,
-            """
-            INSERT INTO chat_history (user_id, chat_id, role, content, created_at)
-            VALUES (%s, %s, %s, %s, %s)
-            """,
-            (user_id, chat_id, "user", encrypt_message(user_message), datetime.now().isoformat()),
-            commit=True
-        )
+        user = fetchone_dict(conn, "SELECT api_key FROM users WHERE id = %s", (user_id,))
+        user_api_key = decrypt_text(user["api_key"]) if user and user.get("api_key") else None
+        if not user_api_key or not user_api_key.startswith("sk-"):
+            return jsonify({"error": "Please add a valid OpenAI API key in Settings."}), 400
+
+        encrypted_prompt = encrypt_message(user_message)
+        if edit_id is not None:
+            target = fetchone_dict(conn,
+                "SELECT id FROM chat_history WHERE id = %s AND chat_id = %s AND user_id = %s AND role = 'user' FOR UPDATE",
+                (edit_id, chat_id, user_id))
+            if not target:
+                return jsonify({"error": "Message not found"}), 404
+            execute(conn,
+                "UPDATE chat_history SET content = %s WHERE id = %s AND chat_id = %s AND user_id = %s",
+                (encrypted_prompt, edit_id, chat_id, user_id))
+            execute(conn,
+                "DELETE FROM chat_history WHERE chat_id = %s AND user_id = %s AND id > %s",
+                (chat_id, user_id, edit_id))
+            message_id = edit_id
+            conn.commit()
+        else:
+            row = execute(conn,
+                "INSERT INTO chat_history (user_id, chat_id, role, content) VALUES (%s, %s, 'user', %s) RETURNING id",
+                (user_id, chat_id, encrypted_prompt), commit=True, returning=True)
+            message_id = row["id"]
 
         # ensure intro message exists (only once per chat)
         # Count assistant messages instead of LIKE match (content is encrypted)
@@ -603,42 +627,15 @@ def chat_stream(chat_id):
             SELECT role, content
             FROM chat_history
             WHERE user_id = %s AND chat_id = %s
-            ORDER BY created_at
+            ORDER BY id
             """,
             (user_id, chat_id)
         )
 
-        user = fetchone_dict(conn, "SELECT api_key FROM users WHERE id = %s", (user_id,))
     finally:
         if conn:
             conn.close()
 
-    # --- Validate session and encryption BEFORE any decryption ---
-    enc_key = get_encryption_key()
-    if not enc_key:
-        # Session lost — clear it and tell the frontend
-        session.clear()
-        return jsonify({"error": "Your session has expired. Please log in again."}), 401
-
-    # Decrypt API key first — it's the clearest test of whether encryption is working
-    user_api_key = decrypt_text(user["api_key"]) if user and user.get("api_key") else None
-
-    if not user_api_key:
-        return Response(
-            "No API key found. Please add your OpenAI API key in Settings.",
-            mimetype="text/plain"
-        )
-
-    if not user_api_key.startswith("sk-"):
-        # Decryption failed — the key was encrypted with a different encryption key.
-        # This happens when the encryption salt was regenerated. Instead of locking
-        # the user out, ask them to re-enter their API key.
-        return Response(
-            "Your API key could not be read. Please update it in Settings.",
-            mimetype="text/plain"
-        )
-
-    # Decrypt chat history for the LLM (enc_key is validated above, so this is safe)
     messages = [{"role": r["role"], "content": decrypt_message(r["content"])} for r in rows]
 
     # ---- STREAM RESPONSE ----
@@ -725,9 +722,14 @@ def chat_stream(chat_id):
                 execute(conn2,
                     """
                     INSERT INTO chat_history (user_id, chat_id, role, content, created_at)
-                    VALUES (%s, %s, %s, %s, %s)
+                    SELECT %s, %s, %s, %s, %s
+                    WHERE EXISTS (
+                        SELECT 1 FROM chat_history
+                        WHERE id = %s AND chat_id = %s AND user_id = %s AND content = %s
+                    )
                     """,
-                    (user_id, chat_id, "assistant", encrypted_content, datetime.now().isoformat()),
+                    (user_id, chat_id, "assistant", encrypted_content, datetime.now().isoformat(),
+                     message_id, chat_id, user_id, encrypted_prompt),
                     commit=True
                 )
 
@@ -762,6 +764,7 @@ def chat_stream(chat_id):
         stream_with_context(generate()),
         mimetype="text/plain",
         headers={
+            "X-User-Message-Id": str(message_id),
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",        # Disable nginx buffering
             "Transfer-Encoding": "chunked",
@@ -779,14 +782,14 @@ def get_history(chat_id):
     try:
         conn = get_db_connection()
         rows = fetchall_dict(conn,
-            "SELECT role, content FROM chat_history WHERE user_id = %s AND chat_id = %s ORDER BY created_at",
+            "SELECT id, role, content FROM chat_history WHERE user_id = %s AND chat_id = %s ORDER BY id",
             (user_id, chat_id)
         )
     finally:
         if conn:
             conn.close()
 
-    visible_messages = [{"role": r["role"], "content": decrypt_message(r["content"])} for r in rows if r["role"] != "system"]
+    visible_messages = [{"id": r["id"], "role": r["role"], "content": decrypt_message(r["content"])} for r in rows if r["role"] != "system"]
     return jsonify(visible_messages)
 
 

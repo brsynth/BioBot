@@ -186,7 +186,7 @@ BioBot/
 ## Usage
 
 1. **Register** a new account or log in.
-2. **Start a chat** and describe your protocol in plain English.
+2. **Start a chat** and describe your protocol in plain English. Use **Edit** under a previous prompt, then **Save & regenerate**, to correct it. Saving replaces all replies and messages after that prompt; **Cancel** keeps the conversation unchanged.
 3. If BioBot needs more details, it presents **structured questions** select your options and click "Generate Protocol."
 4. BioBot generates, simulates, and validates the code automatically.
 5. The final code appears with **Copy**, **Download**, and **Deck** buttons.
