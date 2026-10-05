@@ -69,8 +69,8 @@ When a user asks BioBot for a protocol, the request goes through a multi-stage p
 
 ### Prerequisites
 
-- Docker and Docker Compose
-- An OpenAI API key
+- Docker with Docker Compose v2.24.0 or newer
+- An OpenAI API key for AI features (enter it in the app)
 
 ### 1. Clone the repository
 
@@ -79,58 +79,57 @@ git clone https://github.com/brsynth/BioBot.git
 cd BioBot
 ```
 
-### 2. Configure environment variables
+### 2. Build and start
 
-Create a `.env` file at the project root:
+No `.env` file is needed:
 
 ```bash
-# Database
+docker compose up --build -d
+```
+
+### 3. Access the app
+
+Open http://localhost:5000 and register an account. Enter your OpenAI API key
+at registration or add it later in Settings. You can start the app and create
+an account without a key; AI features require one.
+
+Database settings have local defaults. BioBot generates a random secret on first
+startup and saves it in the `app_data` Docker volume so sessions and encrypted
+chats remain usable after restarts. Keep this volume alongside `db_data`.
+
+### 4. Check logs or stop
+
+```bash
+docker compose logs -f biobot
+```
+
+```bash
+docker compose down
+```
+
+### Optional configuration
+
+Compose still reads a `.env` file if present. For a shared deployment, override
+the database password and set a stable `FLASK_SECRET_KEY`. The default web port
+is bound to localhost; change the port binding if remote access is needed.
+
+```dotenv
 DB_HOST=postgres
 DB_PORT=5432
 DB_NAME=biobotdb
 DB_USER=biobotuser
 DB_PASSWORD=your_db_password
-
-# OpenAI
-API_KEY=your_openai_api_key
-
-# Flask
 FLASK_SECRET_KEY=your_random_secret_key
 
-# Email for password reset (optional, pick one)
-#
-# Option A: Resend (recommended : no email account needed)
-#   1. Sign up at https://resend.com (free tier: 100 emails/day)
-#   2. Go to API Keys in the dashboard and create a new key
-#   3. Paste it below
+# Optional default API key for new accounts
+API_KEY=your_openai_api_key
+
+# Optional password-reset email: Resend or SMTP
 RESEND_API_KEY=re_your_resend_key
-#
-# Option B: SMTP (Gmail, Outlook, or any SMTP server)
-#   For Gmail: enable 2FA, then generate an App Password
-#   at https://myaccount.google.com/apppasswords
 # SMTP_HOST=smtp.gmail.com
 # SMTP_PORT=587
 # SMTP_USER=your_email@gmail.com
-# SMTP_PASSWORD=your_16char_app_password
-```
-
-### 3. Build and start
-
-```bash
-docker compose build
-docker compose up -d
-```
-
-### 4. Access the app
-
-```
-http://localhost:5000
-```
-
-### 5. Check logs
-
-```bash
-docker compose logs -f biobot
+# SMTP_PASSWORD=your_app_password
 ```
 
 ---

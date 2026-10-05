@@ -12,21 +12,14 @@ import psycopg2.extras
 import psycopg2.errors
 
 from engine import process_user_query
-from config import get_api_key, get_db_connection, detect_platform, biobot_model
+from config import get_api_key, get_db_connection, detect_platform, biobot_model, get_flask_secret_key
 from crypt import generate_salt, derive_key, encrypt, decrypt
 
 # ---------------------
 # App & DB init
 # ---------------------
 app = Flask(__name__)
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", "super_secret_key")
-if not app.secret_key:
-    raise RuntimeError(
-        "FLASK_SECRET_KEY environment variable is not set. "
-        "Generate one with: python3 -c 'import secrets; print(secrets.token_hex(32))' "
-        "and add it to your .env file. Never change this value, or all existing "
-        "user sessions will be invalidated."
-    )
+app.secret_key = get_flask_secret_key()
 app.config["SESSION_PERMANENT"] = True
 app.config["PERMANENT_SESSION_LIFETIME"] = 86400  # 24 hours in seconds
 
@@ -175,7 +168,7 @@ def register():
         email = request.form["email"]
         raw_password = request.form["password"]
         password = generate_password_hash(raw_password)
-        api_key = request.form.get("api_key", "").strip() or get_api_key()
+        api_key = request.form.get("api_key", "").strip() or get_api_key(required=False)
         role = request.form.get("role", "")
         country = request.form.get("country", "")
         salt = generate_salt()
@@ -379,7 +372,7 @@ def reset_password(token):
         # Re-encrypt the default API key with the new password
         new_salt = generate_salt()
         new_enc_key = derive_key(new_password, new_salt)
-        default_api_key = get_api_key()
+        default_api_key = get_api_key(required=False)
         encrypted_default = encrypt(default_api_key, new_enc_key)
 
         execute(conn,

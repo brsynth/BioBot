@@ -3,20 +3,22 @@ services:
     build: .
     image: biobot:latest
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5000:5000"
     volumes:
       - ./biobot/docs:/app/docs
       - ./biobot/handlers.json:/app/handlers.json
       - ./biobot:/app:rw
+      - app_data:/app/data
     env_file :
-      - .env
+      - path: .env
+        required: false
     environment:
-      - DB_HOST=${DB_HOST}
-      - DB_PORT=${DB_PORT}
-      - DB_NAME=${DB_NAME}
-      - DB_USER=${DB_USER}
-      - DB_PASSWORD=${DB_PASSWORD}
-      - API_KEY=${API_KEY}
+      - DB_HOST=${DB_HOST:-postgres}
+      - DB_PORT=${DB_PORT:-5432}
+      - DB_NAME=${DB_NAME:-biobotdb}
+      - DB_USER=${DB_USER:-biobotuser}
+      - DB_PASSWORD=${DB_PASSWORD:-biobotpass}
+      - API_KEY=${API_KEY:-}
     restart : always
     depends_on:
       - postgres
@@ -28,11 +30,12 @@ services:
   postgres:
     image: postgres:16
     env_file :
-      - .env
+      - path: .env
+        required: false
     environment:
-      - POSTGRES_DB=${DB_NAME}
-      - POSTGRES_USER=${DB_USER}
-      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=${DB_NAME:-biobotdb}
+      - POSTGRES_USER=${DB_USER:-biobotuser}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-biobotpass}
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
@@ -47,6 +50,7 @@ services:
 
 volumes:
   db_data:
+  app_data:
 
 networks:
   db:
