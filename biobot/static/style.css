@@ -1454,17 +1454,18 @@ button.copy-btn:hover {
 /* --- Slot (shared across layouts) --- */
 .deck-slot {
   position: relative;
-  padding: 10px 8px 8px;
+  padding: 10px 6px 6px;
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s;
-  min-height: 70px;
+  min-height: 90px;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
   align-items: center;
   text-align: center;
-  gap: 3px;
+  gap: 2px;
+  overflow: hidden;
 }
 
 .deck-slot.filled {
@@ -1526,6 +1527,61 @@ button.copy-btn:hover {
 .slot-empty-label {
   font-size: 0.65rem;
   color: #444;
+}
+
+/* --- Mini Well Grid inside Slots --- */
+.mini-wells {
+  display: grid;
+  gap: 0.5px;
+  margin-top: 3px;
+  padding: 2px;
+  background: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+  width: 100%;
+}
+
+.mini-well {
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #222;
+  border: 0.5px solid #2a2a2a;
+  min-width: 0;
+  transition: all 0.15s;
+}
+
+/* Scale wells smaller for high-density plates */
+.mini-wells.wells-384 { gap: 0px; padding: 1px; }
+.mini-wells.wells-384 .mini-well { border-width: 0; border-radius: 1px; }
+
+.mini-wells.wells-96 .mini-well { border-radius: 50%; }
+.mini-wells.wells-24 .mini-well { border-radius: 50%; }
+.mini-wells.wells-12 .mini-well { border-radius: 3px; }
+
+/* Plate wells */
+.mini-well.well-filled {
+  background: rgba(76, 175, 80, 0.5);
+  border-color: rgba(76, 175, 80, 0.7);
+}
+
+.mini-well.well-source {
+  background: rgba(68, 136, 255, 0.6);
+  border-color: rgba(68, 136, 255, 0.8);
+}
+
+.mini-well.well-dest {
+  background: rgba(255, 152, 0, 0.5);
+  border-color: rgba(255, 152, 0, 0.7);
+}
+
+/* Tiprack tips */
+.mini-well.tip-available {
+  background: rgba(0, 255, 153, 0.3);
+  border-color: rgba(0, 255, 153, 0.5);
+}
+
+.mini-well.tip-used {
+  background: #1a1a1a;
+  border-color: #2a2a2a;
 }
 
 /* --- Linear Layout (Hamilton style) --- */
@@ -1861,7 +1917,6 @@ button.copy-btn:hover {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: translateY(0); }
 }
-
 
 .deck-pipette-row {
   display: grid;
@@ -3231,4 +3286,470 @@ button.copy-btn:hover {
   .chat-window.with-deck {
     flex: 1;
   }
+}
+
+/* ========================================
+   Protocol Animation / Playback Controls
+   ======================================== */
+
+.deck-playback-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: #141820;
+  border: 1px solid rgba(68, 136, 255, 0.3);
+  border-radius: 10px;
+  margin: 8px;
+  animation: slideIn 0.2s ease;
+}
+
+/* Transport buttons */
+.playback-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.pb-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  background: transparent;
+  color: #999;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.pb-btn:hover {
+  border-color: #666;
+  color: #e0e0e0;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.pb-btn.pb-play {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border-color: rgba(68, 136, 255, 0.5);
+  color: #4488ff;
+}
+
+.pb-btn.pb-play:hover {
+  border-color: #4488ff;
+  background: rgba(68, 136, 255, 0.1);
+  color: #66aaff;
+}
+
+.pb-btn.pb-play.playing {
+  border-color: #ff9800;
+  color: #ff9800;
+  background: rgba(255, 152, 0, 0.08);
+}
+
+.pb-btn.pb-play.playing:hover {
+  background: rgba(255, 152, 0, 0.15);
+}
+
+/* Progress area */
+.playback-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.pb-step-label {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #4488ff;
+  text-align: center;
+}
+
+.pb-progress-track {
+  position: relative;
+  height: 6px;
+  background: #2a2a2a;
+  border-radius: 3px;
+  overflow: visible;
+}
+
+.pb-progress-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: linear-gradient(90deg, #4488ff, #00ff99);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.pb-scrubber {
+  position: absolute;
+  top: -6px;
+  left: 0;
+  width: 100%;
+  height: 18px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  margin: 0;
+}
+
+.pb-scrubber::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #4488ff;
+  border: 2px solid #141820;
+  box-shadow: 0 0 4px rgba(68, 136, 255, 0.4);
+  cursor: grab;
+}
+
+.pb-scrubber::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #4488ff;
+  border: 2px solid #141820;
+  box-shadow: 0 0 4px rgba(68, 136, 255, 0.4);
+  cursor: grab;
+}
+
+/* Speed selector */
+.playback-speed {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.pb-speed-label {
+  font-size: 0.62rem;
+  color: #666;
+  font-weight: 600;
+}
+
+.pb-speed-select {
+  padding: 4px 6px;
+  border: 1px solid #3a3a3a;
+  border-radius: 5px;
+  background: #1a1a1a;
+  color: #ccc;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  outline: none;
+  cursor: pointer;
+}
+
+.pb-speed-select:hover {
+  border-color: #666;
+}
+
+/* Step description panel */
+.pb-step-desc {
+  padding: 8px 14px;
+  margin: 0 8px 4px;
+  background: #141820;
+  border: 1px solid rgba(68, 136, 255, 0.15);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-height: 32px;
+  transition: all 0.3s ease;
+}
+
+.pb-step-desc.active {
+  border-color: rgba(68, 136, 255, 0.35);
+  background: #161c26;
+}
+
+.pb-desc-initial {
+  font-size: 0.72rem;
+  color: #666;
+  font-style: italic;
+}
+
+.pb-desc-action {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(68, 136, 255, 0.12);
+  color: #4488ff;
+  flex-shrink: 0;
+}
+
+.pb-desc-action.action-aspirate {
+  background: rgba(0, 255, 153, 0.1);
+  color: #00ff99;
+}
+
+.pb-desc-action.action-dispense {
+  background: rgba(255, 152, 0, 0.1);
+  color: #ff9800;
+}
+
+.pb-desc-action.action-transfer {
+  background: rgba(68, 136, 255, 0.12);
+  color: #4488ff;
+}
+
+.pb-desc-action.action-mix {
+  background: rgba(204, 136, 255, 0.1);
+  color: #cc88ff;
+}
+
+.pb-desc-action.action-tip {
+  background: rgba(255, 255, 255, 0.06);
+  color: #999;
+}
+
+.pb-desc-text {
+  font-size: 0.75rem;
+  color: #ccc;
+  flex: 1;
+  min-width: 0;
+}
+
+.pb-desc-vol {
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.pb-desc-detail {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  color: #777;
+  flex-shrink: 0;
+}
+
+/* ========================================
+   Animation Well Highlights
+   ======================================== */
+
+/* Active source slot glow */
+.deck-slot.anim-active-src {
+  border-color: #00ff99 !important;
+  box-shadow: 0 0 12px rgba(0, 255, 153, 0.25), inset 0 0 8px rgba(0, 255, 153, 0.05);
+  animation: anim-pulse-src 1.2s ease-in-out infinite;
+}
+
+/* Active destination slot glow */
+.deck-slot.anim-active-dst {
+  border-color: #ff9800 !important;
+  box-shadow: 0 0 12px rgba(255, 152, 0, 0.25), inset 0 0 8px rgba(255, 152, 0, 0.05);
+  animation: anim-pulse-dst 1.2s ease-in-out infinite;
+}
+
+/* Active tip slot glow */
+.deck-slot.anim-active-tip {
+  border-color: #4488ff !important;
+  box-shadow: 0 0 12px rgba(68, 136, 255, 0.25), inset 0 0 8px rgba(68, 136, 255, 0.05);
+  animation: anim-pulse-tip 1.2s ease-in-out infinite;
+}
+
+@keyframes anim-pulse-src {
+  0%, 100% { box-shadow: 0 0 8px rgba(0, 255, 153, 0.2); }
+  50% { box-shadow: 0 0 18px rgba(0, 255, 153, 0.4), inset 0 0 12px rgba(0, 255, 153, 0.08); }
+}
+
+@keyframes anim-pulse-dst {
+  0%, 100% { box-shadow: 0 0 8px rgba(255, 152, 0, 0.2); }
+  50% { box-shadow: 0 0 18px rgba(255, 152, 0, 0.4), inset 0 0 12px rgba(255, 152, 0, 0.08); }
+}
+
+@keyframes anim-pulse-tip {
+  0%, 100% { box-shadow: 0 0 8px rgba(68, 136, 255, 0.2); }
+  50% { box-shadow: 0 0 18px rgba(68, 136, 255, 0.4), inset 0 0 12px rgba(68, 136, 255, 0.08); }
+}
+
+/* Active individual wells pulsing */
+.mini-well.well-anim-active {
+  animation: well-blink 0.6s ease-in-out infinite alternate;
+  z-index: 2;
+  position: relative;
+}
+
+@keyframes well-blink {
+  from {
+    box-shadow: 0 0 2px rgba(255, 255, 255, 0.3);
+    transform: scale(1);
+  }
+  to {
+    box-shadow: 0 0 6px rgba(255, 255, 255, 0.7);
+    transform: scale(1.4);
+  }
+}
+
+/* Smooth transition for mini-wells container */
+.mini-wells.anim-transition {
+  animation: wells-fade-in 0.3s ease;
+}
+
+@keyframes wells-fade-in {
+  from { opacity: 0.4; }
+  to { opacity: 1; }
+}
+
+/* ========================================
+   Pipette / Tip Overlay Graphics
+   ======================================== */
+
+.anim-tip-overlay {
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.5));
+}
+
+.tip-graphic {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 40px;
+}
+
+/* Tip body: rectangular barrel that holds liquid */
+.tip-body {
+  width: 16px;
+  height: 32px;
+  background: linear-gradient(180deg, #444 0%, #333 100%);
+  border: 1.5px solid #666;
+  border-radius: 3px 3px 1px 1px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: inset 0 0 4px rgba(0,0,0,0.4);
+}
+
+/* Liquid fill inside the tip — rises from bottom */
+.tip-liquid {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 0%;
+  border-radius: 0 0 1px 1px;
+  transition: height 0.5s ease;
+  opacity: 0.9;
+}
+
+/* Nozzle / tapered end */
+.tip-nozzle {
+  width: 0;
+  height: 0;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 10px solid #666;
+  transition: border-top-color 0.3s ease;
+}
+
+/* Volume label under the tip */
+.tip-vol-label {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 700;
+  margin-top: 2px;
+  white-space: nowrap;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+}
+
+/* --- Action-specific tip animations --- */
+
+/* Aspirate: tip descends and fills */
+.tip-graphic.tip-aspirate {
+  animation: tip-bob-down 0.6s ease-in-out;
+}
+.tip-graphic.tip-aspirate .tip-liquid {
+  height: 70% !important;
+  transition: height 0.8s ease-in;
+}
+.tip-graphic.tip-aspirate .tip-body {
+  box-shadow: inset 0 0 4px rgba(0,0,0,0.4), 0 0 8px rgba(0,255,153,0.2);
+  border-color: #00ff99aa;
+}
+
+/* Dispense: tip descends and empties */
+.tip-graphic.tip-dispense {
+  animation: tip-bob-down 0.6s ease-in-out;
+}
+.tip-graphic.tip-dispense .tip-liquid {
+  height: 0% !important;
+  transition: height 0.8s ease-out 0.3s;
+}
+.tip-graphic.tip-dispense .tip-body {
+  box-shadow: inset 0 0 4px rgba(0,0,0,0.4), 0 0 8px rgba(255,152,0,0.2);
+  border-color: #ff9800aa;
+}
+
+/* Transfer: tip moves (handled by JS position animation) */
+.tip-graphic.tip-transfer .tip-body {
+  box-shadow: inset 0 0 4px rgba(0,0,0,0.4), 0 0 8px rgba(68,136,255,0.2);
+  border-color: #4488ffaa;
+}
+
+/* Mix: up/down oscillation */
+.tip-graphic.tip-mix {
+  animation: tip-mix-bounce 0.4s ease-in-out 3;
+}
+.tip-graphic.tip-mix .tip-body {
+  box-shadow: inset 0 0 4px rgba(0,0,0,0.4), 0 0 8px rgba(204,136,255,0.2);
+  border-color: #cc88ffaa;
+}
+
+/* Tip pickup */
+.tip-graphic.tip-pickup {
+  animation: tip-pickup-grab 0.5s ease;
+}
+.tip-graphic.tip-pickup .tip-body {
+  border-color: #aaa;
+}
+
+/* Tip drop */
+.tip-graphic.tip-drop {
+  animation: tip-drop-release 0.5s ease;
+  opacity: 0.6;
+}
+
+/* --- Keyframes --- */
+
+@keyframes tip-bob-down {
+  0%   { transform: translateY(-8px); }
+  50%  { transform: translateY(4px); }
+  100% { transform: translateY(0); }
+}
+
+@keyframes tip-mix-bounce {
+  0%   { transform: translateY(0); }
+  25%  { transform: translateY(6px); }
+  50%  { transform: translateY(-2px); }
+  75%  { transform: translateY(6px); }
+  100% { transform: translateY(0); }
+}
+
+@keyframes tip-pickup-grab {
+  0%   { transform: translateY(10px); opacity: 0; }
+  50%  { transform: translateY(-2px); opacity: 1; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes tip-drop-release {
+  0%   { transform: translateY(0); opacity: 1; }
+  60%  { transform: translateY(12px); opacity: 0.5; }
+  100% { transform: translateY(16px); opacity: 0; }
 }

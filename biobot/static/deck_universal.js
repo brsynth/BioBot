@@ -16,6 +16,16 @@ let _pendingChanges = [];
 let _sourceCodeBlock = null;  // the specific code block element the deck was opened from  // tracks all changes before applying
 
 // ============================================================
+// Animation / Playback State
+// ============================================================
+let _animSnapshots = [];     // per-step state snapshots
+let _animStepIndex = -1;     // -1 = initial state (before any step)
+let _animPlaying = false;
+let _animTimer = null;
+let _animSpeed = 1500;       // ms per step (default 1× speed)
+let _animSteps = [];         // raw steps from state
+
+// ============================================================
 // Main Entry
 // ============================================================
 
@@ -100,6 +110,11 @@ function _renderDeck(state) {
   wrapper.appendChild(info);
 
   container.appendChild(wrapper);
+
+  // Initialize animation if steps exist
+  if (state.steps && state.steps.length > 0) {
+    _initAnimation(state);
+  }
 }
 
 // ============================================================
@@ -253,11 +268,19 @@ function _createSlot(pos) {
   slot.dataset.id = pos.id;
   if (_selectedSlot === pos.id) slot.classList.add("selected");
 
+  // Slot number
   slot.innerHTML = `<span class="slot-num">${pos.id}</span>`;
+
   if (filled) {
+    // Labware name
     slot.innerHTML += `<span class="slot-labware">${pos.labware_display || _shorten(pos.labware)}</span>`;
     if (pos.variable) slot.innerHTML += `<span class="slot-var">${pos.variable}</span>`;
     if (pos.module) slot.innerHTML += `<span class="slot-module">${pos.module}</span>`;
+
+    // Well grid for plates, tipracks, reservoirs, tube racks
+    if (pos.wells && pos.wells.rows && pos.wells.cols) {
+      slot.appendChild(_renderMiniWells(pos));
+    }
   } else {
     slot.innerHTML += `<span class="slot-empty-label">${pos.type === "trash" ? "Trash" : ""}</span>`;
   }
@@ -266,6 +289,60 @@ function _createSlot(pos) {
   slot.addEventListener("dblclick", () => _showSelector(pos.id, pos.labware || null));
 
   return slot;
+}
+
+// ============================================================
+// Mini Well Grid Renderer
+// ============================================================
+
+function _renderMiniWells(pos) {
+  const w = pos.wells;
+  const rows = w.rows || 1;
+  const cols = w.cols || 1;
+  const isTiprack = pos.type === "tiprack";
+
+  const filledSet = new Set(w.filled || []);
+  const sourceSet = new Set(w.source || []);
+  const destSet = new Set(w.destination || []);
+  const tipsUsedSet = new Set(w.tips_used || []);
+  const tipsAvailSet = new Set(w.tips_available || []);
+
+  const container = document.createElement("div");
+  const format = w.format || (rows * cols);
+  container.className = `mini-wells wells-${format}`;
+  container.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+  container.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+
+  const rowLabels = w.row_labels || "ABCDEFGHIJKLMNOP".split("").slice(0, rows);
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const wellId = `${rowLabels[r]}${c + 1}`;
+      const dot = document.createElement("div");
+      dot.className = "mini-well";
+      dot.title = wellId;
+
+      if (isTiprack) {
+        if (tipsUsedSet.has(wellId)) {
+          dot.classList.add("tip-used");
+        } else if (tipsAvailSet.has(wellId) || tipsAvailSet.size === 0) {
+          dot.classList.add("tip-available");
+        }
+      } else {
+        if (sourceSet.has(wellId)) {
+          dot.classList.add("well-source");
+        } else if (destSet.has(wellId)) {
+          dot.classList.add("well-dest");
+        } else if (filledSet.has(wellId)) {
+          dot.classList.add("well-filled");
+        }
+      }
+
+      container.appendChild(dot);
+    }
+  }
+
+  return container;
 }
 
 function _renderInstruments(instruments) {
@@ -542,6 +619,20 @@ function _selectSlot(id, pos) {
   if (pos.variable) html += `<div class="info-row"><span class="info-label">Variable:</span> <code>${pos.variable}</code></div>`;
   if (pos.module) html += `<div class="info-row"><span class="info-label">Module:</span> ${pos.module}</div>`;
   if (pos.type) html += `<div class="info-row"><span class="info-label">Type:</span> ${pos.type}</div>`;
+  if (pos.wells) {
+    const w = pos.wells;
+    html += `<div class="info-row"><span class="info-label">Format:</span> ${w.format || (w.rows * w.cols)} wells (${w.rows}×${w.cols})</div>`;
+    if (w.filled?.length) html += `<div class="info-row"><span class="info-label">Filled:</span> <span style="color:#4caf50">${w.filled.length} wells</span></div>`;
+    if (w.source?.length) html += `<div class="info-row"><span class="info-label">Source wells:</span> <span style="color:#4488ff">${w.source.length} (${w.source.slice(0, 5).join(", ")}${w.source.length > 5 ? "..." : ""})</span></div>`;
+    if (w.destination?.length) html += `<div class="info-row"><span class="info-label">Dest wells:</span> <span style="color:#ff9800">${w.destination.length} (${w.destination.slice(0, 5).join(", ")}${w.destination.length > 5 ? "..." : ""})</span></div>`;
+    if (w.volume) html += `<div class="info-row"><span class="info-label">Volume/well:</span> ${w.volume}</div>`;
+    if (w.total_volume) html += `<div class="info-row"><span class="info-label">Total volume:</span> ${w.total_volume}</div>`;
+    if (pos.type === "tiprack") {
+      const used = w.tips_used?.length || 0;
+      const total = w.format || 96;
+      html += `<div class="info-row"><span class="info-label">Tips:</span> ${total - used} available, ${used} used</div>`;
+    }
+  }
   info.innerHTML = html;
 }
 
@@ -713,11 +804,14 @@ function _applyChange(slotId, newLabware, oldLabware) {
         pos.labware = newLabware;
         pos.labware_display = _shorten(newLabware);
         pos.type = _guessType(newLabware);
+        // Rebuild wells based on new labware
+        pos.wells = _guessWells(newLabware, pos.type);
       } else {
         pos.labware = null;
         pos.labware_display = null;
         pos.variable = null;
         pos.type = "empty";
+        pos.wells = null;
       }
       break;
     }
@@ -853,6 +947,51 @@ function _guessType(labware) {
   return "plate";
 }
 
+function _guessWells(labware, type) {
+  if (!labware) return null;
+  const l = labware.toLowerCase();
+
+  // Detect format from the name
+  let rows = 8, cols = 12, format = 96;
+
+  if (l.includes("384")) { rows = 16; cols = 24; format = 384; }
+  else if (l.includes("96")) { rows = 8; cols = 12; format = 96; }
+  else if (l.includes("48")) { rows = 6; cols = 8; format = 48; }
+  else if (l.includes("24")) { rows = 4; cols = 6; format = 24; }
+  else if (l.includes("12") && (type === "reservoir" || l.includes("reservoir") || l.includes("trough"))) { rows = 1; cols = 12; format = 12; }
+  else if (l.includes("6") && l.includes("well")) { rows = 2; cols = 3; format = 6; }
+  else if (type === "reservoir" && l.includes("1")) { rows = 1; cols = 1; format = 1; }
+  else if (type === "tiprack") { rows = 8; cols = 12; format = 96; }
+  else if (type === "tuberack") {
+    if (l.includes("24")) { rows = 4; cols = 6; format = 24; }
+    else if (l.includes("15") || l.includes("6")) { rows = 2; cols = 3; format = 6; }
+    else { rows = 4; cols = 6; format = 24; }
+  }
+
+  const rowLabels = "ABCDEFGHIJKLMNOP".split("").slice(0, rows);
+
+  const wells = {
+    rows, cols, format,
+    row_labels: rowLabels,
+    filled: [],
+    source: [],
+    destination: [],
+    tips_used: [],
+    tips_available: [],
+  };
+
+  // For tipracks, mark all tips as available
+  if (type === "tiprack") {
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        wells.tips_available.push(`${rowLabels[r]}${c + 1}`);
+      }
+    }
+  }
+
+  return wells;
+}
+
 function _shorten(name) {
   if (!name) return "";
   return name.length > 25 ? name.substring(0, 22) + "..." : name;
@@ -884,6 +1023,10 @@ function toggleDeckPanel() {
 }
 function clearDeckPanel() {
   if (_deckAbort) { _deckAbort.abort(); _deckAbort = null; }
+  // Stop animation & remove tip overlay
+  if (_animTimer) { clearInterval(_animTimer); _animTimer = null; }
+  _animPlaying = false; _animSnapshots = []; _animSteps = []; _animStepIndex = -1; _animBusy = false;
+  _removeTipOverlay();
   closeDeckPanel();
   _currentCode = null; _originalCode = null; _currentState = null; _originalState = null;
   _selectedSlot = null; _pendingChanges = []; _sourceCodeBlock = null;
@@ -891,6 +1034,10 @@ function clearDeckPanel() {
   if (c) c.innerHTML = '<p class="deck-empty-message">Generate a protocol to see the deck layout</p>';
   const bar = document.getElementById("deck-apply-bar");
   if (bar) bar.remove();
+  const pbBar = document.getElementById("deck-playback-bar");
+  if (pbBar) pbBar.remove();
+  const pbDesc = document.getElementById("pb-step-desc");
+  if (pbDesc) pbDesc.remove();
 }
 
 // ============================================================
@@ -968,6 +1115,649 @@ function _showLoading() {
 function _showError(msg) {
   const c = document.getElementById("deck-svg-container");
   if (c) c.innerHTML = `<p class="deck-empty-message" style="color:#ff4d4d">${msg}</p>`;
+}
+
+// ============================================================
+// Protocol Animation / Playback System (v2 — visual tips)
+// ============================================================
+
+// Action → color mapping
+const ACTION_COLORS = {
+  aspirate:    { fill: "#00ff99", glow: "rgba(0,255,153,0.4)", label: "ASP" },
+  dispense:    { fill: "#ff9800", glow: "rgba(255,152,0,0.4)", label: "DSP" },
+  transfer:    { fill: "#4488ff", glow: "rgba(68,136,255,0.4)", label: "TRF" },
+  distribute:  { fill: "#4488ff", glow: "rgba(68,136,255,0.4)", label: "DST" },
+  consolidate: { fill: "#4488ff", glow: "rgba(68,136,255,0.4)", label: "CON" },
+  mix:         { fill: "#cc88ff", glow: "rgba(204,136,255,0.4)", label: "MIX" },
+  pick_up_tip: { fill: "#aaaaaa", glow: "rgba(170,170,170,0.3)", label: "TIP" },
+  pickup_tip:  { fill: "#aaaaaa", glow: "rgba(170,170,170,0.3)", label: "TIP" },
+  drop_tip:    { fill: "#666666", glow: "rgba(100,100,100,0.3)", label: "DROP" },
+};
+
+// Track whether tip animation is currently running (prevents double-advance)
+let _animBusy = false;
+
+/**
+ * Build variable/slot → position index lookup.
+ */
+function _buildPosLookup(positions) {
+  const varMap = {};
+  const slotMap = {};
+  for (let i = 0; i < positions.length; i++) {
+    const p = positions[i];
+    if (p.variable) varMap[p.variable.toLowerCase()] = i;
+    if (p.id != null) slotMap[String(p.id).toLowerCase()] = i;
+  }
+  return { varMap, slotMap };
+}
+
+function _findPosIdx(ref, lookup) {
+  if (!ref) return -1;
+  const lower = ref.toLowerCase();
+  const bracketMatch = lower.match(/^([^[]+)\[/);
+  if (bracketMatch) {
+    const v = bracketMatch[1].trim();
+    if (lookup.varMap[v] !== undefined) return lookup.varMap[v];
+  }
+  const slotMatch = lower.match(/slot\s*(\d+)/);
+  if (slotMatch && lookup.slotMap[slotMatch[1]] !== undefined) return lookup.slotMap[slotMatch[1]];
+  if (lookup.varMap[lower.trim()] !== undefined) return lookup.varMap[lower.trim()];
+  if (lookup.slotMap[lower.trim()] !== undefined) return lookup.slotMap[lower.trim()];
+  return -1;
+}
+
+/**
+ * Deep-clone positions array with wells (for snapshotting).
+ */
+function _clonePositions(posArr) {
+  return posArr.map(p => ({
+    ...p,
+    wells: p.wells ? {
+      ...p.wells,
+      filled: [...(p.wells.filled || [])],
+      source: [...(p.wells.source || [])],
+      destination: [...(p.wells.destination || [])],
+      tips_used: [...(p.wells.tips_used || [])],
+      tips_available: [...(p.wells.tips_available || [])],
+    } : null,
+  }));
+}
+
+/**
+ * Build a CLEAN initial state — wells start with NO source/destination
+ * markers. Only pre-existing liquid (filled) and tiprack status remain.
+ * Also strip reservoir filled markers since reservoirs are loaded at start.
+ */
+function _buildCleanInitial(positions) {
+  return positions.map(p => ({
+    ...p,
+    wells: p.wells ? {
+      ...p.wells,
+      filled: [...(p.wells.filled || [])],     // keep pre-loaded liquid
+      source: [],                                // CLEAN — no source markers
+      destination: [],                           // CLEAN — no dest markers
+      tips_used: [...(p.wells.tips_used || [])],
+      tips_available: [...(p.wells.tips_available || [])],
+    } : null,
+  }));
+}
+
+/**
+ * Build per-step state snapshots starting from a CLEAN initial state.
+ * Wells progressively change color only when the step that affects them runs.
+ *
+ * Returns array of { positions, step, stepIndex, srcIdx, dstIdx }
+ */
+function _buildStepSnapshots(state) {
+  const steps = state.steps || [];
+  if (steps.length === 0) return [];
+
+  const positions = state.positions || [];
+  const lookup = _buildPosLookup(positions);
+
+  const snapshots = [];
+  // Start from clean state — no source/dest markers
+  let current = _buildCleanInitial(positions);
+
+  for (let si = 0; si < steps.length; si++) {
+    const step = steps[si];
+    const action = (step.action || "").toLowerCase();
+    const wellsFrom = step.wells_from || [];
+    const wellsTo = step.wells_to || [];
+
+    current = _clonePositions(current);
+
+    const srcIdx = _findPosIdx(step.source, lookup);
+    const dstIdx = _findPosIdx(step.destination, lookup);
+
+    if (action === "pick_up_tip" || action === "pickup_tip") {
+      if (srcIdx >= 0 && current[srcIdx].wells) {
+        const w = current[srcIdx].wells;
+        for (const well of wellsFrom) {
+          if (!w.tips_used.includes(well)) w.tips_used.push(well);
+          w.tips_available = w.tips_available.filter(t => t !== well);
+        }
+      }
+    } else if (action === "aspirate") {
+      if (srcIdx >= 0 && current[srcIdx].wells) {
+        const w = current[srcIdx].wells;
+        for (const well of wellsFrom) {
+          if (!w.source.includes(well)) w.source.push(well);
+        }
+      }
+    } else if (action === "dispense") {
+      if (dstIdx >= 0 && current[dstIdx].wells) {
+        const w = current[dstIdx].wells;
+        for (const well of wellsTo) {
+          if (!w.destination.includes(well)) w.destination.push(well);
+          if (!w.filled.includes(well)) w.filled.push(well);
+        }
+      }
+    } else if (action === "transfer" || action === "distribute" || action === "consolidate") {
+      if (srcIdx >= 0 && current[srcIdx].wells) {
+        const w = current[srcIdx].wells;
+        for (const well of wellsFrom) {
+          if (!w.source.includes(well)) w.source.push(well);
+        }
+      }
+      if (dstIdx >= 0 && current[dstIdx].wells) {
+        const w = current[dstIdx].wells;
+        for (const well of wellsTo) {
+          if (!w.destination.includes(well)) w.destination.push(well);
+          if (!w.filled.includes(well)) w.filled.push(well);
+        }
+      }
+    } else if (action === "mix") {
+      const idx = srcIdx >= 0 ? srcIdx : dstIdx;
+      if (idx >= 0 && current[idx].wells) {
+        const w = current[idx].wells;
+        const wells = wellsFrom.length ? wellsFrom : wellsTo;
+        for (const well of wells) {
+          if (!w.source.includes(well)) w.source.push(well);
+          if (!w.destination.includes(well)) w.destination.push(well);
+        }
+      }
+    }
+    // drop_tip — no well changes
+
+    snapshots.push({ positions: current, step, stepIndex: si, srcIdx, dstIdx });
+  }
+
+  return snapshots;
+}
+
+/**
+ * Initialize the animation system.
+ */
+function _initAnimation(state) {
+  _animSteps = state.steps || [];
+  _animPlaying = false;
+  _animStepIndex = -1;
+  _animBusy = false;
+  if (_animTimer) { clearInterval(_animTimer); _animTimer = null; }
+
+  if (_animSteps.length === 0) { _animSnapshots = []; return; }
+
+  _animSnapshots = _buildStepSnapshots(state);
+  _renderPlaybackControls();
+}
+
+// ============================================================
+// Playback Controls
+// ============================================================
+
+function _renderPlaybackControls() {
+  let bar = document.getElementById("deck-playback-bar");
+  if (bar) bar.remove();
+  if (_animSnapshots.length === 0) return;
+
+  const container = document.getElementById("deck-svg-container");
+  if (!container) return;
+
+  bar = document.createElement("div");
+  bar.id = "deck-playback-bar";
+  bar.className = "deck-playback-bar";
+
+  const totalSteps = _animSnapshots.length;
+  const currentLabel = _animStepIndex < 0 ? "Initial" : `${_animStepIndex + 1} / ${totalSteps}`;
+
+  bar.innerHTML = `
+    <div class="playback-controls">
+      <button class="pb-btn pb-reset" id="pb-reset" title="Reset to initial state">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <rect x="4" y="4" width="6" height="16"/><polygon points="20,4 10,12 20,20"/>
+        </svg>
+      </button>
+      <button class="pb-btn pb-prev" id="pb-prev" title="Previous step">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polyline points="15,18 9,12 15,6"/>
+        </svg>
+      </button>
+      <button class="pb-btn pb-play" id="pb-play" title="Play">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>
+      </button>
+      <button class="pb-btn pb-next" id="pb-next" title="Next step">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polyline points="9,18 15,12 9,6"/>
+        </svg>
+      </button>
+      <button class="pb-btn pb-end" id="pb-end" title="Jump to final state">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <polygon points="4,4 14,12 4,20"/><rect x="14" y="4" width="6" height="16"/>
+        </svg>
+      </button>
+    </div>
+    <div class="playback-info">
+      <span class="pb-step-label" id="pb-step-label">${currentLabel}</span>
+      <div class="pb-progress-track">
+        <div class="pb-progress-fill" id="pb-progress-fill" style="width:0%"></div>
+        <input type="range" class="pb-scrubber" id="pb-scrubber"
+          min="-1" max="${totalSteps - 1}" value="${_animStepIndex}" />
+      </div>
+    </div>
+    <div class="playback-speed">
+      <label class="pb-speed-label">Speed</label>
+      <select class="pb-speed-select" id="pb-speed">
+        <option value="2500" ${_animSpeed===2500?'selected':''}>0.5×</option>
+        <option value="1500" ${_animSpeed===1500?'selected':''}>1×</option>
+        <option value="800"  ${_animSpeed===800 ?'selected':''}>2×</option>
+        <option value="400"  ${_animSpeed===400 ?'selected':''}>4×</option>
+      </select>
+    </div>
+  `;
+
+  container.parentElement.insertBefore(bar, container.nextSibling);
+
+  // Step description panel
+  let descPanel = document.getElementById("pb-step-desc");
+  if (descPanel) descPanel.remove();
+  descPanel = document.createElement("div");
+  descPanel.id = "pb-step-desc";
+  descPanel.className = "pb-step-desc";
+  bar.parentElement.insertBefore(descPanel, bar.nextSibling);
+  _updateStepDescription();
+
+  // Wire up events
+  document.getElementById("pb-reset").addEventListener("click", () => _animGoTo(-1));
+  document.getElementById("pb-prev").addEventListener("click", _animPrev);
+  document.getElementById("pb-play").addEventListener("click", _animTogglePlay);
+  document.getElementById("pb-next").addEventListener("click", _animNext);
+  document.getElementById("pb-end").addEventListener("click", () => _animGoTo(_animSnapshots.length - 1));
+  document.getElementById("pb-speed").addEventListener("change", (e) => {
+    _animSpeed = parseInt(e.target.value);
+    if (_animPlaying) { clearInterval(_animTimer); _animTimer = setInterval(_animAutoStep, _animSpeed); }
+  });
+  document.getElementById("pb-scrubber").addEventListener("input", (e) => _animGoTo(parseInt(e.target.value)));
+}
+
+// ============================================================
+// Step Description
+// ============================================================
+
+function _updateStepDescription() {
+  const descPanel = document.getElementById("pb-step-desc");
+  if (!descPanel) return;
+
+  if (_animStepIndex < 0) {
+    descPanel.innerHTML = '<span class="pb-desc-initial">▶ Press Play to start protocol animation</span>';
+    descPanel.className = "pb-step-desc";
+    return;
+  }
+
+  const snap = _animSnapshots[_animStepIndex];
+  if (!snap?.step) { descPanel.innerHTML = ""; return; }
+
+  const step = snap.step;
+  const action = (step.action || "").toLowerCase();
+  const colors = ACTION_COLORS[action] || { fill: "#888", label: "?" };
+
+  descPanel.className = "pb-step-desc active";
+  descPanel.innerHTML = `
+    <span class="pb-desc-action" style="background:${colors.fill}22;color:${colors.fill};border:1px solid ${colors.fill}44">
+      ${(step.action || "").toUpperCase()}
+    </span>
+    <span class="pb-desc-text">${step.description || ""}</span>
+    ${step.volume ? `<span class="pb-desc-vol">${step.volume} µL</span>` : ""}
+    ${step.source ? `<span class="pb-desc-detail">From: ${step.source}</span>` : ""}
+    ${step.destination ? `<span class="pb-desc-detail">To: ${step.destination}</span>` : ""}
+  `;
+}
+
+// ============================================================
+// Slot ↔ step reference matching
+// ============================================================
+
+function _slotMatchesRef(slotId, pos, ref) {
+  if (!ref) return false;
+  const lower = ref.toLowerCase();
+  if (pos.variable && lower.includes(pos.variable.toLowerCase())) return true;
+  if (lower.includes(String(slotId).toLowerCase())) return true;
+  const m = lower.match(/slot\s*(\d+)/);
+  if (m && m[1] === String(slotId)) return true;
+  return false;
+}
+
+// ============================================================
+// Render Mini-Wells for a snapshot position (animation version)
+// Re-uses _renderMiniWells but passes the snapshot's well data
+// ============================================================
+
+function _renderMiniWellsFromSnap(pos) {
+  // _renderMiniWells uses pos.wells directly, which is the snapshot
+  return _renderMiniWells(pos);
+}
+
+// ============================================================
+// Apply step visuals — updates wells + shows tip graphic
+// ============================================================
+
+function _applyStepVisuals(stepIndex, animate) {
+  const positions = stepIndex < 0
+    ? _buildCleanInitial(_originalState?.positions || _currentState?.positions || [])
+    : _animSnapshots[stepIndex]?.positions;
+  if (!positions) return;
+
+  const activeStep = stepIndex >= 0 ? _animSnapshots[stepIndex].step : null;
+  const action = activeStep ? (activeStep.action || "").toLowerCase() : "";
+  const colors = ACTION_COLORS[action] || { fill: "#888", glow: "rgba(136,136,136,0.3)" };
+
+  // Remove previous tip overlay
+  _removeTipOverlay();
+
+  const allSlots = document.querySelectorAll(".deck-slot[data-id]");
+  for (const slotEl of allSlots) {
+    const slotId = slotEl.dataset.id;
+    const pos = positions.find(p => String(p.id) === slotId);
+    if (!pos) continue;
+
+    // Remove old animation classes
+    slotEl.classList.remove("anim-active-src", "anim-active-dst", "anim-active-tip");
+
+    // Highlight active slots
+    if (activeStep) {
+      const isSrc = _slotMatchesRef(slotId, pos, activeStep.source);
+      const isDst = _slotMatchesRef(slotId, pos, activeStep.destination);
+      if (action.includes("tip") && isSrc) {
+        slotEl.classList.add("anim-active-tip");
+      } else {
+        if (isSrc) slotEl.classList.add("anim-active-src");
+        if (isDst) slotEl.classList.add("anim-active-dst");
+      }
+    }
+
+    // Update mini-wells from snapshot
+    if (pos.wells && pos.wells.rows && pos.wells.cols) {
+      const oldWells = slotEl.querySelector(".mini-wells");
+      const newWells = _renderMiniWellsFromSnap(pos);
+
+      // Highlight specific active wells with glowing ring
+      if (activeStep && stepIndex >= 0) {
+        _markActiveWells(newWells, pos, activeStep, colors.fill);
+      }
+
+      if (oldWells) slotEl.replaceChild(newWells, oldWells);
+      else slotEl.appendChild(newWells);
+    }
+  }
+
+  // Show animated tip graphic for the current step
+  if (activeStep && animate && stepIndex >= 0) {
+    _showTipAnimation(activeStep, colors);
+  }
+}
+
+/**
+ * Mark active wells with a colored ring for the current step.
+ */
+function _markActiveWells(container, pos, step, color) {
+  const wellsFrom = step.wells_from || [];
+  const wellsTo = step.wells_to || [];
+  const dots = container.querySelectorAll(".mini-well");
+  const rows = pos.wells.rows || 1;
+  const cols = pos.wells.cols || 1;
+  const rowLabels = pos.wells.row_labels || "ABCDEFGHIJKLMNOP".split("").slice(0, rows);
+
+  dots.forEach((dot, idx) => {
+    const r = Math.floor(idx / cols);
+    const c = idx % cols;
+    const wellId = `${rowLabels[r]}${c + 1}`;
+
+    const isFrom = wellsFrom.includes(wellId) && _slotMatchesRef(String(pos.id), pos, step.source);
+    const isTo = wellsTo.includes(wellId) && _slotMatchesRef(String(pos.id), pos, step.destination);
+
+    if (isFrom || isTo) {
+      dot.classList.add("well-anim-active");
+      dot.style.boxShadow = `0 0 6px ${color}, 0 0 2px ${color}`;
+      dot.style.borderColor = color;
+    }
+  });
+}
+
+// ============================================================
+// Tip / Pipette Graphic Overlay
+// ============================================================
+
+function _removeTipOverlay() {
+  const existing = document.getElementById("anim-tip-overlay");
+  if (existing) existing.remove();
+}
+
+/**
+ * Show the pipette tip graphic hovering over the active slot.
+ * The tip body fills with color to show aspiration / dispense.
+ */
+function _showTipAnimation(step, colors) {
+  const action = (step.action || "").toLowerCase();
+  const container = document.getElementById("deck-svg-container");
+  if (!container) return;
+
+  // Find the target slot element
+  const targetRef = step.source || step.destination;
+  if (!targetRef) return;
+
+  let targetSlot = null;
+  const allSlots = container.querySelectorAll(".deck-slot[data-id]");
+  for (const slot of allSlots) {
+    const pos = (_currentState?.positions || []).find(p => String(p.id) === slot.dataset.id);
+    if (pos && _slotMatchesRef(slot.dataset.id, pos, targetRef)) {
+      targetSlot = slot;
+      break;
+    }
+  }
+  // For transfer: show on destination
+  if (action === "transfer" || action === "distribute" || action === "consolidate") {
+    const dstRef = step.destination;
+    if (dstRef) {
+      for (const slot of allSlots) {
+        const pos = (_currentState?.positions || []).find(p => String(p.id) === slot.dataset.id);
+        if (pos && _slotMatchesRef(slot.dataset.id, pos, dstRef)) {
+          targetSlot = slot;
+          break;
+        }
+      }
+    }
+  }
+
+  if (!targetSlot) return;
+
+  // Create tip overlay positioned on the target slot
+  const overlay = document.createElement("div");
+  overlay.id = "anim-tip-overlay";
+  overlay.className = "anim-tip-overlay";
+
+  // Determine animation class
+  let animClass = "tip-idle";
+  let fillHeight = "0%";
+  let fillColor = colors.fill;
+
+  if (action === "aspirate") {
+    animClass = "tip-aspirate";
+    fillHeight = "70%";   // tip fills up
+  } else if (action === "dispense") {
+    animClass = "tip-dispense";
+    fillHeight = "0%";    // tip empties
+  } else if (action === "transfer" || action === "distribute" || action === "consolidate") {
+    animClass = "tip-transfer";
+    fillHeight = "40%";
+  } else if (action === "mix") {
+    animClass = "tip-mix";
+    fillHeight = "50%";
+  } else if (action === "pick_up_tip" || action === "pickup_tip") {
+    animClass = "tip-pickup";
+    fillColor = "#ccc";
+  } else if (action === "drop_tip") {
+    animClass = "tip-drop";
+    fillColor = "#666";
+  }
+
+  const volLabel = step.volume ? `${step.volume} µL` : "";
+
+  overlay.innerHTML = `
+    <div class="tip-graphic ${animClass}">
+      <div class="tip-body">
+        <div class="tip-liquid" style="height:${fillHeight};background:${fillColor}"></div>
+      </div>
+      <div class="tip-nozzle" style="border-top-color:${fillColor}"></div>
+      ${volLabel ? `<div class="tip-vol-label" style="color:${fillColor}">${volLabel}</div>` : ""}
+    </div>
+  `;
+
+  // Position the overlay on the target slot
+  const slotRect = targetSlot.getBoundingClientRect();
+  const containerRect = container.getBoundingClientRect();
+
+  overlay.style.position = "absolute";
+  overlay.style.left = (slotRect.left - containerRect.left + slotRect.width / 2 - 20) + "px";
+  overlay.style.top = (slotRect.top - containerRect.top - 52) + "px";
+  overlay.style.zIndex = "100";
+
+  // Make sure container is relative
+  container.style.position = "relative";
+  container.appendChild(overlay);
+
+  // For transfer, show movement from src to dst
+  if ((action === "transfer" || action === "distribute" || action === "consolidate") && step.source && step.destination) {
+    _animateTipMovement(overlay, step, container, allSlots, colors);
+  }
+}
+
+/**
+ * Animate tip from source → destination for transfer steps.
+ */
+function _animateTipMovement(overlay, step, container, allSlots, colors) {
+  let srcSlot = null, dstSlot = null;
+  const positions = _currentState?.positions || [];
+
+  for (const slot of allSlots) {
+    const pos = positions.find(p => String(p.id) === slot.dataset.id);
+    if (!pos) continue;
+    if (_slotMatchesRef(slot.dataset.id, pos, step.source)) srcSlot = slot;
+    if (_slotMatchesRef(slot.dataset.id, pos, step.destination)) dstSlot = slot;
+  }
+  if (!srcSlot || !dstSlot) return;
+
+  const containerRect = container.getBoundingClientRect();
+  const srcRect = srcSlot.getBoundingClientRect();
+  const dstRect = dstSlot.getBoundingClientRect();
+
+  // Start at source
+  const srcX = srcRect.left - containerRect.left + srcRect.width / 2 - 20;
+  const srcY = srcRect.top - containerRect.top - 52;
+  const dstX = dstRect.left - containerRect.left + dstRect.width / 2 - 20;
+  const dstY = dstRect.top - containerRect.top - 52;
+
+  overlay.style.left = srcX + "px";
+  overlay.style.top = srcY + "px";
+
+  // Fill tip at source
+  const liquid = overlay.querySelector(".tip-liquid");
+  if (liquid) {
+    liquid.style.height = "70%";
+    liquid.style.background = colors.fill;
+  }
+
+  // Animate movement to destination
+  const duration = Math.min(_animSpeed * 0.5, 600);
+  overlay.style.transition = `left ${duration}ms ease-in-out, top ${duration}ms ease-in-out`;
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      overlay.style.left = dstX + "px";
+      overlay.style.top = dstY + "px";
+
+      // After arriving, empty the tip
+      setTimeout(() => {
+        if (liquid) {
+          liquid.style.transition = "height 0.3s ease";
+          liquid.style.height = "0%";
+        }
+      }, duration);
+    });
+  });
+}
+
+// ============================================================
+// Navigation
+// ============================================================
+
+function _animGoTo(stepIndex, animate) {
+  if (_animBusy) return;
+  const maxIdx = _animSnapshots.length - 1;
+  _animStepIndex = Math.max(-1, Math.min(stepIndex, maxIdx));
+  _applyStepVisuals(_animStepIndex, animate !== false);
+  _updatePlaybackUI();
+  _updateStepDescription();
+}
+
+function _animAutoStep() {
+  if (_animBusy) return;
+  if (_animStepIndex >= _animSnapshots.length - 1) {
+    if (_animPlaying) _animTogglePlay();
+    return;
+  }
+  _animGoTo(_animStepIndex + 1, true);
+}
+
+function _animNext() {
+  if (_animStepIndex >= _animSnapshots.length - 1) return;
+  _animGoTo(_animStepIndex + 1, true);
+}
+
+function _animPrev() {
+  if (_animStepIndex <= -1) return;
+  _animGoTo(_animStepIndex - 1, true);
+}
+
+function _animTogglePlay() {
+  _animPlaying = !_animPlaying;
+
+  if (_animPlaying) {
+    if (_animStepIndex >= _animSnapshots.length - 1) _animGoTo(-1, false);
+    _animTimer = setInterval(_animAutoStep, _animSpeed);
+  } else {
+    if (_animTimer) { clearInterval(_animTimer); _animTimer = null; }
+  }
+
+  _updatePlaybackUI();
+}
+
+function _updatePlaybackUI() {
+  const totalSteps = _animSnapshots.length;
+  const label = document.getElementById("pb-step-label");
+  const fill = document.getElementById("pb-progress-fill");
+  const scrubber = document.getElementById("pb-scrubber");
+  const playBtn = document.getElementById("pb-play");
+
+  if (label) label.textContent = _animStepIndex < 0 ? "Initial" : `Step ${_animStepIndex + 1} / ${totalSteps}`;
+  if (fill) fill.style.width = `${_animStepIndex < 0 ? 0 : ((_animStepIndex + 1) / totalSteps * 100)}%`;
+  if (scrubber) scrubber.value = _animStepIndex;
+  if (playBtn) {
+    playBtn.className = `pb-btn pb-play ${_animPlaying ? 'playing' : ''}`;
+    playBtn.title = _animPlaying ? "Pause" : "Play";
+    playBtn.innerHTML = _animPlaying
+      ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>'
+      : '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,3 19,12 5,21"/></svg>';
+  }
 }
 
 // Init

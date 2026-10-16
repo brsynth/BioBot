@@ -10,47 +10,69 @@ from config import get_api_key, light_functions_model
 
 VISUALIZE_PROMPT = """You are an expert in laboratory automation and liquid handling robots. You will be given protocol code or a CSV picklist.
 
-Your task: extract the deck layout as a JSON object. Identify the platform, the deck structure, and every piece of hardware.
+Your task: extract the deck layout as a JSON object WITH well-level detail. Identify the platform, hardware, and which wells contain liquid or are used in the protocol (in its initial state)
 
 Return ONLY valid JSON (no markdown, no explanation) matching this exact schema:
 
 {
-  "platform": "Human-readable platform name (e.g. Opentrons OT-2, Hamilton STAR, Echo 650, Tecan Fluent, Beckman Biomek)",
+  "platform": "Human-readable platform name",
   "layout_type": "grid | linear | plates",
   "title": "Short protocol name if available",
   "grid": {
     "rows": 4, "cols": 3,
-    "labels": ["1","2","3","4","5","6","7","8","9","10","11","12"],
-    "note": "Only for layout_type=grid. For OT-2: 4 rows x 3 cols, slots numbered bottom-left to top-right"
+    "labels": ["1","2","3","4","5","6","7","8","9","10","11","12"]
   },
   "positions": [
     {
-      "id": "slot or position identifier (e.g. '1', 'Track 3', 'A1')",
+      "id": "slot or position identifier",
       "labware": "Full labware API name or null if empty",
       "labware_display": "Short display name or null",
       "variable": "Variable name in code or null",
       "type": "plate | tiprack | reservoir | tuberack | module | trash | carrier | empty",
-      "module": "Module name if labware sits on a module, else null",
-      "row": 0, "col": 0
+      "module": "Module name if on a module, else null",
+      "row": 0, "col": 0,
+      "wells": {
+        "rows": 8, "cols": 12,
+        "format": 96,
+        "row_labels": ["A","B","C","D","E","F","G","H"],
+        "filled": ["A1","A2","A3"],
+        "source": ["A1","A2"],
+        "destination": ["B1","B2","B3"],
+        "tips_used": [],
+        "tips_available": ["A1","A2","A3"],
+        "volume": "100 µL per well (or total for reservoirs)",
+        "total_volume": "9600 µL total"
+      }
     }
   ],
   "instruments": [
     {
-      "name": "Instrument display name (e.g. P300 Single GEN2)",
-      "model": "API model name (e.g. p300_single_gen2)",
-      "mount": "left | right | channel_count | null",
-      "tipracks": ["slot ids where tipracks are"]
+      "name": "Instrument display name",
+      "model": "API model name",
+      "mount": "left | right | null",
+      "tipracks": ["slot ids"]
+    }
+  ],
+  "steps": [
+    {
+      "action": "aspirate | dispense | transfer | mix | pick_up_tip | drop_tip",
+      "source": "variable[well]",
+      "destination": "variable[well]",
+      "volume": 100,
+      "wells_from": ["A1"],
+      "wells_to": ["B1"],
+      "description": "Short human-readable description"
     }
   ],
   "plates": {
-    "note": "Only for layout_type=plates (e.g. Echo). null otherwise.",
-    "source": {"name": "Source Plate", "type": "384PP", "format": 384, "wells_used": ["A1","A2"]},
-    "destination": {"name": "Dest Plate", "type": "96-well", "format": 96, "wells_used": ["A1","B1"]},
+    "note": "Only for layout_type=plates. null otherwise.",
+    "source": {"name": "Source", "type": "384PP", "format": 384, "wells_used": ["A1"]},
+    "destination": {"name": "Dest", "type": "96-well", "format": 96, "wells_used": ["A1"]},
     "transfer_count": 50,
     "volume_range": "2.5 - 500 nL"
   },
   "carriers": {
-    "note": "Only for layout_type=linear (e.g. Hamilton). null otherwise.",
+    "note": "Only for layout_type=linear. null otherwise.",
     "items": [
       {"name": "Tip Carrier", "type": "TIP_CAR_480", "track": 3, "positions": [
         {"index": 0, "labware": "50uL tips", "variable": "tips_01"},
@@ -60,13 +82,21 @@ Return ONLY valid JSON (no markdown, no explanation) matching this exact schema:
   }
 }
 
-RULES:
-- For Opentrons OT-2: layout_type="grid", grid 4x3, slots 1-11 + trash at 12. Row 0 = slots 10,11,12 (top). Row 3 = slots 1,2,3 (bottom).
-- For Hamilton STAR: layout_type="linear", use carriers array.
-- For Echo 650 / acoustic: layout_type="plates", use plates object. Detect from CSV columns (Source Well, Dest Well, Transfer Volume).
-- For any other platform: choose the best layout_type and fill accordingly.
-- Include ALL positions, even empty ones.
-- If the input is a CSV (not Python), it's likely an Echo/acoustic picklist.
+WELL-LEVEL RULES:
+- For plates: set wells.rows, cols, format. filled=wells with liquid at start. source=aspiration wells. destination=dispense wells. Expand row/column references to individual wells.
+- For tip racks: wells.rows=8, cols=12, format=96. tips_available=all wells initially. tips_used=consumed tips.
+- For reservoirs: 1-well→rows=1,cols=1. 12-well→rows=1,cols=12.
+- For tube racks: rows/cols based on format.
+- For trash/empty: wells=null
+- For volumes: extract from the code (transfer volumes, load_liquid volumes, define_liquid volumes). Set wells.volume = per-well volume string. Set wells.total_volume = total across all wells.
+- Include steps array with every protocol action in order.
+
+GENERAL RULES:
+- OT-2: layout_type="grid", 4x3, slots 1-11 + trash 12.
+- Hamilton: layout_type="linear", use carriers.
+- Echo: layout_type="plates", use plates object.
+- Include ALL positions including empty ones.
+- CSV input = likely Echo picklist.
 - Return ONLY valid JSON. No trailing commas.
 """
 

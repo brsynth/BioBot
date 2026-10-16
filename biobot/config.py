@@ -2,7 +2,7 @@ import psycopg2
 import os, time
 
 light_functions_model = "gpt-4o-mini"
-biobot_model = "gpt-5.6-sol"
+biobot_model = "gpt-6-sol"
 
 def get_api_key():
     secret_path = "/run/secrets/biobot_api_key"
