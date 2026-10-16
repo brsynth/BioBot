@@ -675,6 +675,10 @@ def chat_stream(chat_id):
             error_msg = str(e).lower()
             if "auth" in error_msg or "api key" in error_msg or "401" in error_msg or "403" in error_msg:
                 yield "Your API key appears to be invalid or expired. Please update it in Settings."
+            elif "credit_balance_exhausted" in error_msg:
+                yield "Your OpenAI API account has no credits remaining. Add credits in OpenAI billing, or use another API key in Settings."
+            elif any(code in error_msg for code in ("insufficient_quota", "spend_limit_exceeded", "usage_limit_exceeded")):
+                yield "Your OpenAI API account has reached its billing or usage limit. Check your OpenAI billing and limits, or use another API key in Settings."
             elif "rate limit" in error_msg or "429" in error_msg:
                 yield "Rate limit reached. Please wait a moment and try again."
             elif "model" in error_msg or "404" in error_msg:
