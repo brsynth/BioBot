@@ -10,9 +10,10 @@ from openai import OpenAI
 import sys
 import pickle
 from config import get_api_key, biobot_model, light_functions_model
-from doc_loader import load_and_chunk_docs
+from doc_loader import load_and_chunk_docs, get_supported_extensions
 from doc_fetcher import fetch_documentation
 from feasibility_check import check_feasibility, format_feasibility_response
+from handlers import detect_handler
 
 # ----------- ARGS & AUTH -------------
 if len(sys.argv) > 1:
@@ -28,136 +29,6 @@ if not user_api_key:
 
 def get_openai_client(api_key):
     return OpenAI(api_key=api_key)
-
-
-# ----------- HANDLER DETECTION -------------
-HANDLERS_CONFIG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "handlers.json")
-
-def load_handlers_config():
-    """Load the handler registry from handlers.json."""
-    if not os.path.exists(HANDLERS_CONFIG_PATH):
-        return {
-            "opentrons": {
-                "name": "Opentrons",
-                "docs_path": "docs/opentrons",
-                "store_path": "rag_store_opentrons.pkl",
-                "simulate_cmd": ["opentrons_simulate"],
-                "keywords": ["opentrons", "ot-2", "ot2", "ot-3", "ot3", "flex"]
-            }
-        }
-    with open(HANDLERS_CONFIG_PATH, "r") as f:
-        return json.load(f)
-
-
-def detect_handler(query, history, api_key):
-    """
-    Detect which liquid handler the user is referring to using LLM classification.
-    If the handler isn't in handlers.json, creates a dynamic entry so
-    the doc fetcher can find and download its documentation.
-    """
-    handlers = load_handlers_config()
-    available_ids = list(handlers.keys())
-    client = get_openai_client(api_key)
-
-    # Build context from recent conversation
-    recent = [m for m in history if m["role"] != "system"][-8:]
-    conversation_context = "\n".join(
-        f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content'][:500]}"
-        for m in recent
-    )
-
-    # Build the known platforms description
-    if available_ids:
-        known_list = "\n".join(
-            f'  - "{hid}" → {cfg["name"]}'
-            for hid, cfg in handlers.items()
-        )
-    else:
-        known_list = "  (none configured)"
-
-    response = client.responses.create(
-        model=biobot_model,
-        input=[
-            {
-                "role": "system",
-                "content": f"""You are an expert in lab automation and liquid handling robots.
-
-Your task: identify which liquid handling PLATFORM (robot/instrument) the user is requesting a protocol for.
-
-Here are the platforms already configured in our system:
-{known_list}
-
-INSTRUCTIONS:
-1. Read the user's latest message AND the conversation history carefully.
-2. Identify the liquid handling platform they are referring to.
-3. If the platform matches one already configured, return its exact ID (the text in quotes above).
-4. If the platform is NOT in the list above, return a new short lowercase ID for it. Use the brand name in lowercase, no spaces (e.g., "opentrons", "beckman", "agilent", "eppendorf", "gilson", "biomek").
-5. If the user does NOT mention or imply any specific platform anywhere in the conversation, return "unknown".
-
-IMPORTANT:
-- Focus on the INSTRUMENT/ROBOT brand, not reagents, software, or lab techniques.
-- Look at the ENTIRE conversation, not just the latest message — the platform may have been mentioned earlier.
-- Common platforms include: Opentrons, Hamilton, Tecan, Beckman Coulter (Biomek), Agilent, Eppendorf, Gilson, PerkinElmer (JANUS), Formulatrix, Andrew Alliance, etc.
-
-Return ONLY the platform ID. One word, lowercase, no quotes, no explanation."""
-            },
-            {
-                "role": "user",
-                "content": f"Conversation history:\n{conversation_context}\n\nLatest message: {query}"
-            }
-        ]
-    )
-
-    detected = response.output_text.strip().lower().strip('"').replace(" ", "_")
-
-    # Known handler — return directly
-    if detected in available_ids:
-        return detected, handlers
-
-    # "unknown" — default to first available, or opentrons
-    if detected == "unknown":
-        if available_ids:
-            return available_ids[0], handlers
-        detected = "unknown"
-
-    # New handler — ask the LLM for the proper display name
-    name_response = client.responses.create(
-        model=biobot_model,
-        input=[
-            {
-                "role": "system",
-                "content": "Return ONLY the official full name of this liquid handling robot platform/brand. No explanation, no punctuation, just the name (e.g., 'Opentrons OT-2', 'Hamilton STAR', 'Tecan Fluent')."
-            },
-            {
-                "role": "user",
-                "content": f"Platform ID: {detected}"
-            }
-        ]
-    )
-    handler_name = name_response.output_text.strip().strip("'\"")
-
-    print(f"STEP:Detected new platform: {handler_name} (not in config — will search for docs)...", flush=True)
-    time.sleep(2)
-
-    handlers[detected] = {
-        "name": handler_name,
-        "docs_path": f"docs/{detected}",
-        "store_path": f"rag_store_{detected}.pkl",
-        "simulate_cmd": None,
-        "validation_strategy": "llm_review",
-        "output_type": "file",
-        "keywords": [detected]
-    }
-
-    # Save to handlers.json so it persists across sessions
-    try:
-        with open(HANDLERS_CONFIG_PATH, "w") as f:
-            json.dump(handlers, f, indent=4)
-        print(f"STEP:Added {handler_name} to handlers config", flush=True)
-    except Exception as e:
-        print(f"WARNING: Could not save to handlers.json: {e}", flush=True)
-
-    return detected, handlers
 
 
 # ----------- SUFFICIENCY CHECK -------------
@@ -188,9 +59,9 @@ Reply with ONLY a valid JSON object (no markdown, no explanation) following this
 }
  
 RULES:
-- NEVER ask about information the user already provided. Read the conversation carefully. If the user said "opentrons" or "ot-2", do NOT ask which platform. If they mentioned a pipette, do NOT ask which pipette. Only ask what is genuinely missing.
+- NEVER ask about information the user already provided. Read the conversation carefully. If the user named their robot, do NOT ask which platform. If they mentioned a pipette, do NOT ask which pipette. Only ask what is genuinely missing.
 - ASK EVERYTHING AT ONCE. After the user answers, code generates immediately. No follow-up rounds.
-- If the user is using hamilton, ask if he's using it via pyhamilton or venus api
+- Ask which software/API interface the user uses if it is not specified.
 - "type": "single" = user picks ONE option (radio buttons).
 - "type": "multiple" = user picks ONE OR MORE (checkboxes).
 - "allow_other": true = adds a text field for custom answers.
@@ -479,7 +350,7 @@ def load_or_build_index(handler_id, handler_config, chunk_size=3000):
         if os.path.exists(docs_path):
             for root, dirs, files in os.walk(docs_path):
                 for f in files:
-                    if os.path.splitext(f)[1].lower() in ('.rst', '.pdf', '.txt'):
+                    if os.path.splitext(f)[1].lower() in get_supported_extensions():
                         has_local_docs = True
                         break
                 if has_local_docs:
@@ -641,7 +512,14 @@ if feasibility_result is not None:
         print(warnings_msg, flush=True)
 
 # 3. Detect which handler the user needs
-handler_id, handlers = detect_handler(user_query, chat_history, user_api_key)
+handler_id, handlers = detect_handler(consolidated_query, chat_history, user_api_key)
+if handler_id is None:
+    print("QUESTIONS:" + json.dumps({
+        "message": "Which robot or instrument should this protocol use?",
+        "questions": [{"id": "platform", "question": "Robot/instrument and model",
+                       "type": "single", "options": []}]
+    }), flush=True)
+    sys.exit(0)
 handler_config = handlers[handler_id]
 print(f"STEP:Detected platform: {handler_config['name']}", flush=True)
 time.sleep(1)

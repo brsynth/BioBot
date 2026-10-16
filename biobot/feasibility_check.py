@@ -26,18 +26,14 @@ and logically feasible** given standard lab-automation constraints.
 Check the following categories:
 
 ### 1. Volume feasibility
-- Are requested aspiration / dispense volumes within the range of common
-  pipettes?  (P20: 1-20 µL, P300: 20-300 µL, P1000: 100-1000 µL,
-  multichannel equivalents, etc.)
+- Are requested aspiration / dispense volumes within the specified instrument's range?
+  Do not assume instrument limits that the request does not provide.
 - Does the total liquid required fit in the source labware?
-- Will the destination wells overflow?  (e.g. 96-well plate max ≈ 200-360 µL
-  depending on type; 384-well ≈ 80-120 µL; reservoirs ≈ 15-290 mL per well)
+- Will the destination wells overflow given their specified capacity?
 - Are serial-dilution ratios achievable with the stated volumes?
 
 ### 2. Labware feasibility
-- Is the labware mentioned real and compatible with the platform?
-  (e.g. "corning_96_wellplate_360ul_flat" is valid for Opentrons; a made-up
-  name is not.)
+- Is the labware mentioned real and compatible with the specified platform?
 - Are there enough wells / slots for the described operations?
 - If a tiprack is mentioned, is its volume range correct for the pipette?
 
@@ -47,14 +43,12 @@ Check the following categories:
   than you aspirated; you cannot mix 0 µL.)
 - Is the order of operations correct?  (e.g. distribute diluent before
   serial dilution, not after.)
-- Are there contradictions?  (e.g. "transfer 500 µL with a P20 pipette")
+- Are there contradictions?  (e.g. requesting a volume above the specified instrument range)
 
 ### 4. Platform / hardware feasibility
-- Does the robot have enough deck slots for all the labware?
-  (OT-2: 11 usable slots; Flex: up to 12 + staging; Hamilton STAR:
-  varies by configuration.)
-- Can the requested pipette type be mounted?  (e.g. OT-2 supports up to
-  2 pipettes, left + right; Flex supports up to 2.)
+- Does the specified robot configuration have enough positions for all the labware?
+- Can the requested instruments be mounted in the specified configuration?
+- If platform specifications are missing, report uncertainty rather than assuming capacities.
 - If modules are mentioned (temperature, magnetic, thermocycler, heater-shaker),
   are they compatible with the platform?
 
@@ -100,7 +94,7 @@ If the protocol is **NOT feasible**:
     {
       "severity": "error",
       "category": "volume",
-      "description": "The requested transfer volume of 500 µL exceeds the P20 pipette's maximum capacity (20 µL).",
+      "description": "The requested transfer volume exceeds the instrument's stated maximum capacity.",
       "suggestion": "Use a P1000 pipette or reduce the transfer volume."
     }
   ],

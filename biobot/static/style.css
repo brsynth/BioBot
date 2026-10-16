@@ -1494,7 +1494,7 @@ button.copy-btn:hover {
   box-shadow: inset 0 0 0 3px #1a1a1a;
 }
 
-/* --- Grid Layout (OT-2 style) --- */
+/* --- Grid Layout --- */
 .deck-grid {
   display: grid;
   gap: 6px;
@@ -1581,7 +1581,7 @@ button.copy-btn:hover {
   color: #444;
 }
 
-/* --- Linear Layout (Hamilton style) --- */
+/* --- Linear Layout --- */
 .deck-linear {
   display: flex;
   gap: 8px;
@@ -1620,7 +1620,7 @@ button.copy-btn:hover {
   border-radius: 6px;
 }
 
-/* --- Plates Layout (Echo style) --- */
+/* --- Plates Layout --- */
 .deck-plates {
   display: flex;
   flex-wrap: wrap;
@@ -2438,425 +2438,6 @@ button.copy-btn:hover {
 }
 
 /* ========================================
-   Echo 650 Plate Visualizer
-   ======================================== */
-
-.echo-wrapper {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.echo-title {
-  text-align: center;
-  font-family: var(--font-sans);
-  font-size: 0.85rem;
-  font-weight: 700;
-  color: var(--text-secondary);
-  letter-spacing: 0.5px;
-}
-
-.echo-plates {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  justify-content: center;
-}
-
-.echo-plate-section {
-  flex: 1;
-  min-width: 0;
-}
-
-.echo-plate-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 8px;
-  padding: 0 4px;
-}
-
-.echo-plate-label {
-  font-family: var(--font-sans);
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: var(--text-primary);
-}
-
-.echo-plate-type {
-  font-family: var(--font-mono);
-  font-size: 0.62rem;
-  color: var(--accent);
-  cursor: pointer;
-  padding: 2px 6px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  transition: all 0.2s;
-}
-
-.echo-plate-type:hover {
-  border-color: var(--accent);
-  background: var(--accent-glow);
-}
-
-.echo-transfer-arrow {
-  display: flex;
-  align-items: center;
-  padding-top: 40px;
-  flex-shrink: 0;
-}
-
-/* Grid layout */
-.echo-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  background: #1a1a1a;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 4px;
-  overflow: auto;
-}
-
-.echo-grid-row {
-  display: flex;
-  gap: 1px;
-}
-
-.echo-grid-header {
-  margin-bottom: 2px;
-}
-
-.echo-cell-corner {
-  width: 18px;
-  min-width: 18px;
-  height: 14px;
-  flex-shrink: 0;
-}
-
-.echo-cell-header {
-  flex: 1;
-  min-width: 0;
-  height: 14px;
-  font-size: 0.45rem;
-  font-family: var(--font-mono);
-  color: var(--text-muted);
-  text-align: center;
-  line-height: 14px;
-}
-
-.echo-cell-rowlabel {
-  width: 18px;
-  min-width: 18px;
-  font-size: 0.45rem;
-  font-family: var(--font-mono);
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-/* Individual wells */
-.echo-well {
-  flex: 1;
-  min-width: 0;
-  aspect-ratio: 1;
-  background: #222;
-  border-radius: 2px;
-  cursor: pointer;
-  transition: all 0.15s;
-  border: 1px solid transparent;
-}
-
-.echo-grid-96 .echo-well {
-  border-radius: 3px;
-}
-
-.echo-well:hover {
-  border-color: #666;
-  transform: scale(1.2);
-  z-index: 1;
-}
-
-.echo-well.used {
-  border-color: rgba(255, 255, 255, 0.15);
-}
-
-.echo-well.used:hover {
-  border-color: #fff;
-}
-
-.echo-well.selected {
-  border-color: #ffcc00 !important;
-  box-shadow: 0 0 4px rgba(255, 204, 0, 0.5);
-  transform: scale(1.3);
-  z-index: 2;
-}
-
-/* Summary bar */
-.echo-summary {
-  display: flex;
-  justify-content: center;
-  gap: 20px;
-  font-family: var(--font-mono);
-  font-size: 0.72rem;
-  color: var(--text-secondary);
-  padding: 8px 0;
-  border-top: 1px solid var(--border);
-}
-
-.echo-summary span {
-  white-space: nowrap;
-}
-
-/* ========================================
-   Hamilton STAR Worktable Visualizer
-   ======================================== */
-
-.hamilton-wrapper {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 8px;
-}
-
-.hamilton-title {
-  text-align: center;
-  font-family: var(--font-sans);
-  font-size: 0.9rem;
-  font-weight: 700;
-  color: var(--accent);
-}
-
-.hamilton-channels {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 8px 12px;
-  background: #1e1e1e;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-}
-
-.hamilton-ch-label {
-  font-size: 0.7rem;
-  font-weight: 700;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 1px;
-}
-
-.hamilton-ch-value {
-  font-size: 0.82rem;
-  font-weight: 700;
-  color: var(--accent);
-}
-
-.hamilton-ch-badge {
-  font-size: 0.65rem;
-  font-weight: 700;
-  color: #6b7bff;
-  background: rgba(107, 123, 255, 0.1);
-  border: 1px solid rgba(107, 123, 255, 0.3);
-  padding: 2px 8px;
-  border-radius: 12px;
-}
-
-/* Worktable — horizontal scrollable */
-.hamilton-worktable {
-  display: flex;
-  gap: 10px;
-  overflow-x: auto;
-  padding: 12px 4px 8px;
-  position: relative;
-  min-height: 200px;
-  align-items: flex-start;
-}
-
-.hamilton-track-line {
-  position: absolute;
-  bottom: 20px;
-  left: 0;
-  right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, transparent, #333 5%, #333 95%, transparent);
-  border-radius: 2px;
-  z-index: 0;
-}
-
-/* Carrier card */
-.hamilton-carrier {
-  flex-shrink: 0;
-  width: 140px;
-  background: #1e1e1e;
-  border: 1.5px solid #3a3a3a;
-  border-radius: 10px;
-  overflow: hidden;
-  z-index: 1;
-  transition: all 0.2s;
-}
-
-.hamilton-carrier:hover {
-  border-color: #555;
-}
-
-.hamilton-carrier.tip { border-color: #4488ff; }
-.hamilton-carrier.plate { border-color: var(--accent); }
-.hamilton-carrier.tube { border-color: #cc88ff; }
-.hamilton-carrier.reservoir { border-color: #9966ff; }
-.hamilton-carrier.trash { border-color: #ff4d4d; width: 100px; }
-
-.hamilton-carrier-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
-  background: rgba(255, 255, 255, 0.03);
-  border-bottom: 1px solid var(--border);
-}
-
-.hamilton-carrier-type {
-  font-size: 1.1rem;
-  font-family: var(--font-mono);
-  opacity: 0.7;
-}
-
-.hamilton-carrier-name {
-  font-family: var(--font-sans);
-  font-size: 0.68rem;
-  font-weight: 700;
-  color: var(--text-primary);
-  line-height: 1.2;
-}
-
-.hamilton-carrier-rail {
-  text-align: center;
-  font-family: var(--font-mono);
-  font-size: 0.6rem;
-  color: var(--text-muted);
-  padding: 3px 0;
-  background: rgba(0, 0, 0, 0.2);
-}
-
-/* Positions inside a carrier */
-.hamilton-positions {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 4px;
-}
-
-.hamilton-position {
-  position: relative;
-  padding: 8px;
-  border-radius: 6px;
-  background: #242424;
-  border: 1px solid transparent;
-  cursor: pointer;
-  transition: all 0.15s;
-  text-align: center;
-}
-
-.hamilton-position:hover {
-  background: #2a2a2a;
-  border-color: #555;
-}
-
-.hamilton-position.filled {
-  background: #1a2e22;
-  border-color: rgba(0, 255, 153, 0.3);
-}
-
-.hamilton-position.filled:hover {
-  border-color: var(--accent);
-}
-
-.hamilton-position.selected {
-  border-color: #ffcc00 !important;
-  box-shadow: 0 0 0 2px rgba(255, 204, 0, 0.2);
-}
-
-.hamilton-pos-index {
-  position: absolute;
-  top: 3px;
-  left: 5px;
-  font-family: var(--font-mono);
-  font-size: 0.55rem;
-  color: #555;
-}
-
-.hamilton-pos-icon {
-  display: block;
-  font-size: 1rem;
-  font-family: var(--font-mono);
-  color: var(--accent);
-  opacity: 0.6;
-}
-
-.hamilton-pos-name {
-  display: block;
-  font-family: var(--font-sans);
-  font-size: 0.62rem;
-  font-weight: 600;
-  color: var(--accent);
-  line-height: 1.2;
-}
-
-.hamilton-pos-var {
-  display: block;
-  font-family: var(--font-mono);
-  font-size: 0.55rem;
-  color: var(--text-muted);
-}
-
-.hamilton-pos-empty {
-  font-size: 0.68rem;
-  color: #444;
-}
-
-.hamilton-pos-hint {
-  display: block;
-  font-size: 0.55rem;
-  color: #555;
-  opacity: 0;
-  transition: opacity 0.2s;
-}
-
-.hamilton-position:hover .hamilton-pos-hint { opacity: 1; }
-
-.hamilton-empty {
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 0.8rem;
-  padding: 40px;
-  z-index: 1;
-}
-
-/* Transfer summary */
-.hamilton-transfers {
-  border-top: 1px solid var(--border);
-  padding-top: 8px;
-}
-
-.hamilton-transfers-title {
-  font-size: 0.75rem;
-  font-weight: 700;
-  color: var(--text-secondary);
-  margin-bottom: 4px;
-}
-
-.hamilton-transfer-item {
-  font-family: var(--font-mono);
-  font-size: 0.65rem;
-  color: var(--text-muted);
-  padding: 2px 0;
-}
-
-/* ========================================
    Coherence Warnings
    ======================================== */
 
@@ -3081,7 +2662,7 @@ button.copy-btn:hover {
   font-size: 0.75rem;
 }
 
-/* Grid deck (OT-2 style) */
+/* Grid deck */
 .udeck-grid {
   display: flex;
   flex-direction: column;
@@ -3094,14 +2675,14 @@ button.copy-btn:hover {
   gap: 8px;
 }
 
-/* Linear deck (Hamilton style) */
+/* Linear deck */
 .udeck-linear {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
   gap: 8px;
 }
 
-/* Dual plate deck (Echo style) */
+/* Dual plate deck */
 .udeck-dual {
   display: flex;
   align-items: flex-start;

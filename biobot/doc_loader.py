@@ -6,7 +6,7 @@ Supports multiple file formats (RST, PDF, TXT) and provides
 unified chunking for any documentation folder.
 
 Usage:
-    chunks, sources = load_and_chunk_docs("docs/opentrons", chunk_size=3000)
+    chunks, sources = load_and_chunk_docs("data/docs/<platform_id>", chunk_size=3000)
 """
 
 import os

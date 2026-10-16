@@ -4,7 +4,7 @@ Autonomous documentation fetcher for BioBot RAG pipeline.
 When no local documentation is found for a liquid handler, this module:
 1. Asks the LLM for official documentation URLs (GitHub, ReadTheDocs, manufacturer sites)
 2. Fetches content from those URLs (HTML pages, raw text files, PDFs)
-3. Saves them permanently to docs/{handler}/ for future use
+3. Saves them permanently to data/docs/{handler}/ for future use
 
 This makes the RAG pipeline self-provisioning — it only fetches once,
 then the docs are local for all subsequent runs.
@@ -54,10 +54,10 @@ You have access to web search. Use it to find REAL, VERIFIED official documentat
 
 PRIORITY ORDER for sources:
 1. **GitHub repositories** — Look for official SDKs, Python libraries, or API wrappers on GitHub. Link to the raw README.md, docs/ folder, or specific .py/.rst/.md files using raw.githubusercontent.com URLs when possible.
-2. **ReadTheDocs / GitBook / hosted docs** — Official API documentation sites (e.g., https://pyhamilton.readthedocs.io)
+2. **ReadTheDocs / GitBook / hosted docs** — Official API documentation sites
 3. include OFFICIAL sources from the manufacturer or their official GitHub organization
 4. **PDF documentation** — Direct links to .pdf user guides, programming manuals, or API references from the manufacturer's site
-5. **PyPI package pages** — Link to the PyPI page if there's an official Python package (e.g., https://pypi.org/project/pyhamilton/)
+5. **PyPI package pages** — Link to the PyPI page if there's an official Python package
 6. **Raw text files** — Any .rst, .md, or .txt documentation files accessible via direct URL
 
 Return txt raw file if you find contents that are NOT scrapable

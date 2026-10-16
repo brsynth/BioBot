@@ -12,7 +12,7 @@
 
 ---
 
-BioBot is a web-based assistant that generates, validates, and iterates on automation protocols for liquid handling robots. It combines a conversational chat interface with a RAG (Retrieval-Augmented Generation) pipeline, an interactive deck visualizer, and a code validation loop to produce working scripts from natural language descriptions. 
+BioBot is a robot-agnostic web assistant that generates, validates, and iterates on automation protocols for liquid handling robots. A fresh install contains no robot documentation, preset platform registry, or robot SDKs; documentation is discovered on demand. It combines a conversational chat interface with a RAG (Retrieval-Augmented Generation) pipeline, an interactive deck visualizer, and a code validation loop to produce working scripts from natural language descriptions.
 It helps users interact with an AI assistant to get guidance, protocols, and Python code for automating lab workflows.
 
 ---
@@ -27,7 +27,7 @@ It helps users interact with an AI assistant to get guidance, protocols, and Pyt
 
 ### Interactive Deck Visualizer
 - **Split-screen deck layout** alongside the chat, showing the robot's worktable with all labware, pipettes, and modules.
-- **Platform-adaptive rendering.** OT-2 shows a 4×3 grid, Hamilton shows a linear worktable with carriers on tracks, Echo shows dual source/destination plate maps.
+- **Platform-adaptive rendering.** The protocol determines whether the deck is shown as a grid, carriers on tracks, or source/destination plate maps.
 - **Click, double-click, and drag-and-drop** to move labware, swap slots, change instruments, and edit parameters. The code updates in real time.
 - **Automatic coherence.** Changing a pipette auto-updates the tiprack; changing labware validates well references; volume edits are checked against pipette ranges.
 
@@ -49,9 +49,9 @@ When a user asks BioBot for a protocol, the request goes through a multi-stage p
 
 **Classification.** The user's message is first sent to a lightweight LLM (GPT-4o-mini) that classifies it as one of three categories: *code* (the user wants a protocol script), *general* (a question about lab automation that doesn't require code), or *out* (unrelated to lab automation). General and out-of-scope messages are handled by a standard streaming chat response. Code requests enter the RAG pipeline.
 
-**Sufficiency check.** Before generating anything, a second LLM call evaluates whether the request contains enough information to produce a working protocol. It considers the full conversation history, if the user mentioned "Opentrons OT-2" three messages ago, the system remembers. When details are missing, the LLM returns a structured JSON object describing the questions it needs answered, each with predefined options. The frontend renders these as an interactive stepper form: the user selects answers one at a time (radio buttons for single-choice, checkboxes for multi-choice, with an "Other" text field for custom values), then clicks "Generate Protocol." The compiled answers are sent back as a single message that skips the sufficiency check entirely, going straight to code generation.
+**Sufficiency check.** Before generating anything, a second LLM call evaluates whether the request contains enough information to produce a working protocol. It considers the full conversation history, if the user named their robot three messages ago, the system remembers. When details are missing, the LLM returns a structured JSON object describing the questions it needs answered, each with predefined options. The frontend renders these as an interactive stepper form: the user selects answers one at a time (radio buttons for single-choice, checkboxes for multi-choice, with an "Other" text field for custom values), then clicks "Generate Protocol." The compiled answers are sent back as a single message that skips the sufficiency check entirely, going straight to code generation.
 
-**Consolidation.** Multi-turn conversations are common, the user might say "serial dilution" in the first message, then "use a P300" in a follow-up, then answer the structured questions in a third. Before retrieval, a consolidation step merges the entire conversation into one self-contained protocol description, as if the user had provided everything upfront. This ensures the RAG retrieval and code generation see the complete picture regardless of how the conversation unfolded.
+**Consolidation.** Multi-turn conversations are common, the user might say "serial dilution" in the first message, then "use my specified pipette" in a follow-up, then answer the structured questions in a third. Before retrieval, a consolidation step merges the entire conversation into one self-contained protocol description, as if the user had provided everything upfront. This ensures the RAG retrieval and code generation see the complete picture regardless of how the conversation unfolded.
 
 **Retrieval.** The consolidated request is embedded using OpenAI's text-embedding model and searched against a FAISS vector index built from the platform's documentation (API references, labware guides, example protocols, and user-verified working code from the feedback system). The top-K most relevant documentation chunks are retrieved and injected into the generation prompt as context.
 
@@ -139,46 +139,25 @@ RESEND_API_KEY=re_your_resend_key
 ```
 BioBot/
 ├── biobot/
-│   ├── app.py                  # Flask application all routes
-│   ├── engine.py               # LLM orchestration : classify, stream, RAG dispatch
-│   ├── main_rag.py             # RAG pipeline : embed, search, generate, simulate, correct
-│   ├── config.py               # Database, API keys, init_db
-│   ├── crypt.py                # Encryption utilities (Fernet)
-│   ├── deck_parser.py          # Protocol code → deck state JSON (regex + LLM fallback)
-│   ├── email_service.py        # SMTP / Resend email sending
-│   ├── llm_provider.py         # Provider-agnostic LLM interface
-│   ├── handlers.json           # Platform handler configuration
-│   ├── templates/
-│   │   ├── index.html          # Main chat interface
-│   │   ├── login.html
-│   │   ├── register.html
-│   │   ├── forgot_password.html
-│   │   └── reset_password.html
-│   └── static/
-│       ├── style.css           # Main stylesheet
-│       ├── auth.css            # Authentication pages
-│       ├── questions.css       # Structured questions UI
-│       ├── script.js           # Chat logic, streaming, history
-│       ├── deck_renderer.js    # LLM based deck generator
-│       ├── echo_renderer.js    # Echo 650 plate map visualizer
-│       ├── hamilton_renderer.js # Hamilton STAR worktable visualizer
-│       ├── ot2_catalog.js      # OT-2 hardware catalog
-│       ├── hamilton_catalog.js  # Hamilton hardware catalog
-│       ├── deck_coherence.js   # Pipette/tiprack/volume validation
-│       ├── deck_params.js      # Protocol parameter editor
-│       ├── questions_renderer.js # Structured question stepper UI
-│       └── logo.png
-├── docs/                       # Platform documentation for RAG
-│   ├── opentrons/
-│   │   ├── codes/              # User-verified working protocols
-│   │   └── failed_codes/       # User-reported failures
-│   ├── hamilton/
-│   └── echo/
-├── tests/                      # Pytest test suite
+│   ├── app.py                  # Flask routes
+│   ├── engine.py               # Chat and RAG dispatch
+│   ├── main_rag.py             # Retrieval, generation, validation
+│   ├── handlers.py             # On-demand platform discovery
+│   ├── doc_fetcher.py          # On-demand documentation download
+│   ├── doc_loader.py           # Documentation parsing
+│   ├── config.py               # Database and secrets
+│   ├── crypt.py                # Encryption
+│   ├── deck_visualizer.py      # Generic deck extraction and edits
+│   ├── feasibility_check.py    # Protocol feasibility review
+│   ├── email_service.py        # Password-reset email
+│   ├── templates/              # Chat and authentication pages
+│   ├── static/                 # UI and universal deck renderer
+│   └── data/                   # Generated at runtime; ignored by Git
+├── tests/
 ├── docker-compose.yml
 ├── Dockerfile
 ├── requirements.txt
-└── .env
+└── .env.example                # Optional configuration
 ```
 
 ---
@@ -197,19 +176,31 @@ BioBot/
 
 ## Documentation for RAG
 
-Place your platform documentation in the `docs/` directory:
+BioBot starts with no platform documentation or configured robots. When a user
+specifies a robot, BioBot identifies it, discovers documentation online, downloads
+it, and builds a retrieval index. If no robot is specified, BioBot asks for one.
+
+All learned platform information is runtime data, excluded from Git:
 
 ```
-docs/
-├── opentrons/          # .rst, .txt, .pdf, .csv files
-│   ├── api_reference.rst
-│   ├── labware_guide.txt
-│   ├── codes/          # Populated by positive feedback
-│   └── failed_codes/   # Populated by negative feedback
-├── hamilton/
-└── echo/
+biobot/data/
+├── handlers.json               # Discovered platform settings
+└── docs/
+    └── <platform_id>/
+        ├── reference.txt        # Downloaded documents (.rst, .txt, .pdf)
+        ├── rag_store_<platform_id>.pkl
+        ├── codes/               # Verified protocols, stored as text
+        └── failed_codes/        # Failed protocols and user remarks
 ```
 
-On first run, BioBot chunks the documentation, embeds it, and builds a FAISS index (saved as `rag_store.pkl`). Subsequent runs load the cached index. The cache is automatically invalidated when users submit feedback.
+In Docker, `/app/data` is stored in the persistent `app_data` volume. Subsequent
+runs reuse downloaded documentation and cached indexes. Feedback invalidates the
+corresponding index so it rebuilds with the new examples. You can also add your
+own documentation to the discovered platform's folder.
+
+Robot SDKs and simulators are not installed by default. Discovered platforms use
+LLM review; an administrator can install a simulator and configure `simulate_cmd`
+and `validation_strategy` in the runtime registry when needed. Resetting with
+`docker compose down -v` also removes downloaded documentation and the registry.
 
 ---

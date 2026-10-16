@@ -12,8 +12,9 @@ import psycopg2.extras
 import psycopg2.errors
 
 from engine import process_user_query
-from config import get_api_key, get_db_connection, detect_platform, biobot_model, get_flask_secret_key
+from config import get_api_key, get_db_connection, biobot_model, get_flask_secret_key
 from crypt import generate_salt, derive_key, encrypt, decrypt
+from handlers import detect_handler, load_handlers_config
 
 # ---------------------
 # App & DB init
@@ -1046,6 +1047,24 @@ def deck_catalog():
         return jsonify({"error": f"Catalog error: {str(e)}"}), 400
 
 
+def _feedback_handler(code, chat_id, user_id):
+    """Use the same discovered platform registry as protocol generation."""
+    conn = get_db_connection()
+    try:
+        history = fetchall_dict(conn,
+            "SELECT role, content FROM chat_history WHERE chat_id = %s AND user_id = %s ORDER BY id",
+            (chat_id, user_id)) if chat_id else []
+        user = fetchone_dict(conn, "SELECT api_key FROM users WHERE id = %s", (user_id,))
+    finally:
+        conn.close()
+    api_key = (decrypt_text(user["api_key"]) if user and user.get("api_key") else None) or get_api_key()
+    history = [{"role": row["role"], "content": decrypt_message(row["content"])} for row in history]
+    platform, handlers = detect_handler(code, history, api_key)
+    if platform is None:
+        raise ValueError("Please specify the robot or instrument in your chat before saving feedback.")
+    return platform, handlers[platform]
+
+
 @app.route("/code/approve", methods=["POST"])
 def approve_code():
     """
@@ -1066,17 +1085,11 @@ def approve_code():
 
     import hashlib
 
-    # Detect which platform this code is for
-    platform = detect_platform(code)
-
-    # Map platform to docs folder
-    platform_folders = {
-        "opentrons_ot2": "docs/opentrons/codes",
-        "hamilton_star": "docs/hamilton/codes",
-        "echo_650": "docs/echo/codes",
-    }
-
-    folder = platform_folders.get(platform, f"docs/{platform}/codes")
+    try:
+        platform, handler = _feedback_handler(code, chat_id, user_id)
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    folder = os.path.join(os.path.dirname(__file__), handler["docs_path"], "codes")
 
     # Create folder if it doesn't exist
     os.makedirs(folder, exist_ok=True)
@@ -1085,25 +1098,7 @@ def approve_code():
     code_hash = hashlib.sha256(code.encode()).hexdigest()[:12]
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    # Get user info for the file header
-    conn = None
-    username = "anonymous"
-    try:
-        conn = get_db_connection()
-        user = fetchone_dict(conn,
-            "SELECT first_name, last_name FROM users WHERE id = %s", (user_id,))
-        if user:
-            username = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip()
-    finally:
-        if conn:
-            conn.close()
-
-    # Determine file extension
-    ext = ".py"
-    if platform == "echo_650":
-        ext = ".csv"
-
-    filename = f"verified_{timestamp}_{code_hash}{ext}"
+    filename = f"verified_{timestamp}_{code_hash}.txt"
     filepath = os.path.join(folder, filename)
 
     # Write the file with a header comment
@@ -1113,10 +1108,6 @@ def approve_code():
 # Chat: {chat_id}
 # ---
 """
-    if ext == ".csv":
-        # CSV files don't use Python comments
-        header = ""
-
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(header + code)
 
@@ -1125,42 +1116,6 @@ def approve_code():
 
     return jsonify({"success": True, "platform": platform, "file": filename})
 
-
-def _invalidate_rag_cache(platform):
-    """Delete the cached RAG pickle file so the index rebuilds with new docs."""
-    import json
-
-    # Check handlers.json for the store_path
-    handlers_path = "handlers.json"
-    if os.path.exists(handlers_path):
-        try:
-            with open(handlers_path) as f:
-                handlers = json.load(f)
-            for handler in handlers.values() if isinstance(handlers, dict) else handlers:
-                h = handler if isinstance(handler, dict) else {}
-                if h.get("name", "").lower() in platform.lower() or \
-                   platform in h.get("keywords", []):
-                    store = h.get("store_path", "")
-                    if store and os.path.exists(store):
-                        os.remove(store)
-                        print(f"Invalidated RAG cache: {store}")
-                    return
-        except Exception as e:
-            print(f"Cache invalidation error: {e}")
-
-    # Fallback: try common store paths
-    common_stores = {
-        "opentrons_ot2": "rag_store.pkl",
-        "hamilton_star": "rag_store_hamilton.pkl",
-        "echo_650": "rag_store_echo.pkl",
-    }
-    store = common_stores.get(platform)
-    if store and os.path.exists(store):
-        os.remove(store)
-        print(f"Invalidated RAG cache: {store}")
-        
-        
- 
 
 @app.route("/code/reject", methods=["POST"])
 def reject_code():
@@ -1179,34 +1134,17 @@ def reject_code():
 
     import hashlib
  
-    platform = detect_platform(code)
+    try:
+        platform, handler = _feedback_handler(code, chat_id, user_id)
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
     code_hash = hashlib.sha256(code.encode()).hexdigest()[:12]
- 
-    platform_folders = {
-        "opentrons_ot2": "docs/opentrons/failed_codes",
-        "hamilton_star": "docs/hamilton/failed_codes",
-        "echo_650": "docs/echo/failed_codes",
-    }
- 
-    folder = platform_folders.get(platform, f"docs/{platform}/failed_codes")
+    folder = os.path.join(os.path.dirname(__file__), handler["docs_path"], "failed_codes")
     os.makedirs(folder, exist_ok=True)
  
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
  
-    conn = None
-    username = "anonymous"
-    try:
-        conn = get_db_connection()
-        user = fetchone_dict(conn,
-            "SELECT first_name, last_name FROM users WHERE id = %s", (user_id,))
-        if user:
-            username = f"{user.get('first_name', '')} {user.get('last_name', '')}".strip()
-    finally:
-        if conn:
-            conn.close()
- 
-    ext = ".csv" if platform == "echo_650" else ".py"
-    filename = f"failed_{timestamp}_{code_hash}{ext}"
+    filename = f"failed_{timestamp}_{code_hash}.txt"
     filepath = os.path.join(folder, filename)
  
     header = f"""# FAILED PROTOCOL — DO NOT USE AS A WORKING EXAMPLE
@@ -1221,9 +1159,7 @@ def reject_code():
 # Use this as a negative example to avoid generating similar errors.
 # ---
 """
-    if ext == ".csv":
-        header = f"# FAILED — {remark}\n"
- 
+
     with open(filepath, "w", encoding="utf-8") as f:
         f.write(header + code)
  
@@ -1233,37 +1169,12 @@ def reject_code():
  
  
 def _invalidate_rag_cache(platform):
-    """Delete the cached RAG pickle file so the index rebuilds with new docs."""
-    import json
- 
-    # Check handlers.json for the store_path
-    handlers_path = "handlers.json"
-    if os.path.exists(handlers_path):
-        try:
-            with open(handlers_path) as f:
-                handlers = json.load(f)
-            for handler in handlers.values() if isinstance(handlers, dict) else handlers:
-                h = handler if isinstance(handler, dict) else {}
-                if h.get("name", "").lower() in platform.lower() or \
-                   platform in h.get("keywords", []):
-                    store = h.get("store_path", "")
-                    if store and os.path.exists(store):
-                        os.remove(store)
-                        print(f"Invalidated RAG cache: {store}")
-                    return
-        except Exception as e:
-            print(f"Cache invalidation error: {e}")
- 
-    # Fallback: try common store paths
-    common_stores = {
-        "opentrons_ot2": "rag_store.pkl",
-        "hamilton_star": "rag_store_hamilton.pkl",
-        "echo_650": "rag_store_echo.pkl",
-    }
-    store = common_stores.get(platform)
-    if store and os.path.exists(store):
-        os.remove(store)
-        print(f"Invalidated RAG cache: {store}")
+    """Invalidate the index in the discovered platform's documentation folder."""
+    handler = load_handlers_config().get(platform)
+    if handler:
+        store = os.path.join(os.path.dirname(__file__), handler["docs_path"], handler["store_path"])
+        if os.path.exists(store):
+            os.remove(store)
 
 
 if __name__ == "__main__":

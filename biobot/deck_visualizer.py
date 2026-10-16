@@ -15,13 +15,13 @@ Your task: extract the deck layout as a JSON object. Identify the platform, the 
 Return ONLY valid JSON (no markdown, no explanation) matching this exact schema:
 
 {
-  "platform": "Human-readable platform name (e.g. Opentrons OT-2, Hamilton STAR, Echo 650, Tecan Fluent, Beckman Biomek)",
+  "platform": "Human-readable platform name inferred from the input",
   "layout_type": "grid | linear | plates",
   "title": "Short protocol name if available",
   "grid": {
-    "rows": 4, "cols": 3,
-    "labels": ["1","2","3","4","5","6","7","8","9","10","11","12"],
-    "note": "Only for layout_type=grid. For OT-2: 4 rows x 3 cols, slots numbered bottom-left to top-right"
+    "rows": 1, "cols": 1,
+    "labels": ["position_id"],
+    "note": "Only for layout_type=grid. Derive dimensions and labels from the input; these example values are not defaults."
   },
   "positions": [
     {
@@ -36,23 +36,23 @@ Return ONLY valid JSON (no markdown, no explanation) matching this exact schema:
   ],
   "instruments": [
     {
-      "name": "Instrument display name (e.g. P300 Single GEN2)",
-      "model": "API model name (e.g. p300_single_gen2)",
+      "name": "Instrument display name from the input",
+      "model": "API model name from the input",
       "mount": "left | right | channel_count | null",
       "tipracks": ["slot ids where tipracks are"]
     }
   ],
   "plates": {
-    "note": "Only for layout_type=plates (e.g. Echo). null otherwise.",
-    "source": {"name": "Source Plate", "type": "384PP", "format": 384, "wells_used": ["A1","A2"]},
+    "note": "Only for layout_type=plates. null otherwise.",
+    "source": {"name": "Source Plate", "type": "Plate type from input", "format": 384, "wells_used": ["A1","A2"]},
     "destination": {"name": "Dest Plate", "type": "96-well", "format": 96, "wells_used": ["A1","B1"]},
     "transfer_count": 50,
-    "volume_range": "2.5 - 500 nL"
+    "volume_range": "Volume range from input"
   },
   "carriers": {
-    "note": "Only for layout_type=linear (e.g. Hamilton). null otherwise.",
+    "note": "Only for layout_type=linear. null otherwise.",
     "items": [
-      {"name": "Tip Carrier", "type": "TIP_CAR_480", "track": 3, "positions": [
+      {"name": "Tip Carrier", "type": "Carrier type from input", "track": 3, "positions": [
         {"index": 0, "labware": "50uL tips", "variable": "tips_01"},
         {"index": 1, "labware": null}
       ]}
@@ -61,12 +61,10 @@ Return ONLY valid JSON (no markdown, no explanation) matching this exact schema:
 }
 
 RULES:
-- For Opentrons OT-2: layout_type="grid", grid 4x3, slots 1-11 + trash at 12. Row 0 = slots 10,11,12 (top). Row 3 = slots 1,2,3 (bottom).
-- For Hamilton STAR: layout_type="linear", use carriers array.
-- For Echo 650 / acoustic: layout_type="plates", use plates object. Detect from CSV columns (Source Well, Dest Well, Transfer Volume).
-- For any other platform: choose the best layout_type and fill accordingly.
-- Include ALL positions, even empty ones.
-- If the input is a CSV (not Python), it's likely an Echo/acoustic picklist.
+- Choose grid for a rectangular worktable, linear for carriers on tracks, or plates for source/destination well maps based on the input.
+- Derive dimensions, position labels, instruments, capacities, and carrier types from the supplied protocol. Do not assume a robot from the file format.
+- Include all explicitly specified positions, including empty ones.
+- Use null or an empty list for information that cannot be determined from the input.
 - Return ONLY valid JSON. No trailing commas.
 """
 

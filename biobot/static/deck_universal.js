@@ -103,12 +103,15 @@ function _renderDeck(state) {
 }
 
 // ============================================================
-// Grid Layout (OT-2 style)
+// Grid Layout
 // ============================================================
 
 function _renderGrid(state) {
-  const grid = state.grid || { rows: 4, cols: 3 };
   const positions = state.positions || [];
+  const grid = state.grid || {
+    rows: Math.max(1, ...positions.map(p => (p.row ?? 0) + 1)),
+    cols: Math.max(1, ...positions.map(p => (p.col ?? 0) + 1)),
+  };
 
   const deck = document.createElement("div");
   deck.className = "deck-grid";
@@ -136,7 +139,7 @@ function _renderGrid(state) {
 }
 
 // ============================================================
-// Linear Layout (Hamilton style)
+// Linear Layout
 // ============================================================
 
 function _renderLinear(state) {
@@ -182,7 +185,7 @@ function _renderLinear(state) {
 }
 
 // ============================================================
-// Plates Layout (Echo style)
+// Plates Layout
 // ============================================================
 
 function _renderPlates(state) {

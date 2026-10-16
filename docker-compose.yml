@@ -5,8 +5,6 @@ services:
     ports:
       - "127.0.0.1:5000:5000"
     volumes:
-      - ./biobot/docs:/app/docs
-      - ./biobot/handlers.json:/app/handlers.json
       - ./biobot:/app:rw
       - app_data:/app/data
     env_file :

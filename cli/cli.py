@@ -12,7 +12,7 @@ Usage:
     biobot chat -f source.csv -f dest.csv   # attach files to first message
 
     # One-shot (no login, no clarification, no history)
-    biobot ask "Generate an OT-2 serial dilution protocol"
+    biobot ask "Generate a serial dilution protocol for my robot"
     biobot ask "..." -o response.md     # save to file
 
     # Plate transfer generator (existing)
