@@ -2,6 +2,25 @@
 
 <!-- version list -->
 
+## v1.3.0 (2026-10-16)
+
+### Bug Fixes
+
+- **chat**: Distinguish API billing errors from rate limits
+  ([`9d254c9`](https://github.com/brsynth/BioBot/commit/9d254c996974f81834f94bfa8ba2c0cab3625ad3))
+
+### Features
+
+- **chat**: Add prompt editing, copy, and regeneration controls
+  ([`b1c7579`](https://github.com/brsynth/BioBot/commit/b1c7579a88aa7b2130f2a7b046d2e9de1e727270))
+
+- **platforms**: Discover robot documentation on demand
+  ([`d5f43f3`](https://github.com/brsynth/BioBot/commit/d5f43f39883dec644bda9194dea0df3bfe18085e))
+
+- **setup**: Allow local startup without an env file
+  ([`bd9785a`](https://github.com/brsynth/BioBot/commit/bd9785a01e5e01796982974c662e108c0f78a53d))
+
+
 ## v1.2.0 (2026-09-25)
 
 ### Documentation
