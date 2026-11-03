@@ -15,6 +15,17 @@ from doc_fetcher import fetch_documentation
 from feasibility_check import check_feasibility, format_feasibility_response
 from handlers import detect_handler
 
+
+def strip_code_fences(text):
+    """Remove markdown code fences (```python ... ```) that LLMs wrap around code.
+    If the text is wrapped in fences, return the inner content; otherwise return as-is."""
+    stripped = text.strip()
+    m = re.match(r'^```\w*\s*\n([\s\S]*?)```\s*$', stripped)
+    if m:
+        return m.group(1).strip()
+    return stripped
+
+
 # ----------- ARGS & AUTH -------------
 if len(sys.argv) > 1:
     user_query = sys.argv[1]
@@ -224,13 +235,29 @@ def validate_simulation(code, handler_config, save_path="generated_script.py"):
     with open(save_path, "w") as f:
         f.write(code)
 
-    result = subprocess.run(simulate_cmd + [save_path], capture_output=True, text=True)
-    stdout, stderr = result.stdout, result.stderr
+    full_cmd = simulate_cmd + [save_path]
+    print(f"STEP:Running simulation: {' '.join(full_cmd)}", flush=True)
 
-    if "Error" not in stderr and "Traceback" not in stderr and stdout.strip():
+    try:
+        result = subprocess.run(
+            full_cmd,
+            capture_output=True, text=True, timeout=120
+        )
+    except subprocess.TimeoutExpired:
+        return False, "Simulation timed out after 120 seconds."
+
+    # Primary check: return code (0 = success for any CLI tool)
+    if result.returncode == 0:
+        print(f"STEP:Simulation passed (exit code 0)", flush=True)
         return True, ""
-    else:
-        return False, stderr.strip()
+
+    # Non-zero return code — build useful feedback from stderr + stdout
+    feedback_parts = []
+    if result.stderr.strip():
+        feedback_parts.append(result.stderr.strip())
+    if result.stdout.strip():
+        feedback_parts.append(result.stdout.strip())
+    return False, "\n".join(feedback_parts) if feedback_parts else "Simulation failed (non-zero exit code)."
 
 
 def validate_llm_review(code, handler_config, context_chunks, question):
@@ -431,13 +458,12 @@ Query: {question}
         
         if attempt == 1:
             response = run_gpt(prompt_rag)
-            code = response
-        
+            code = strip_code_fences(response)
+
         else:
-            
             response = run_gpt(prompt)
-            code = response
-            
+            code = strip_code_fences(response)
+
         if not code:
             break
 
