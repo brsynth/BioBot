@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.0 (2026-11-03)
+
+### Refactoring
+
+- **validation**: Add simulation install library if not already installed
+  ([`ea31a7d`](https://github.com/brsynth/BioBot/commit/ea31a7da9562dc196e355c13f6d316ac33742c52))
+
+
 ## v1.3.0 (2026-10-16)
 
 ### Bug Fixes
