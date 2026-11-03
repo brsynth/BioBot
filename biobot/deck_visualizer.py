@@ -63,8 +63,34 @@ Return ONLY valid JSON (no markdown, no explanation) matching this exact schema:
 RULES:
 - Choose grid for a rectangular worktable, linear for carriers on tracks, or plates for source/destination well maps based on the input.
 - Derive dimensions, position labels, instruments, capacities, and carrier types from the supplied protocol. Do not assume a robot from the file format.
-- Include all explicitly specified positions, including empty ones.
+- CRITICAL: include ALL deck positions, including empty/unused ones. For grid robots, include EVERY slot in the grid (e.g. an OT-2 has slots 1-11 plus a fixed trash in slot 12 — always return all 12 with grid rows=3, cols=4). Populate grid.labels with EVERY position id in order.
+- For each position, set row and col (0-indexed) matching its physical location on the deck.
 - Use null or an empty list for information that cannot be determined from the input.
+- Return ONLY valid JSON. No trailing commas.
+"""
+
+STEPS_PROMPT = """You are an expert in laboratory automation. Given protocol code and a list of deck position IDs, extract ALL liquid-handling steps in execution order.
+
+Return ONLY valid JSON (no markdown, no explanation) matching this schema:
+
+{
+  "steps": [
+    {
+      "action": "aspirate | dispense | transfer | mix | pickup_tip | drop_tip",
+      "source": {"slot": "position id from the provided list", "wells": ["A1","B1"]},
+      "destination": {"slot": "position id from the provided list", "wells": ["A1","B1"]},
+      "volume": "e.g. 100µL",
+      "description": "Human-readable step description"
+    }
+  ]
+}
+
+RULES:
+- source.slot and destination.slot MUST match a position id from the provided list.
+- For pickup_tip/drop_tip: use source only. Omit destination.
+- For aspirate/mix: use source only. For dispense: use destination only. For transfer: use both.
+- If individual wells cannot be determined, use an empty array [].
+- If no liquid handling steps exist, return {"steps": []}.
 - Return ONLY valid JSON. No trailing commas.
 """
 
@@ -84,11 +110,31 @@ Return ONLY the updated code. No explanation, no markdown fences.
 """
 
 
+def _clean_llm_json(raw: str) -> str:
+    """Strip markdown fences and fix trailing commas from LLM JSON output."""
+    result = raw.strip()
+    if result.startswith("```"):
+        result = result.split("\n", 1)[1] if "\n" in result else result[3:]
+    if result.endswith("```"):
+        result = result[:-3].strip()
+    if result.startswith("json"):
+        result = result[4:].strip()
+    return _fix_json(result)
+
+
 def generate_visualization(code: str, api_key: str = None) -> dict:
-    """Extract deck state JSON from any protocol code using the LLM."""
-    import json
+    """Extract deck state JSON from any protocol code using the LLM.
+
+    Uses two separate LLM calls:
+    1. Extract the deck layout (positions, instruments, grid) — critical.
+    2. Extract the liquid-handling steps for animation — non-critical.
+
+    If step extraction fails, the deck still renders without animation.
+    """
+    import json, re
     client = OpenAI(api_key=api_key or get_api_key())
 
+    # --- Call 1: Deck layout (critical) ---
     response = client.responses.create(
         model=light_functions_model,
         input=[
@@ -97,20 +143,42 @@ def generate_visualization(code: str, api_key: str = None) -> dict:
         ],
     )
 
-    result = response.output_text.strip()
+    result = _clean_llm_json(response.output_text)
 
-    # Clean markdown fences
-    if result.startswith("```"):
-        result = result.split("\n", 1)[1] if "\n" in result else result[3:]
-    if result.endswith("```"):
-        result = result[:-3].strip()
-    if result.startswith("json"):
-        result = result[4:].strip()
+    try:
+        state = json.loads(result)
+    except json.JSONDecodeError:
+        # Last resort: try to extract a JSON object from the response
+        match = re.search(r'\{[\s\S]*\}', result)
+        if match:
+            state = json.loads(_fix_json(match.group()))
+        else:
+            raise
 
-    # Fix trailing commas
-    result = _fix_json(result)
+    # --- Call 2: Steps extraction (non-critical) ---
+    try:
+        pos_ids = [p.get("id", "") for p in state.get("positions", [])]
+        steps_user_msg = (
+            f"Deck position IDs: {json.dumps(pos_ids)}\n\n"
+            f"Extract the liquid-handling steps from this code:\n\n{code}"
+        )
 
-    return json.loads(result)
+        steps_response = client.responses.create(
+            model=light_functions_model,
+            input=[
+                {"role": "system", "content": STEPS_PROMPT},
+                {"role": "user", "content": steps_user_msg}
+            ],
+        )
+
+        steps_result = _clean_llm_json(steps_response.output_text)
+        steps_data = json.loads(steps_result)
+        state["steps"] = steps_data.get("steps", [])
+    except Exception:
+        # Steps failed — deck still works, just no animation
+        state["steps"] = []
+
+    return state
 
 
 BATCH_UPDATE_PROMPT = """You are an expert in laboratory automation. Given:
@@ -199,15 +267,7 @@ def get_catalog(platform: str, position_type: str = "labware",
         ],
     )
 
-    result = response.output_text.strip()
-    if result.startswith("```"):
-        result = result.split("\n", 1)[1] if "\n" in result else result[3:]
-    if result.endswith("```"):
-        result = result[:-3].strip()
-    if result.startswith("json"):
-        result = result[4:].strip()
-
-    return json.loads(_fix_json(result))
+    return json.loads(_clean_llm_json(response.output_text))
 
 
 def _fix_json(s: str) -> str:

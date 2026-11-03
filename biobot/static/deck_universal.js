@@ -13,7 +13,25 @@ let _originalState = null;  // saved on first load for discard
 let _deckAbort = null;
 let _selectedSlot = null;
 let _pendingChanges = [];
-let _sourceCodeBlock = null;  // the specific code block element the deck was opened from  // tracks all changes before applying
+let _sourceCodeBlock = null;  // the specific code block element the deck was opened from
+
+// Animation state
+let _animSteps = [];
+let _animStepIndex = -1;
+let _animPlaying = false;
+let _animTimer = null;
+let _animSpeed = 1500;
+let _animBusy = false;
+let _wellUsageMap = {};  // slotId → Set of well IDs used by the protocol
+
+const ACTION_COLORS = {
+  aspirate:   { fill: "#00ff99", glow: "rgba(0,255,153,0.4)", label: "Aspirate" },
+  dispense:   { fill: "#ff9800", glow: "rgba(255,152,0,0.4)", label: "Dispense" },
+  transfer:   { fill: "#4488ff", glow: "rgba(68,136,255,0.4)", label: "Transfer" },
+  mix:        { fill: "#cc88ff", glow: "rgba(204,136,255,0.4)", label: "Mix" },
+  pickup_tip: { fill: "#ffcc00", glow: "rgba(255,204,0,0.4)", label: "Pick Up Tip" },
+  drop_tip:   { fill: "#ff4d4d", glow: "rgba(255,77,77,0.4)", label: "Drop Tip" },
+};
 
 // ============================================================
 // Main Entry
@@ -42,9 +60,21 @@ async function parseDeckFromCode(code, sourceBlock) {
       signal: _deckAbort.signal,
     });
     _deckAbort = null;
-    if (!res.ok) { _showError("Failed to generate deck"); return; }
+
+    if (!res.ok) {
+      // Try to read the actual error from the server response
+      let errMsg = "Failed to generate deck";
+      try {
+        const errData = await res.json();
+        if (errData.error) errMsg = errData.error;
+      } catch (_) { /* response wasn't JSON */ }
+      console.error("Deck server error:", res.status, errMsg);
+      _showError(errMsg);
+      return;
+    }
+
     const state = await res.json();
-    if (state.error) { _showError(state.error); return; }
+    if (state.error) { console.error("Deck state error:", state.error); _showError(state.error); return; }
     if (parseForChat && window.currentChatId !== parseForChat) return;
 
     _currentState = state;
@@ -52,8 +82,8 @@ async function parseDeckFromCode(code, sourceBlock) {
     _renderDeck(state);
   } catch (e) {
     if (e.name === "AbortError") return;
-    console.error("Deck error:", e);
-    _showError("Error generating deck");
+    console.error("Deck fetch error:", e);
+    _showError("Error generating deck: " + e.message);
   }
 }
 
@@ -79,6 +109,22 @@ function _renderDeck(state) {
   // Instruments bar — always show (even if empty, shows both empty mounts)
   wrapper.appendChild(_renderInstruments(state.instruments || []));
 
+  // Build well-usage map from steps: slotId → Set of well IDs
+  // This lets us show filled wells on the initial deck render
+  _wellUsageMap = {};
+  if (state.steps && state.steps.length > 0) {
+    for (const step of state.steps) {
+      if (step.source?.slot && step.source.wells) {
+        if (!_wellUsageMap[step.source.slot]) _wellUsageMap[step.source.slot] = new Set();
+        for (const w of step.source.wells) _wellUsageMap[step.source.slot].add(w);
+      }
+      if (step.destination?.slot && step.destination.wells) {
+        if (!_wellUsageMap[step.destination.slot]) _wellUsageMap[step.destination.slot] = new Set();
+        for (const w of step.destination.wells) _wellUsageMap[step.destination.slot].add(w);
+      }
+    }
+  }
+
   // Layout
   const layoutType = state.layout_type || "grid";
 
@@ -100,6 +146,12 @@ function _renderDeck(state) {
   wrapper.appendChild(info);
 
   container.appendChild(wrapper);
+
+  // Animation system — init when steps exist
+  if (state.steps && state.steps.length > 0) {
+    _initAnimation(state);
+    _applyStepVisuals(-1, false);  // Bug 2 fix: show clean initial state immediately
+  }
 }
 
 // ============================================================
@@ -108,27 +160,68 @@ function _renderDeck(state) {
 
 function _renderGrid(state) {
   const positions = state.positions || [];
-  const grid = state.grid || {
-    rows: Math.max(1, ...positions.map(p => (p.row ?? 0) + 1)),
-    cols: Math.max(1, ...positions.map(p => (p.col ?? 0) + 1)),
-  };
+  const grid = state.grid || {};
+  const labels = grid.labels || [];
+
+  // Determine grid dimensions:
+  // 1. Use explicit grid.rows/cols if provided
+  // 2. Otherwise infer from labels count or position row/col values
+  // 3. Ensure grid is large enough for ALL labels and ALL positions
+  let rows = grid.rows || 1;
+  let cols = grid.cols || 1;
+
+  // If we have labels, ensure grid fits them all
+  if (labels.length > 0 && (!grid.rows || !grid.cols)) {
+    // Common liquid handler layouts
+    const total = labels.length;
+    if (total <= 12) { rows = 3; cols = 4; }      // OT-2 style (slots 1-11 + trash)
+    else if (total <= 16) { rows = 4; cols = 4; }
+    else { cols = Math.ceil(Math.sqrt(total)); rows = Math.ceil(total / cols); }
+  }
+
+  // Ensure grid covers all positions with row/col
+  for (const p of positions) {
+    if (p.row != null) rows = Math.max(rows, p.row + 1);
+    if (p.col != null) cols = Math.max(cols, p.col + 1);
+  }
+
+  // Ensure grid covers all labels
+  if (labels.length > rows * cols) {
+    cols = Math.ceil(Math.sqrt(labels.length));
+    rows = Math.ceil(labels.length / cols);
+  }
 
   const deck = document.createElement("div");
   deck.className = "deck-grid";
-  deck.style.gridTemplateColumns = `repeat(${grid.cols}, 1fr)`;
-  deck.style.gridTemplateRows = `repeat(${grid.rows}, 1fr)`;
+  deck.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+  deck.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
 
-  // Build position map
-  const posMap = {};
-  for (const p of positions) posMap[p.id] = p;
+  // Build lookup maps by id AND by row,col
+  const posById = {};
+  const posByRC = {};
+  for (const p of positions) {
+    posById[String(p.id)] = p;
+    if (p.row != null && p.col != null) posByRC[`${p.row},${p.col}`] = p;
+  }
 
-  // Render slots in order (top-left to bottom-right)
-  const labels = grid.labels || [];
-  for (let r = 0; r < grid.rows; r++) {
-    for (let c = 0; c < grid.cols; c++) {
-      // Find position for this cell
-      const pos = positions.find(p => p.row === r && p.col === c)
-        || { id: labels[r * grid.cols + c] || `${r},${c}`, type: "empty" };
+  // Render ALL grid cells
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const idx = r * cols + c;
+      const label = labels[idx] || null;
+
+      // Find position: by row/col first, then by label id
+      let pos = posByRC[`${r},${c}`];
+      if (!pos && label) pos = posById[String(label)];
+
+      // If no position found, create an empty slot with the label or index
+      if (!pos) {
+        pos = { id: label || `${idx + 1}`, type: "empty" };
+      }
+
+      // Assign row/col so animation can locate slots
+      if (pos.row == null) pos.row = r;
+      if (pos.col == null) pos.col = c;
 
       const slot = _createSlot(pos);
       deck.appendChild(slot);
@@ -185,16 +278,58 @@ function _renderLinear(state) {
 }
 
 // ============================================================
-// Plates Layout
+// Plates Layout (Echo, picklists, source→dest transfers)
 // ============================================================
 
 function _renderPlates(state) {
   const plates = state.plates || {};
+  const positions = state.positions || [];
   const container = document.createElement("div");
   container.className = "deck-plates";
 
-  if (plates.source) container.appendChild(_renderPlateMap(plates.source, "source"));
-  if (plates.destination) container.appendChild(_renderPlateMap(plates.destination, "dest"));
+  // Match positions to source/dest plates by checking variable/labware names
+  // Only match positions whose type is "plate" (not tipracks, trash, etc.)
+  const platePosns = positions.filter(p => p.type === "plate");
+  const nonPlatePosns = positions.filter(p => p.type !== "plate");
+
+  function _findPlatePos(keyword) {
+    return platePosns.find(p =>
+      (p.variable || "").toLowerCase().includes(keyword)
+    ) || platePosns.find(p =>
+      (p.labware_display || p.labware || "").toLowerCase().includes(keyword)
+    ) || platePosns.find(p =>
+      (p.id || "").toLowerCase().includes(keyword)
+    );
+  }
+
+  const usedIds = new Set();
+
+  if (plates.source) {
+    const srcPos = _findPlatePos("source") || platePosns[0];
+    const slotId = srcPos?.id || "source";
+    if (srcPos) usedIds.add(srcPos.id);
+    container.appendChild(_renderPlateMap(plates.source, "source", slotId, srcPos));
+  }
+  if (plates.destination) {
+    const dstPos = _findPlatePos("dest") || platePosns.find(p => !usedIds.has(p.id)) || platePosns[1];
+    const slotId = dstPos?.id || "destination";
+    if (dstPos) usedIds.add(dstPos.id);
+    container.appendChild(_renderPlateMap(plates.destination, "dest", slotId, dstPos));
+  }
+
+  // Render non-plate positions (tipracks, trash, etc.) — NOT the plate positions
+  // we already rendered above
+  const extras = nonPlatePosns.concat(
+    platePosns.filter(p => !usedIds.has(p.id))
+  );
+  if (extras.length > 0) {
+    const extrasDiv = document.createElement("div");
+    extrasDiv.className = "deck-plates-extras";
+    for (const pos of extras) {
+      extrasDiv.appendChild(_createSlot(pos));
+    }
+    container.appendChild(extrasDiv);
+  }
 
   // Transfer summary
   if (plates.transfer_count) {
@@ -208,40 +343,120 @@ function _renderPlates(state) {
   return container;
 }
 
-function _renderPlateMap(plate, role) {
+function _renderPlateMap(plate, role, slotId, posData) {
   const format = plate.format || 96;
   const rows = format <= 96 ? 8 : 16;
   const cols = format <= 96 ? 12 : 24;
   const usedWells = new Set(plate.wells_used || []);
 
+  // The section acts as a "slot" for the animation system
   const section = document.createElement("div");
-  section.className = "deck-plate-section";
+  section.className = `deck-plate-section deck-slot filled plate`;
+  section.dataset.id = slotId;
+  if (_selectedSlot === slotId) section.classList.add("selected");
 
-  const label = document.createElement("div");
-  label.className = "deck-plate-label";
-  label.textContent = plate.name || (role === "source" ? "Source" : "Destination");
-  if (plate.type) label.textContent += ` (${plate.type})`;
-  section.appendChild(label);
+  // Header with plate info
+  const header = document.createElement("div");
+  header.className = "deck-plate-header";
+  const plateName = plate.name || (role === "source" ? "Source Plate" : "Destination Plate");
+  header.innerHTML = `
+    <span class="deck-plate-name">${plateName}</span>
+    ${plate.type ? `<span class="deck-plate-type">${plate.type}</span>` : ""}
+    <span class="deck-plate-format">${format}-well</span>
+  `;
+  section.appendChild(header);
+
+  // Row labels + well grid wrapper
+  const gridWrapper = document.createElement("div");
+  gridWrapper.className = "deck-plate-grid-wrapper";
+
+  // Row labels (A, B, C, ...)
+  const rowLabelCol = document.createElement("div");
+  rowLabelCol.className = "deck-plate-row-labels";
+  const rowLabels = "ABCDEFGHIJKLMNOP";
+  for (let r = 0; r < rows; r++) {
+    const lbl = document.createElement("div");
+    lbl.className = "deck-plate-row-label";
+    lbl.textContent = rowLabels[r];
+    rowLabelCol.appendChild(lbl);
+  }
+  gridWrapper.appendChild(rowLabelCol);
+
+  // Well grid
+  const gridCol = document.createElement("div");
+  gridCol.className = "deck-plate-grid-col";
+
+  // Column labels (1, 2, 3, ...)
+  const colLabelRow = document.createElement("div");
+  colLabelRow.className = "deck-plate-col-labels";
+  colLabelRow.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+  for (let c = 0; c < cols; c++) {
+    const lbl = document.createElement("div");
+    lbl.className = "deck-plate-col-label";
+    lbl.textContent = c + 1;
+    colLabelRow.appendChild(lbl);
+  }
+  gridCol.appendChild(colLabelRow);
 
   const grid = document.createElement("div");
   grid.className = "deck-well-grid";
   grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
 
-  const rowLabels = "ABCDEFGHIJKLMNOP";
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const wellId = `${rowLabels[r]}${c + 1}`;
       const well = document.createElement("div");
       well.className = "deck-well";
+      well.dataset.well = wellId;
+      well.title = wellId;
+
       if (usedWells.has(wellId)) {
         well.classList.add(role === "source" ? "well-source" : "well-dest");
       }
-      well.title = wellId;
+
+      // Click handler: show well info
+      well.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const info = document.getElementById("deck-info");
+        if (!info) return;
+        const used = usedWells.has(wellId);
+        let html = `<div class="info-row"><span class="info-label">Well:</span> <span style="color:var(--accent)">${wellId}</span></div>`;
+        html += `<div class="info-row"><span class="info-label">Plate:</span> ${plateName}</div>`;
+        html += `<div class="info-row"><span class="info-label">Status:</span> ${used ? '<span style="color:#00ff99">Used</span>' : '<span style="color:#666">Empty</span>'}</div>`;
+        if (plate.type) html += `<div class="info-row"><span class="info-label">Type:</span> ${plate.type}</div>`;
+        info.innerHTML = html;
+      });
+
       grid.appendChild(well);
     }
   }
 
-  section.appendChild(grid);
+  gridCol.appendChild(grid);
+  gridWrapper.appendChild(gridCol);
+  section.appendChild(gridWrapper);
+
+  // Click on section header to show plate info
+  section.addEventListener("click", () => {
+    _selectedSlot = (_selectedSlot === slotId) ? null : slotId;
+    // Don't re-render the whole deck, just toggle selection visually
+    document.querySelectorAll(".deck-plate-section.selected").forEach(el => el.classList.remove("selected"));
+    if (_selectedSlot === slotId) section.classList.add("selected");
+
+    const info = document.getElementById("deck-info");
+    if (!info) return;
+    if (_selectedSlot !== slotId) {
+      info.innerHTML = '<span class="deck-info-hint">Click a well or plate for details</span>';
+      return;
+    }
+    let html = `<div class="info-row"><span class="info-label">Plate:</span> <span style="color:var(--accent)">${plateName}</span></div>`;
+    if (plate.type) html += `<div class="info-row"><span class="info-label">Type:</span> ${plate.type}</div>`;
+    html += `<div class="info-row"><span class="info-label">Format:</span> ${format}-well (${rows}×${cols})</div>`;
+    html += `<div class="info-row"><span class="info-label">Wells used:</span> ${usedWells.size} of ${rows * cols}</div>`;
+    if (posData?.labware) html += `<div class="info-row"><span class="info-label">API name:</span> <code>${posData.labware}</code></div>`;
+    if (posData?.variable) html += `<div class="info-row"><span class="info-label">Variable:</span> <code>${posData.variable}</code></div>`;
+    info.innerHTML = html;
+  });
+
   return section;
 }
 
@@ -252,23 +467,81 @@ function _renderPlateMap(plate, role) {
 function _createSlot(pos) {
   const slot = document.createElement("div");
   const filled = pos.labware && pos.type !== "empty";
-  slot.className = `deck-slot ${filled ? "filled" : "empty"} ${pos.type === "trash" ? "trash" : ""}`;
+  const slotType = pos.type || (filled ? _guessType(pos.labware) : "empty");
+  slot.className = `deck-slot ${filled ? "filled" : "empty"} ${slotType}`;
   slot.dataset.id = pos.id;
   if (_selectedSlot === pos.id) slot.classList.add("selected");
 
-  slot.innerHTML = `<span class="slot-num">${pos.id}</span>`;
+  // Slot number badge
+  slot.innerHTML = `<span class="slot-number">${pos.id}</span>`;
+
   if (filled) {
-    slot.innerHTML += `<span class="slot-labware">${pos.labware_display || _shorten(pos.labware)}</span>`;
-    if (pos.variable) slot.innerHTML += `<span class="slot-var">${pos.variable}</span>`;
-    if (pos.module) slot.innerHTML += `<span class="slot-module">${pos.module}</span>`;
+    // Module badge if applicable
+    if (pos.module) {
+      slot.innerHTML += `<span class="slot-module-badge">${pos.module}</span>`;
+    }
+
+    // Type-specific interior visual
+    slot.innerHTML += _renderSlotInterior(slotType, pos);
+
+    // Labware name
+    slot.innerHTML += `<span class="slot-labware-name ${slotType === "trash" ? "trash-label" : ""} ${slotType === "module" ? "module-label" : ""}">${pos.labware_display || _shorten(pos.labware)}</span>`;
+    if (pos.variable) slot.innerHTML += `<span class="slot-label">${pos.variable}</span>`;
   } else {
-    slot.innerHTML += `<span class="slot-empty-label">${pos.type === "trash" ? "Trash" : ""}</span>`;
+    slot.innerHTML += `<span class="slot-icon">${slotType === "trash" ? "🗑" : "+"}</span>`;
+    slot.innerHTML += `<span class="slot-empty-label">${slotType === "trash" ? "Trash" : "Empty"}</span>`;
   }
 
   slot.addEventListener("click", () => _selectSlot(pos.id, pos));
   slot.addEventListener("dblclick", () => _showSelector(pos.id, pos.labware || null));
 
   return slot;
+}
+
+function _renderSlotInterior(type, pos) {
+  if (type === "plate") {
+    return _renderMiniPlate(pos, 8, 12, "mini-well");
+  }
+  if (type === "tiprack") {
+    return _renderMiniPlate(pos, 8, 12, "mini-tip");
+  }
+  if (type === "reservoir") {
+    return `<div class="slot-reservoir-visual">
+      <div class="reservoir-trough"></div>
+    </div>`;
+  }
+  if (type === "tuberack") {
+    return _renderMiniPlate(pos, 4, 6, "mini-tube");
+  }
+  if (type === "trash") {
+    return `<div class="slot-trash-visual">🗑</div>`;
+  }
+  // module or unknown
+  return `<div class="slot-icon">⬡</div>`;
+}
+
+function _renderMiniPlate(pos, rows, cols, wellClass) {
+  // Determine grid from labware name heuristics
+  const lw = (pos.labware || "").toLowerCase();
+  if (lw.includes("384")) { rows = 16; cols = 24; }
+  else if (lw.includes("24")) { rows = 4; cols = 6; }
+  else if (lw.includes("12")) { rows = 3; cols = 4; }
+  else if (lw.includes("6") && !lw.includes("96") && !lw.includes("16")) { rows = 2; cols = 3; }
+
+  // Get wells used by the protocol for this slot
+  const usedWells = _wellUsageMap[pos.id] || new Set();
+
+  let html = `<div class="slot-mini-grid" style="grid-template-columns:repeat(${cols},1fr);grid-template-rows:repeat(${rows},1fr)">`;
+  const rowLabels = "ABCDEFGHIJKLMNOP";
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const wellId = `${rowLabels[r]}${c + 1}`;
+      const usedClass = usedWells.has(wellId) ? " well-used" : "";
+      html += `<div class="${wellClass} deck-well${usedClass}" title="${wellId}" data-well="${wellId}"></div>`;
+    }
+  }
+  html += `</div>`;
+  return html;
 }
 
 function _renderInstruments(instruments) {
@@ -872,6 +1145,7 @@ function _openDeckPanel() {
   if (panel) panel.classList.remove("hidden");
   if (chat) chat.classList.add("with-deck");
   if (btn) btn.classList.add("active");
+  _ensureResizeHandle();
 }
 function closeDeckPanel() {
   const panel = document.getElementById("deck-panel");
@@ -890,6 +1164,12 @@ function clearDeckPanel() {
   closeDeckPanel();
   _currentCode = null; _originalCode = null; _currentState = null; _originalState = null;
   _selectedSlot = null; _pendingChanges = []; _sourceCodeBlock = null;
+  // Animation cleanup
+  _animSteps = []; _animStepIndex = -1; _animPlaying = false; _animBusy = false;
+  if (_animTimer) { clearInterval(_animTimer); _animTimer = null; }
+  const playbar = document.getElementById("anim-playback-bar");
+  if (playbar) playbar.remove();
+  _removeTipOverlay();
   const c = document.getElementById("deck-svg-container");
   if (c) c.innerHTML = '<p class="deck-empty-message">Generate a protocol to see the deck layout</p>';
   const bar = document.getElementById("deck-apply-bar");
@@ -971,6 +1251,410 @@ function _showLoading() {
 function _showError(msg) {
   const c = document.getElementById("deck-svg-container");
   if (c) c.innerHTML = `<p class="deck-empty-message" style="color:#ff4d4d">${msg}</p>`;
+}
+
+// ============================================================
+// Animation System — Protocol Step Playback
+// ============================================================
+
+function _initAnimation(state) {
+  _animSteps = state.steps || [];
+  _animStepIndex = -1;
+  _animPlaying = false;
+  if (_animTimer) { clearInterval(_animTimer); _animTimer = null; }
+  _animBusy = false;
+  if (_animSteps.length > 0) _renderPlaybackControls();
+}
+
+function _renderPlaybackControls() {
+  let bar = document.getElementById("anim-playback-bar");
+  if (bar) bar.remove();
+
+  const panel = document.getElementById("deck-panel");
+  if (!panel) return;
+
+  bar = document.createElement("div");
+  bar.id = "anim-playback-bar";
+  bar.className = "anim-playback-bar";
+
+  // Step description
+  const desc = document.createElement("div");
+  desc.id = "anim-step-desc";
+  desc.className = "anim-step-desc";
+  desc.innerHTML = '<span class="anim-step-idle">Press play to animate protocol steps</span>';
+  bar.appendChild(desc);
+
+  // Controls row
+  const controls = document.createElement("div");
+  controls.className = "anim-controls-row";
+
+  // Transport buttons
+  const transport = document.createElement("div");
+  transport.className = "anim-transport";
+
+  const btnFirst = _makeAnimBtn("⏮", "First step", () => _animGoTo(0));
+  const btnPrev  = _makeAnimBtn("◀", "Previous step", () => _animPrev());
+  const btnPlay  = _makeAnimBtn("▶", "Play / Pause", () => _animTogglePlay());
+  btnPlay.id = "anim-play-btn";
+  const btnNext  = _makeAnimBtn("▶", "Next step", () => _animNext());
+  btnNext.classList.add("anim-btn-next");
+  const btnLast  = _makeAnimBtn("⏭", "Last step", () => _animGoTo(_animSteps.length - 1));
+
+  transport.append(btnFirst, btnPrev, btnPlay, btnNext, btnLast);
+  controls.appendChild(transport);
+
+  // Scrubber
+  const scrubber = document.createElement("input");
+  scrubber.type = "range";
+  scrubber.id = "anim-scrubber";
+  scrubber.className = "anim-scrubber";
+  scrubber.min = -1;
+  scrubber.max = _animSteps.length - 1;
+  scrubber.value = _animStepIndex;
+  scrubber.addEventListener("input", (e) => _animGoTo(parseInt(e.target.value)));
+  controls.appendChild(scrubber);
+
+  // Counter
+  const counter = document.createElement("span");
+  counter.id = "anim-counter";
+  counter.className = "anim-counter";
+  counter.textContent = `— / ${_animSteps.length}`;
+  controls.appendChild(counter);
+
+  // Speed selector
+  const speed = document.createElement("select");
+  speed.id = "anim-speed";
+  speed.className = "anim-speed-select";
+  [
+    { label: "0.5×", value: 2500 },
+    { label: "1×",   value: 1500 },
+    { label: "2×",   value: 800  },
+    { label: "4×",   value: 400  },
+  ].forEach(opt => {
+    const o = document.createElement("option");
+    o.value = opt.value;
+    o.textContent = opt.label;
+    if (opt.value === _animSpeed) o.selected = true;
+    speed.appendChild(o);
+  });
+  speed.addEventListener("change", (e) => {
+    _animSpeed = parseInt(e.target.value);
+    if (_animPlaying) {
+      clearInterval(_animTimer);
+      _animTimer = setInterval(_animAutoStep, _animSpeed);
+    }
+  });
+  controls.appendChild(speed);
+  bar.appendChild(controls);
+
+  // Insert into the deck container, before the info panel
+  const container = document.getElementById("deck-svg-container");
+  const wrapper = container ? container.querySelector(".deck-wrapper") : null;
+  const info = wrapper ? wrapper.querySelector("#deck-info") : null;
+  if (info && wrapper) {
+    wrapper.insertBefore(bar, info);
+  } else if (container) {
+    container.appendChild(bar);
+  } else {
+    panel.appendChild(bar);
+  }
+}
+
+function _makeAnimBtn(icon, title, onClick) {
+  const btn = document.createElement("button");
+  btn.className = "anim-btn";
+  btn.title = title;
+  btn.innerHTML = `<span>${icon}</span>`;
+  btn.addEventListener("click", onClick);
+  return btn;
+}
+
+// ---- Step visuals ----
+
+function _applyStepVisuals(stepIndex, animate) {
+  const container = document.getElementById("deck-svg-container");
+  if (!container) return;
+
+  // Clear previous highlights
+  container.querySelectorAll(".slot-anim-highlight").forEach(el => {
+    el.classList.remove("slot-anim-highlight");
+    el.style.removeProperty("--anim-color");
+    el.style.removeProperty("--anim-glow");
+  });
+  container.querySelectorAll(".well-anim-active").forEach(el => {
+    el.classList.remove("well-anim-active");
+    el.style.removeProperty("--anim-color");
+  });
+  _removeTipOverlay();
+
+  if (stepIndex < 0 || stepIndex >= _animSteps.length) {
+    _updateStepDescription(null);
+    return;
+  }
+
+  const step = _animSteps[stepIndex];
+  const actionKey = (step.action || "transfer").toLowerCase().replace(/[\s-]+/g, "_");
+  const colors = ACTION_COLORS[actionKey] || ACTION_COLORS.transfer;
+
+  // Highlight source slot + wells
+  if (step.source && step.source.slot) {
+    _highlightSlot(container, step.source.slot, colors, step.source.wells);
+  }
+
+  // Highlight destination slot + wells
+  if (step.destination && step.destination.slot) {
+    _highlightSlot(container, step.destination.slot, colors, step.destination.wells);
+  }
+
+  // Tip animation
+  if (animate) _showTipAnimation(step, colors);
+
+  _updateStepDescription(step, colors);
+}
+
+function _highlightSlot(container, slotId, colors, wells) {
+  // Find slot by data-id
+  const slot = container.querySelector(`.deck-slot[data-id="${slotId}"]`);
+  if (slot) {
+    slot.classList.add("slot-anim-highlight");
+    slot.style.setProperty("--anim-color", colors.fill);
+    slot.style.setProperty("--anim-glow", colors.glow);
+  }
+
+  // Highlight individual wells — both in plates layout AND mini-grids inside slots
+  // Falls back to container-wide search if no slot found (e.g. mismatched IDs)
+  if (wells && wells.length > 0) {
+    const searchRoot = slot || container;
+    for (const wellId of wells) {
+      const well = searchRoot.querySelector(`.deck-well[data-well="${wellId}"]`)
+                || container.querySelector(`.deck-well[data-well="${wellId}"]`)
+                || container.querySelector(`.deck-well[title="${wellId}"]`);
+      if (well) {
+        well.classList.add("well-anim-active");
+        well.style.setProperty("--anim-color", colors.fill);
+      }
+    }
+  }
+}
+
+function _updateStepDescription(step, colors) {
+  const desc = document.getElementById("anim-step-desc");
+  if (!desc) return;
+
+  if (!step) {
+    desc.innerHTML = '<span class="anim-step-idle">Press play to animate protocol steps</span>';
+    return;
+  }
+
+  const actionKey = (step.action || "transfer").toLowerCase().replace(/[\s-]+/g, "_");
+  const c = colors || ACTION_COLORS[actionKey] || ACTION_COLORS.transfer;
+  const label = c.label || step.action || "Step";
+
+  let html = `<span class="anim-action-badge" style="background:${c.fill};color:#000">${label}</span> `;
+  html += `<span class="anim-step-text">${step.description || ""}</span>`;
+  if (step.volume) {
+    html += ` <span class="anim-step-vol">${step.volume}</span>`;
+  }
+  desc.innerHTML = html;
+}
+
+// ---- Tip overlay ----
+
+function _removeTipOverlay() {
+  document.querySelectorAll(".anim-tip-overlay").forEach(el => el.remove());
+}
+
+function _showTipAnimation(step, colors) {
+  _removeTipOverlay();
+
+  const container = document.getElementById("deck-svg-container");
+  if (!container) return;
+
+  const actionKey = (step.action || "").toLowerCase().replace(/[\s-]+/g, "_");
+  const targetSlotId = step.source?.slot || step.destination?.slot;
+  if (!targetSlotId) return;
+
+  // Find target slot element
+  const allSlots = container.querySelectorAll(".deck-slot[data-id]");
+  let targetEl = null;
+  for (const s of allSlots) {
+    if (s.dataset.id === targetSlotId) { targetEl = s; break; }
+  }
+  if (!targetEl) return;
+
+  const containerRect = container.getBoundingClientRect();
+  const slotRect = targetEl.getBoundingClientRect();
+
+  // Create tip overlay
+  const overlay = document.createElement("div");
+  overlay.className = `anim-tip-overlay tip-${actionKey}`;
+  overlay.innerHTML = `
+    <div class="tip-body" style="border-color:${colors.fill}">
+      <div class="tip-liquid" style="background:${colors.fill}"></div>
+    </div>
+    <div class="tip-nozzle" style="background:${colors.fill}"></div>
+    ${step.volume ? `<div class="tip-vol-label">${step.volume}</div>` : ""}
+  `;
+
+  // Bug 1 fix: account for scroll offset
+  overlay.style.position = "absolute";
+  overlay.style.left = (slotRect.left - containerRect.left + container.scrollLeft + slotRect.width / 2 - 20) + "px";
+  overlay.style.top  = (slotRect.top  - containerRect.top  + container.scrollTop  - 52) + "px";
+  overlay.style.zIndex = "50";
+  overlay.style.pointerEvents = "none";
+
+  container.style.position = "relative";
+  container.appendChild(overlay);
+
+  // Transfer: animate tip from source to destination
+  if (actionKey === "transfer" && step.source?.slot && step.destination?.slot && step.source.slot !== step.destination.slot) {
+    _animateTipMovement(overlay, step, container, allSlots, colors);
+  }
+}
+
+function _animateTipMovement(overlay, step, container, allSlots, colors) {
+  let srcEl = null, dstEl = null;
+  for (const s of allSlots) {
+    if (s.dataset.id === step.source.slot)      srcEl = s;
+    if (s.dataset.id === step.destination.slot)  dstEl = s;
+  }
+  if (!srcEl || !dstEl) return;
+
+  const containerRect = container.getBoundingClientRect();
+  const scrollL = container.scrollLeft;
+  const scrollT = container.scrollTop;
+
+  const srcRect = srcEl.getBoundingClientRect();
+  const dstRect = dstEl.getBoundingClientRect();
+
+  const srcX = srcRect.left - containerRect.left + scrollL + srcRect.width / 2 - 20;
+  const srcY = srcRect.top  - containerRect.top  + scrollT - 52;
+  const dstX = dstRect.left - containerRect.left + scrollL + dstRect.width / 2 - 20;
+  const dstY = dstRect.top  - containerRect.top  + scrollT - 52;
+
+  // Start at source
+  overlay.style.left = srcX + "px";
+  overlay.style.top  = srcY + "px";
+  overlay.style.transition = `left ${_animSpeed * 0.4}ms ease-in-out, top ${_animSpeed * 0.4}ms ease-in-out`;
+
+  // Move to destination after short delay
+  setTimeout(() => {
+    overlay.style.left = dstX + "px";
+    overlay.style.top  = dstY + "px";
+  }, _animSpeed * 0.2);
+}
+
+// ---- Transport controls ----
+
+function _animNext() {
+  if (_animBusy) return;
+  if (_animStepIndex < _animSteps.length - 1) {
+    _animBusy = true;
+    _animStepIndex++;
+    _applyStepVisuals(_animStepIndex, true);
+    _updatePlaybackUI();
+    setTimeout(() => { _animBusy = false; }, 300);
+  }
+}
+
+function _animPrev() {
+  if (_animBusy) return;
+  if (_animStepIndex > -1) {
+    _animBusy = true;
+    _animStepIndex--;
+    _applyStepVisuals(_animStepIndex, _animStepIndex >= 0);
+    _updatePlaybackUI();
+    setTimeout(() => { _animBusy = false; }, 300);
+  }
+}
+
+function _animGoTo(idx) {
+  if (_animBusy) return;
+  idx = Math.max(-1, Math.min(idx, _animSteps.length - 1));
+  _animStepIndex = idx;
+  _applyStepVisuals(_animStepIndex, _animStepIndex >= 0);
+  _updatePlaybackUI();
+}
+
+function _animTogglePlay() {
+  if (_animPlaying) {
+    _animPlaying = false;
+    if (_animTimer) { clearInterval(_animTimer); _animTimer = null; }
+  } else {
+    _animPlaying = true;
+    if (_animStepIndex >= _animSteps.length - 1) _animStepIndex = -1;
+    _animTimer = setInterval(_animAutoStep, _animSpeed);
+    _animAutoStep();
+  }
+  _updatePlaybackUI();
+}
+
+function _animAutoStep() {
+  if (_animStepIndex >= _animSteps.length - 1) {
+    _animPlaying = false;
+    if (_animTimer) { clearInterval(_animTimer); _animTimer = null; }
+    _updatePlaybackUI();
+    return;
+  }
+  _animNext();
+}
+
+function _updatePlaybackUI() {
+  const playBtn = document.getElementById("anim-play-btn");
+  if (playBtn) {
+    playBtn.querySelector("span").textContent = _animPlaying ? "⏸" : "▶";
+    playBtn.title = _animPlaying ? "Pause" : "Play";
+  }
+
+  const scrubber = document.getElementById("anim-scrubber");
+  if (scrubber) scrubber.value = _animStepIndex;
+
+  const counter = document.getElementById("anim-counter");
+  if (counter) {
+    counter.textContent = _animStepIndex >= 0
+      ? `${_animStepIndex + 1} / ${_animSteps.length}`
+      : `— / ${_animSteps.length}`;
+  }
+}
+
+// ============================================================
+// Resizable Deck Panel (Bug 3 fix)
+// ============================================================
+
+function _ensureResizeHandle() {
+  const panel = document.getElementById("deck-panel");
+  if (!panel || panel.querySelector(".deck-resize-handle")) return;
+
+  const handle = document.createElement("div");
+  handle.className = "deck-resize-handle";
+  panel.prepend(handle);
+
+  let startX = 0, startW = 0;
+
+  function onMouseDown(e) {
+    e.preventDefault();
+    startX = e.clientX;
+    startW = panel.offsetWidth;
+    panel.classList.add("resizing");
+    handle.classList.add("active");
+    document.addEventListener("mousemove", onMouseMove);
+    document.addEventListener("mouseup", onMouseUp);
+  }
+
+  function onMouseMove(e) {
+    const dx = startX - e.clientX;  // drag left = wider
+    const newW = Math.max(320, Math.min(startW + dx, window.innerWidth * 0.8));
+    panel.style.width = newW + "px";
+  }
+
+  function onMouseUp() {
+    panel.classList.remove("resizing");
+    handle.classList.remove("active");
+    document.removeEventListener("mousemove", onMouseMove);
+    document.removeEventListener("mouseup", onMouseUp);
+  }
+
+  handle.addEventListener("mousedown", onMouseDown);
 }
 
 // Init

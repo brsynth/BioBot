@@ -1253,14 +1253,20 @@ button.copy-btn:hover {
 
 /* Deck panel */
 .deck-panel {
+  position: relative;
   width: 600px;
-  min-width: 480px;
+  min-width: 320px;
   background: var(--bg-secondary);
   border-left: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   overflow-y: auto;
   transition: width 0.3s ease;
+}
+
+.deck-panel.resizing {
+  transition: none;
+  user-select: none;
 }
 
 .deck-panel.hidden {
@@ -1507,17 +1513,18 @@ button.copy-btn:hover {
 /* --- Slot (shared across layouts) --- */
 .deck-slot {
   position: relative;
-  padding: 10px 8px 8px;
+  padding: 18px 8px 8px;
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s;
-  min-height: 70px;
+  min-height: 110px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
   text-align: center;
   gap: 3px;
+  user-select: none;
 }
 
 .deck-slot.filled {
@@ -1581,6 +1588,120 @@ button.copy-btn:hover {
   color: #444;
 }
 
+/* --- Slot Interior Visuals --- */
+
+.slot-module-badge {
+  position: absolute;
+  top: 3px;
+  right: 6px;
+  font-size: 0.5rem;
+  font-weight: 700;
+  color: #6b7bff;
+  background: rgba(107, 123, 255, 0.12);
+  padding: 1px 5px;
+  border-radius: 3px;
+  letter-spacing: 0.3px;
+}
+
+.slot-mini-grid {
+  display: grid;
+  gap: 1px;
+  padding: 4px;
+  width: 100%;
+  max-width: 120px;
+  aspect-ratio: 3 / 2;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.mini-well {
+  border-radius: 50%;
+  background: rgba(0, 255, 153, 0.08);
+  border: 0.5px solid rgba(0, 255, 153, 0.2);
+  aspect-ratio: 1;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+
+.mini-well.well-used {
+  background: rgba(0, 255, 153, 0.35);
+  border-color: rgba(0, 255, 153, 0.6);
+}
+
+.mini-well.well-anim-active {
+  background: var(--anim-color, #00ff99) !important;
+  box-shadow: 0 0 4px var(--anim-color, rgba(0, 255, 153, 0.5));
+}
+
+.mini-tip.well-used {
+  background: rgba(255, 204, 0, 0.45);
+  border-color: rgba(255, 204, 0, 0.7);
+}
+
+.mini-tip {
+  border-radius: 50%;
+  background: rgba(255, 204, 0, 0.15);
+  border: 0.5px solid rgba(255, 204, 0, 0.3);
+  aspect-ratio: 1;
+  transition: background 0.15s, box-shadow 0.15s;
+}
+
+.deck-slot.tiprack .slot-mini-grid {
+  background: rgba(255, 204, 0, 0.04);
+  border-color: rgba(255, 204, 0, 0.1);
+}
+
+.mini-tip.well-anim-active {
+  background: var(--anim-color, #ffcc00) !important;
+  box-shadow: 0 0 4px var(--anim-color, rgba(255, 204, 0, 0.5));
+}
+
+.mini-tube {
+  border-radius: 3px;
+  background: rgba(100, 180, 255, 0.1);
+  border: 0.5px solid rgba(100, 180, 255, 0.25);
+  aspect-ratio: 1;
+}
+
+.mini-tube.well-used {
+  background: rgba(100, 180, 255, 0.4);
+  border-color: rgba(100, 180, 255, 0.6);
+}
+
+.slot-reservoir-visual {
+  width: 100%;
+  max-width: 120px;
+  padding: 4px;
+}
+
+.reservoir-trough {
+  height: 22px;
+  background: linear-gradient(180deg, rgba(0, 200, 255, 0.08) 0%, rgba(0, 200, 255, 0.2) 100%);
+  border: 1px solid rgba(0, 200, 255, 0.3);
+  border-radius: 4px 4px 8px 8px;
+}
+
+.slot-trash-visual {
+  font-size: 1.4rem;
+  line-height: 1;
+  opacity: 0.5;
+}
+
+.deck-slot.tiprack {
+  background: #1e2a1a;
+  border-color: rgba(255, 204, 0, 0.3) !important;
+}
+
+.deck-slot.reservoir {
+  background: #1a1e2a;
+  border-color: rgba(0, 200, 255, 0.3) !important;
+}
+
+.deck-slot.tuberack {
+  background: #1a1e2e;
+  border-color: rgba(100, 180, 255, 0.3) !important;
+}
+
 /* --- Linear Layout --- */
 .deck-linear {
   display: flex;
@@ -1634,8 +1755,31 @@ button.copy-btn:hover {
 
 .deck-plate-section {
   flex: 1;
-  min-width: 150px;
+  min-width: 200px;
+  background: #181818;
+  border: 1px solid #333;
+  border-radius: 10px;
+  padding: 10px;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
+.deck-plate-section:hover { border-color: #555; }
+.deck-plate-section.selected { border-color: var(--accent); box-shadow: 0 0 12px rgba(0, 255, 153, 0.15); }
+.deck-plate-section.slot-anim-highlight {
+  border-color: var(--anim-color, var(--accent));
+  box-shadow: 0 0 18px var(--anim-glow, rgba(0, 255, 153, 0.3));
+}
+
+.deck-plate-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+.deck-plate-name { font-size: 0.8rem; font-weight: 700; color: var(--accent); }
+.deck-plate-type { font-size: 0.7rem; color: #888; }
+.deck-plate-format { font-size: 0.65rem; color: #666; margin-left: auto; }
 
 .deck-plate-label {
   font-size: 0.75rem;
@@ -1643,6 +1787,51 @@ button.copy-btn:hover {
   color: var(--accent);
   text-align: center;
   margin-bottom: 6px;
+}
+
+.deck-plate-grid-wrapper {
+  display: flex;
+  gap: 3px;
+}
+.deck-plate-row-labels {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-around;
+  padding-top: 16px;
+}
+.deck-plate-row-label {
+  font-size: 0.5rem;
+  color: #666;
+  text-align: right;
+  padding-right: 2px;
+  line-height: 1;
+  height: 0;
+  display: flex;
+  align-items: center;
+  flex: 1;
+}
+.deck-plate-grid-col { flex: 1; min-width: 0; }
+.deck-plate-col-labels {
+  display: grid;
+  gap: 1px;
+  margin-bottom: 2px;
+}
+.deck-plate-col-label {
+  font-size: 0.45rem;
+  color: #555;
+  text-align: center;
+}
+
+.deck-plates-extras {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  flex-wrap: wrap;
+}
+.deck-plates-extras .deck-slot {
+  flex: 0 0 auto;
+  min-width: 100px;
+  max-width: 140px;
 }
 
 .deck-well-grid {
@@ -1657,10 +1846,17 @@ button.copy-btn:hover {
   background: #1e1e1e;
   border: 1px solid #333;
   transition: all 0.15s;
+  cursor: pointer;
 }
+.deck-well:hover { border-color: #888; background: #2a2a2a; }
 
 .deck-well.well-source { background: rgba(0, 255, 153, 0.25); border-color: rgba(0, 255, 153, 0.5); }
 .deck-well.well-dest { background: rgba(68, 136, 255, 0.25); border-color: rgba(68, 136, 255, 0.5); }
+.deck-well.well-anim-active {
+  background: var(--anim-color, rgba(0, 255, 153, 0.5));
+  border-color: var(--anim-color, rgba(0, 255, 153, 0.8));
+  box-shadow: 0 0 4px var(--anim-color, rgba(0, 255, 153, 0.5));
+}
 
 .deck-plate-summary {
   display: flex;
@@ -2865,4 +3061,303 @@ button.copy-btn:hover {
   .chat-window.with-deck {
     flex: 1;
   }
+
+  .deck-resize-handle { display: none; }
+
+  .anim-controls-row { flex-wrap: wrap; }
+  .anim-scrubber { min-width: 100px; }
+}
+
+/* ========================================
+   Animation System — Playback Controls
+   ======================================== */
+
+.anim-playback-bar {
+  padding: 10px 12px;
+  background: #161616;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.anim-step-desc {
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  padding: 6px 10px;
+  background: #1e1e1e;
+  border-radius: 8px;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.anim-step-idle {
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 0.78rem;
+}
+
+.anim-action-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+
+.anim-step-text {
+  color: var(--text-secondary);
+  font-size: 0.78rem;
+}
+
+.anim-step-vol {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--accent);
+  background: rgba(0,255,153,0.08);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.anim-controls-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.anim-transport {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.anim-btn {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: all 0.15s;
+}
+
+.anim-btn:hover {
+  background: var(--accent-glow);
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.anim-btn-next span {
+  font-size: 0.65rem;
+}
+
+.anim-scrubber {
+  flex: 1;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: #333;
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+
+.anim-scrubber::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: 2px solid #121212;
+}
+
+.anim-scrubber::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: 2px solid #121212;
+}
+
+.anim-counter {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+  min-width: 50px;
+  text-align: center;
+}
+
+.anim-speed-select {
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #1a1a1a;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  cursor: pointer;
+  outline: none;
+}
+
+.anim-speed-select:hover {
+  border-color: var(--accent);
+}
+
+/* ========================================
+   Animation — Slot & Well Highlights
+   ======================================== */
+
+.deck-slot.slot-anim-highlight {
+  border-color: var(--anim-color, var(--accent)) !important;
+  box-shadow: 0 0 12px 3px var(--anim-glow, rgba(0,255,153,0.3)),
+              inset 0 0 8px var(--anim-glow, rgba(0,255,153,0.15)) !important;
+  animation: slotPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes slotPulse {
+  0%, 100% { box-shadow: 0 0 12px 3px var(--anim-glow, rgba(0,255,153,0.3)); }
+  50%      { box-shadow: 0 0 20px 6px var(--anim-glow, rgba(0,255,153,0.5)); }
+}
+
+.deck-well.well-anim-active {
+  background: var(--anim-color, var(--accent)) !important;
+  border-color: var(--anim-color, var(--accent)) !important;
+  box-shadow: 0 0 6px var(--anim-color, var(--accent));
+  transform: scale(1.15);
+  transition: all 0.2s ease;
+}
+
+/* ========================================
+   Animation — Tip Overlay
+   ======================================== */
+
+.anim-tip-overlay {
+  width: 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: opacity 0.2s;
+}
+
+.tip-body {
+  width: 22px;
+  height: 28px;
+  border: 2px solid var(--accent);
+  border-radius: 4px 4px 2px 2px;
+  background: rgba(20,20,20,0.9);
+  position: relative;
+  overflow: hidden;
+}
+
+.tip-liquid {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 0%;
+  background: var(--accent);
+  opacity: 0.5;
+  transition: height 0.4s ease;
+}
+
+.tip-nozzle {
+  width: 6px;
+  height: 10px;
+  background: var(--accent);
+  border-radius: 0 0 3px 3px;
+}
+
+.tip-vol-label {
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  color: #888;
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+/* Tip action animations */
+.tip-aspirate .tip-liquid   { animation: tipFillUp 0.8s ease forwards; }
+.tip-dispense .tip-liquid   { height: 70%; animation: tipDrain 0.8s ease forwards; }
+.tip-transfer .tip-liquid   { height: 60%; animation: tipFillUp 0.5s ease forwards; }
+.tip-mix .tip-liquid        { height: 50%; animation: tipMix 0.6s ease-in-out infinite; }
+.tip-pickup_tip             { animation: tipPickup 0.4s ease; }
+.tip-drop_tip               { animation: tipDrop 0.4s ease forwards; }
+
+@keyframes tipFillUp {
+  from { height: 0%; }
+  to   { height: 70%; }
+}
+
+@keyframes tipDrain {
+  from { height: 70%; }
+  to   { height: 0%; }
+}
+
+@keyframes tipMix {
+  0%, 100% { height: 50%; }
+  50%      { height: 20%; }
+}
+
+@keyframes tipPickup {
+  from { transform: translateY(-10px); opacity: 0; }
+  to   { transform: translateY(0);     opacity: 1; }
+}
+
+@keyframes tipDrop {
+  from { transform: translateY(0);    opacity: 1; }
+  to   { transform: translateY(10px); opacity: 0; }
+}
+
+/* ========================================
+   Resize Handle
+   ======================================== */
+
+.deck-resize-handle {
+  position: absolute;
+  left: -4px;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: col-resize;
+  z-index: 20;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.deck-resize-handle:hover,
+.deck-resize-handle.active {
+  background: rgba(68, 136, 255, 0.35);
+}
+
+.deck-resize-handle::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 32px;
+  border-radius: 1px;
+  background: #555;
+  transition: background 0.15s;
+}
+
+.deck-resize-handle:hover::after,
+.deck-resize-handle.active::after {
+  background: #4488ff;
 }
