@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.5.0 (2026-11-06)
+
+### Features
+
+- **deck**: Add step by step highlight in code during animation
+  ([`527b7bc`](https://github.com/brsynth/BioBot/commit/527b7bcf0af57b47e98f46b10c67408771c35046))
+
+
 ## v1.4.1 (2026-11-06)
 
 ### Bug Fixes
