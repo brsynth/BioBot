@@ -458,11 +458,11 @@ Query: {question}
         
         if attempt == 1:
             response = run_gpt(prompt_rag)
-            code = response
+            code = strip_code_fences(response)
 
         else:
             response = run_gpt(prompt)
-            code = response
+            code = strip_code_fences(response)
 
         if not code:
             break

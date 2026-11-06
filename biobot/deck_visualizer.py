@@ -65,7 +65,6 @@ RULES:
 - Derive dimensions, position labels, instruments, capacities, and carrier types from the supplied protocol. Do not assume a robot from the file format.
 - CRITICAL: include ALL deck positions, including empty/unused ones. For grid robots, include EVERY slot in the grid (e.g. an OT-2 has slots 1-11 plus a fixed trash in slot 12 — always return all 12 with grid rows=3, cols=4). Populate grid.labels with EVERY position id in order.
 - For each position, set row and col (0-indexed) matching its physical location on the deck.
-- Use null or an empty list for information that cannot be determined from the input.
 - Return ONLY valid JSON. No trailing commas.
 """
 
