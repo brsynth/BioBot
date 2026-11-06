@@ -6,7 +6,7 @@ Handles code updates when the user modifies the deck through the visualization.
 """
 
 from openai import OpenAI
-from config import get_api_key, light_functions_model
+from config import get_api_key, biobot_model
 
 VISUALIZE_PROMPT = """You are an expert in laboratory automation and liquid handling robots. You will be given protocol code or a CSV picklist.
 
@@ -163,7 +163,7 @@ def generate_visualization(code: str, api_key: str = None) -> dict:
 
     # --- Call 1: Deck layout (critical) ---
     response = client.responses.create(
-        model=light_functions_model,
+        model=biobot_model,
         input=[
             {"role": "system", "content": VISUALIZE_PROMPT},
             {"role": "user", "content": f"Extract the deck layout from this code/CSV:\n\n{code}"}
@@ -199,7 +199,7 @@ def generate_visualization(code: str, api_key: str = None) -> dict:
         )
 
         steps_response = client.responses.create(
-            model=light_functions_model,
+            model=biobot_model,
             input=[
                 {"role": "system", "content": STEPS_PROMPT},
                 {"role": "user", "content": steps_user_msg}
@@ -245,7 +245,7 @@ def update_code_from_changes(code: str, changes: list, api_key: str = None) -> s
     changes_desc = json.dumps(changes, indent=2)
 
     response = client.responses.create(
-        model=light_functions_model,
+        model=biobot_model,
         input=[
             {"role": "system", "content": BATCH_UPDATE_PROMPT},
             {"role": "user", "content": f"Current code:\n\n{code}\n\nChanges to apply:\n{changes_desc}"}
@@ -298,7 +298,7 @@ def get_catalog(platform: str, position_type: str = "labware",
     prompt += "Return compatible options for this platform."
 
     response = client.responses.create(
-        model=light_functions_model,
+        model=biobot_model,
         input=[
             {"role": "system", "content": CATALOG_PROMPT},
             {"role": "user", "content": prompt}
