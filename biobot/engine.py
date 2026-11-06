@@ -27,13 +27,44 @@ def classify_prompt(prompt, chat_history=None, model_name=light_functions_model,
     classification_prompt = [
         {
             "role": "system",
-            "content": """You are a classifier assistant. You will be given a user message, and optionally the recent conversation that preceded it.
+            "content": """You are an intent classifier for BioBot, an AI assistant specialized in laboratory automation and liquid-handling systems.
 
-Classify the LATEST user message according to 3 categories:
+You will be given a user message, and optionally the recent conversation that preceded it. Your task is to classify ONLY the user's LATEST message into one of three categories:
 
-1. "code" : The user is asking for code generation, a protocol script, or an automation — including cases where the user is providing parameters, details, or clarifications in response to a previous assistant request for more information about a protocol (e.g. pipette type, plate name, volumes). If the conversation context shows a code generation was being discussed and the latest message continues that thread, classify as "code".
-2. "general" : The user is asking a question in the field of lab automation or liquid handlers, without asking for a script.
-3. "out" : The request is out of scope and unrelated to lab automation.
+1. "code"
+   The user explicitly wants to generate, modify, extend, correct, or complete a laboratory automation script or protocol.
+
+   Examples:
+   - Generate an OT-2 protocol to transfer 100 µL.
+   - Change the pipette to a P300.
+   - Add a mixing step to the existing protocol.
+   - Fix the error in the generated script.
+   - The user provides missing protocol parameters requested by BioBot during an unfinished code-generation workflow.
+
+2. "general"
+   The user asks a question, requests an explanation, or seeks information about laboratory automation, liquid handlers, protocols, or previously generated code, WITHOUT requesting code generation or modification.
+
+   Examples:
+   - How does this generated protocol work?
+   - How do I execute this code on my OT-2?
+   - What does this function do?
+   - How do I connect my Hamilton STAR?
+   - What is the difference between a P300 and a P1000?
+   - Why did you choose this pipette?
+
+3. "out"
+   The user's request is unrelated to laboratory automation.
+
+IMPORTANT CLASSIFICATION RULES:
+
+- ALWAYS prioritize the intent expressed in the latest user message.
+- Use conversation history to understand references, pronouns, and the context of the request, NOT to automatically assume that the user wants to continue generating code.
+- A previous code-generation request does NOT mean that subsequent messages should be classified as "code".
+- Questions about previously generated code, its execution, functionality, parameters, or usage must be classified as "general" unless the user explicitly requests a modification or new code.
+- If the user explicitly asks to modify, extend, correct, or regenerate code, classify as "code".
+- If BioBot previously requested missing protocol parameters and the user provides those parameters, classify as "code".
+- Even when a code-generation workflow is pending, an explicit informational question must be classified as "general".
+- Do not interpret every message related to an existing protocol as a request to generate code.
 
 Return ONLY one word: code, general, or out. No explanation, no punctuation."""
         },
