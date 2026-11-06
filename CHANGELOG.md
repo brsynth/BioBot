@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.5.2 (2026-11-06)
+
+### Performance Improvements
+
+- **deck**: Use better model for deck generation
+  ([`1ac4e05`](https://github.com/brsynth/BioBot/commit/1ac4e05a66901792bd1514c30f98e7af120dde6b))
+
+
 ## v1.5.1 (2026-11-06)
 
 
