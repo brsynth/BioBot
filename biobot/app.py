@@ -490,9 +490,11 @@ def chat(chat_id):
 
         # verify chat belongs to user
         chat_exists = fetchone_dict(conn,
-            "SELECT 1 FROM chat_names WHERE chat_id = %s AND user_id = %s",
+            "SELECT 1 FROM chat_names WHERE chat_id = %s AND user_id = %s AND deleted_at IS NULL",
             (chat_id, user_id)
         )
+        if not chat_exists:
+            return jsonify({"error": "Chat not found"}), 404
 
         # insert user message (encrypted)
         execute(conn,
@@ -576,7 +578,7 @@ def chat_stream(chat_id):
 
         # verify chat exists
         chat_exists = fetchone_dict(conn,
-            "SELECT 1 FROM chat_names WHERE chat_id = %s AND user_id = %s FOR UPDATE",
+            "SELECT 1 FROM chat_names WHERE chat_id = %s AND user_id = %s AND deleted_at IS NULL FOR UPDATE",
             (chat_id, user_id)
         )
         if not chat_exists:
@@ -737,8 +739,10 @@ def chat_stream(chat_id):
                     INSERT INTO chat_history (user_id, chat_id, role, content, created_at)
                     SELECT %s, %s, %s, %s, %s
                     WHERE EXISTS (
-                        SELECT 1 FROM chat_history
-                        WHERE id = %s AND chat_id = %s AND user_id = %s AND content = %s
+                        SELECT 1 FROM chat_history h JOIN chat_names c
+                          ON c.chat_id = h.chat_id AND c.user_id = h.user_id
+                        WHERE h.id = %s AND h.chat_id = %s AND h.user_id = %s AND h.content = %s
+                          AND c.deleted_at IS NULL
                     )
                     """,
                     (user_id, chat_id, "assistant", encrypted_content, datetime.now().isoformat(),
@@ -794,6 +798,8 @@ def get_history(chat_id):
     conn = None
     try:
         conn = get_db_connection()
+        if not fetchone_dict(conn, "SELECT 1 FROM chat_names WHERE chat_id = %s AND user_id = %s AND deleted_at IS NULL", (chat_id, user_id)):
+            return jsonify({"error": "Chat not found"}), 404
         rows = fetchall_dict(conn,
             "SELECT id, role, content FROM chat_history WHERE user_id = %s AND chat_id = %s ORDER BY id",
             (user_id, chat_id)
@@ -808,32 +814,36 @@ def get_history(chat_id):
 
 @app.route("/chat/<chat_id>", methods=["DELETE"])
 def delete_chat(chat_id):
+    """Move a conversation to Trash, preserving its messages for restoration."""
     user_id = session.get("user")
     if not user_id:
         return jsonify({"error": "Not logged in"}), 403
-
-    conn = None
+    conn = get_db_connection()
     try:
-        conn = get_db_connection()
-        execute(conn,
-            "DELETE FROM chat_history WHERE chat_id = %s AND user_id = %s",
-            (chat_id, user_id),
-            commit=True
-        )
-        execute(conn,
-            "DELETE FROM chat_names WHERE chat_id = %s AND user_id = %s",
-            (chat_id, user_id),
-            commit=True
-        )
-    except Exception as e:
-        if conn:
-            conn.rollback()
-        print("delete_chat error:", e)
-        return jsonify({"error": "Database error"}), 500
+        changed = execute(conn,
+            "UPDATE chat_names SET deleted_at = COALESCE(deleted_at, NOW()) WHERE chat_id = %s AND user_id = %s RETURNING chat_id",
+            (chat_id, user_id), commit=True, returning=True)
+        if not changed:
+            return jsonify({"error": "Chat not found"}), 404
     finally:
-        if conn:
-            conn.close()
+        conn.close()
+    return jsonify({"success": True})
 
+
+@app.route("/chat/<chat_id>/restore", methods=["POST"])
+def restore_chat(chat_id):
+    user_id = session.get("user")
+    if not user_id:
+        return jsonify({"error": "Not logged in"}), 403
+    conn = get_db_connection()
+    try:
+        changed = execute(conn,
+            "UPDATE chat_names SET deleted_at = NULL WHERE chat_id = %s AND user_id = %s RETURNING chat_id",
+            (chat_id, user_id), commit=True, returning=True)
+        if not changed:
+            return jsonify({"error": "Chat not found"}), 404
+    finally:
+        conn.close()
     return jsonify({"success": True})
 
 
@@ -842,16 +852,13 @@ def list_chats():
     user_id = session.get("user")
     if not user_id:
         return jsonify({"error": "Not logged in"}), 403
-
-    conn = None
+    predicate = "IS NOT NULL" if request.args.get("trashed") == "1" else "IS NULL"
+    conn = get_db_connection()
     try:
-        conn = get_db_connection()
-        rows = fetchall_dict(conn, "SELECT chat_id, name FROM chat_names WHERE user_id = %s", (user_id,))
+        rows = fetchall_dict(conn, f"SELECT chat_id, name FROM chat_names WHERE user_id = %s AND deleted_at {predicate}", (user_id,))
     finally:
-        if conn:
-            conn.close()
-
-    return jsonify([{"chat_id": r["chat_id"], "name": decrypt_message(r["name"])} for r in rows])
+        conn.close()
+    return jsonify([{"chat_id": row["chat_id"], "name": decrypt_message(row["name"])} for row in rows])
 
 
 @app.route("/chat/<chat_id>/rename", methods=["POST"])
@@ -869,7 +876,7 @@ def rename_chat(chat_id):
     try:
         conn = get_db_connection()
         execute(conn,
-            "UPDATE chat_names SET name = %s WHERE chat_id = %s AND user_id = %s",
+            "UPDATE chat_names SET name = %s WHERE chat_id = %s AND user_id = %s AND deleted_at IS NULL",
             (encrypt_message(new_name), chat_id, user_id),
             commit=True
         )

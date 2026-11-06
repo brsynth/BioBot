@@ -85,6 +85,7 @@ def init_db():
                 name TEXT NOT NULL
             );
         """)
+        cur.execute("ALTER TABLE chat_names ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS chat_history (
                 id SERIAL PRIMARY KEY,

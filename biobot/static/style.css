@@ -225,7 +225,8 @@ body {
 }
 
 .rename-chat-btn,
-.delete-chat-btn {
+.delete-chat-btn,
+.restore-chat-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3415,3 +3416,9 @@ button.copy-btn:hover {
 #deck-code-view .code-block-wrapper { display: flex; flex-direction: column; margin: 0; min-height: 0; }
 #deck-code-view .code-toolbar { flex-shrink: 0; }
 #deck-code-view .code-block-pre { min-height: 0; overflow: auto; }
+
+.trash-btn { color: var(--text-muted); background: transparent; }
+.trash-btn:hover, .trash-btn.active { color: var(--accent); background: var(--accent-glow); }
+.restore-chat-btn { color: var(--accent); }
+.restore-chat-btn:hover { background: var(--bg-elevated); }
+#chat-list li.chat-list-empty { cursor: default; color: var(--text-muted); }

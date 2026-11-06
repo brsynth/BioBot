@@ -39,6 +39,7 @@ It helps users interact with an AI assistant to get guidance, protocols, and Pyt
 - The RAG index rebuilds automatically after each feedback action, the system improves with every use.
 
 ### Authentication & Security
+- **Conversation Trash.** The sidebar trash icon moves a conversation immediately without deleting its messages. Open **Trash** in the sidebar and use **Restore** to return it to the active conversation list.
 - User registration with hashed passwords.
 - API key encryption at rest using Fernet symmetric encryption.
 - Chat message encryption using a server-side key.

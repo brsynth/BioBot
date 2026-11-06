@@ -15,7 +15,7 @@ function request(failure = false) {
     document: { getElementById: id => id === 'user-input' ? { value: '', style: {} } : null,
       createElement: () => ({ remove() { this.removed = true; } }) },
     currentChatId: 'chat', isTyping: false, sendBtn: {}, window: {}, console: { error() {} },
-    TextDecoder, setTimeout() {}, clearInterval() {},
+    TextDecoder, AbortController, setTimeout() {}, clearInterval() {},
     chatHistoryElem: { appendChild: node => statuses.push(node) },
     addMessage: () => ({}), renderUserMessage() {}, addThinkingMessage: () => 1,
     scrollToBottom() {}, appendChunkToBotMessage() {}, selectChatListItem() {},

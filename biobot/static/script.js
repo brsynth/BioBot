@@ -10,6 +10,9 @@ const newChatBtn = document.getElementById("new-chat");
 
 let currentChatId = null;
 let isTyping = false;
+let showingTrash = false;
+let chatRequestController = null;
+let chatRequestDone = Promise.resolve();
 let autoScrollEnabled = true;
 
 // --- Auto-scroll detection ---
@@ -636,41 +639,49 @@ async function loadChatHistory(chatId) {
   }
 }
 
-// --- Delete Modal ---
-const deleteModal = document.getElementById("delete-modal");
-const cancelDeleteBtn = document.getElementById("cancel-delete");
-const confirmDeleteBtn = document.getElementById("confirm-delete");
-let chatToDeleteId = null;
-
-async function showDeleteModal(chatId) {
-  chatToDeleteId = chatId;
-  deleteModal.classList.remove("hidden");
+// --- Conversation Trash ---
+function setTrashView(show) {
+  showingTrash = show;
+  document.querySelector(".chat-list-label").textContent = show ? "Trash" : "Conversations";
+  const button = document.getElementById("trash-btn");
+  button.classList.toggle("active", show);
+  button.setAttribute("aria-pressed", String(show));
+  button.title = show ? "Show conversations" : "Open Trash";
 }
 
-cancelDeleteBtn.onclick = () => {
-  chatToDeleteId = null;
-  deleteModal.classList.add("hidden");
-};
-
-confirmDeleteBtn.onclick = async () => {
-  if (!chatToDeleteId) return;
-  const resp = await fetch(`/chat/${chatToDeleteId}`, { method: "DELETE" });
-  if (resp.ok) {
-    const updatedChats = await refreshChatList();
-    if (chatToDeleteId === currentChatId) {
+async function trashChat(chatId, row) {
+  row?.remove();
+  try {
+    const response = await fetch(`/chat/${chatId}`, { method: "DELETE" });
+    if (!response.ok) throw new Error("Could not move the conversation to Trash.");
+    if (chatId === currentChatId) {
+      chatRequestController?.abort();
+      await chatRequestDone;
       localStorage.removeItem("lastChatId");
-      if (updatedChats.length) {
-        await loadChatHistory(updatedChats[0].chat_id);
-      } else {
-        await createNewChat();
-      }
+      setTrashView(false);
+      const chats = await refreshChatList();
+      if (chats.length) await loadChatHistory(chats[0].chat_id);
+      else await createNewChat();
+    } else {
+      await refreshChatList();
+      selectChatListItem(currentChatId);
     }
-  } else {
-    alert("Error deleting chat.");
+  } catch (error) {
+    alert(error.message);
+    await refreshChatList();
+    selectChatListItem(currentChatId);
   }
-  chatToDeleteId = null;
-  deleteModal.classList.add("hidden");
-};
+}
+
+async function restoreChat(chatId) {
+  try {
+    const response = await fetch(`/chat/${chatId}/restore`, { method: "POST" });
+    if (!response.ok) throw new Error("Could not restore the conversation.");
+    setTrashView(false);
+    await refreshChatList();
+    await loadChatHistory(chatId);
+  } catch (error) { alert(error.message); }
+}
 
 // Close modals on backdrop click
 document.querySelectorAll('.modal-backdrop').forEach(backdrop => {
@@ -681,10 +692,12 @@ document.querySelectorAll('.modal-backdrop').forEach(backdrop => {
 
 // --- Refresh chat list ---
 async function refreshChatList() {
-  const res = await fetch("/chats");
+  const trashView = showingTrash;
+  const res = await fetch(trashView ? "/chats?trashed=1" : "/chats");
   if (!res.ok) return [];
 
   const chatList = await res.json();
+  if (trashView !== showingTrash) return [];
   chatListElem.innerHTML = "";
 
   for (const chat of chatList) {
@@ -698,19 +711,30 @@ async function refreshChatList() {
 
     const menu = document.createElement("div");
     menu.className = "chat-options";
-    menu.innerHTML = `
+    menu.innerHTML = trashView
+      ? `<button type="button" class="restore-chat-btn" title="Restore conversation" aria-label="Restore conversation"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10a9 9 0 1 1 2 8M3 4v6h6"/></svg></button>`
+      : `
       <button type="button" class="rename-chat-btn" title="Rename conversation" aria-label="Rename conversation"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
-      <button type="button" class="delete-chat-btn" title="Delete conversation" aria-label="Delete conversation"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+      <button type="button" class="delete-chat-btn" title="Move to Trash" aria-label="Move to Trash"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
     `;
     li.appendChild(menu);
 
     li.onclick = (e) => {
-      if (!e.target.closest(".chat-options, .rename-input")) loadChatHistory(chat.chat_id);
+      if (!trashView && !e.target.closest(".chat-options, .rename-input")) loadChatHistory(chat.chat_id);
     };
+
+    if (trashView) {
+      menu.querySelector(".restore-chat-btn").onclick = event => {
+        event.stopPropagation();
+        restoreChat(chat.chat_id);
+      };
+      chatListElem.appendChild(li);
+      continue;
+    }
 
     menu.querySelector(".delete-chat-btn").onclick = (e) => {
       e.stopPropagation();
-      showDeleteModal(chat.chat_id);
+      trashChat(chat.chat_id, li);
     };
 
     menu.querySelector(".rename-chat-btn").onclick = (e) => {
@@ -764,6 +788,12 @@ async function refreshChatList() {
     chatListElem.appendChild(li);
   }
 
+  if (trashView && !chatList.length) {
+    const empty = document.createElement("li");
+    empty.className = "chat-list-empty";
+    empty.textContent = "Trash is empty";
+    chatListElem.appendChild(empty);
+  }
   return chatList;
 }
 
@@ -777,6 +807,7 @@ function selectChatListItem(chatId) {
 // --- Create new chat ---
 async function createNewChat() {
   if (isTyping) return;
+  setTrashView(false);
   try {
     const res = await fetch("/chat", { method: "POST" });
     if (!res.ok) throw new Error("Error creating chat");
@@ -847,6 +878,10 @@ async function sendMessage(edit = {}) {
   const message = edit.message || input.value.trim();
   if (!message || !currentChatId || isTyping) return;
   const chatId = currentChatId;
+  const requestController = new AbortController();
+  chatRequestController = requestController;
+  let finishChatRequest;
+  chatRequestDone = new Promise(resolve => finishChatRequest = resolve);
   isTyping = true;
   sendBtn.disabled = true;
 
@@ -882,6 +917,7 @@ async function sendMessage(edit = {}) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message, message_id: edit.messageId }),
+      signal: requestController.signal,
     });
 
     // Handle session expiration — show message, then redirect to login
@@ -1002,6 +1038,7 @@ async function sendMessage(edit = {}) {
     statusDiv?.remove();
     if (questionResponse !== null && !questionRendered) throw new Error("The questionnaire could not be loaded. Please try again.");
     await refreshChatList();
+    if (requestController.signal.aborted) return;
     selectChatListItem(currentChatId);
 
     // Parse deck ONCE after streaming is fully complete (final code only)
@@ -1013,6 +1050,7 @@ async function sendMessage(edit = {}) {
     }
 
   } catch (err) {
+    if (err.name === "AbortError") return;
     clearInterval(thinkingInterval);
     const thinkingElem = document.getElementById("thinking-message");
     if (thinkingElem) thinkingElem.remove();
@@ -1027,6 +1065,8 @@ async function sendMessage(edit = {}) {
     document.getElementById("thinking-message")?.remove();
     isTyping = false;
     sendBtn.disabled = false;
+    if (chatRequestController === requestController) chatRequestController = null;
+    finishChatRequest();
   }
 }
 
@@ -1040,6 +1080,11 @@ userInputElem.addEventListener("keydown", (e) => {
 });
 
 newChatBtn.addEventListener("click", createNewChat);
+document.getElementById("trash-btn").addEventListener("click", async () => {
+  setTrashView(!showingTrash);
+  await refreshChatList();
+  selectChatListItem(currentChatId);
+});
 
 document.getElementById("logout-btn").addEventListener("click", () => {
   try { sessionStorage.removeItem("biobot-questionnaire-answers"); } catch (_) {}
