@@ -58,6 +58,7 @@ async function parseDeckFromCode(code, sourceBlock, templateId = null) {
   document.getElementById("deck-apply-bar")?.remove();
   _openDeckPanel();
   _showLoading();
+  _renderDeckCode();
 
   const controller = new AbortController();
   _deckAbort = controller;
@@ -1307,6 +1308,47 @@ function _shorten(name) {
 // Panel Management
 // ============================================================
 
+function _renderDeckCode() {
+  const panel = document.getElementById("deck-panel");
+  const view = document.getElementById("deck-code-view");
+  if (!view || !panel?.classList.contains("deck-fullscreen") || view._displayedCode === _currentCode) return;
+  view.replaceChildren();
+  view._displayedCode = _currentCode;
+  if (!_currentCode) {
+    view.textContent = "Open a protocol to view its code.";
+    return;
+  }
+  const block = buildCodeBlock(_currentCode, detectFormat(_currentCode));
+  const expand = block.querySelector(".code-preview-toggle");
+  if (expand?.getAttribute("aria-expanded") === "false") expand.click();
+  expand?.remove();
+  block.querySelector(".deck-action-btn")?.remove();
+  view.appendChild(block);
+}
+
+function _setDeckFullscreen(expanded) {
+  const panel = document.getElementById("deck-panel");
+  if (!panel) return;
+  panel.classList.toggle("deck-fullscreen", expanded);
+  panel.setAttribute("role", expanded ? "dialog" : "complementary");
+  if (expanded) panel.setAttribute("aria-modal", "true");
+  else panel.removeAttribute("aria-modal");
+  for (const id of ["sidebar", "chat-panel"]) {
+    const background = document.getElementById(id);
+    if (background) background.inert = expanded;
+  }
+  const button = document.getElementById("deck-fullscreen-btn");
+  const label = expanded ? "Exit deck full screen" : "Expand deck to full screen";
+  button?.setAttribute("aria-pressed", String(expanded));
+  button?.setAttribute("aria-label", label);
+  if (button) button.title = label;
+  if (expanded) _renderDeckCode();
+  else {
+    const view = document.getElementById("deck-code-view");
+    if (view) { view.replaceChildren(); view._displayedCode = undefined; }
+  }
+}
+
 function _openDeckPanel() {
   const panel = document.getElementById("deck-panel");
   const chat = document.getElementById("chat-panel");
@@ -1317,6 +1359,7 @@ function _openDeckPanel() {
   _ensureResizeHandle();
 }
 function closeDeckPanel() {
+  _setDeckFullscreen(false);
   const panel = document.getElementById("deck-panel");
   const chat = document.getElementById("chat-panel");
   const btn = document.getElementById("deck-toggle-btn");
@@ -1383,6 +1426,7 @@ function _updateSourceCodeBlock(newCode) {
   const replacement = buildCodeBlock(newCode, detectFormat(newCode));
   block.replaceWith(replacement);
   _sourceCodeBlock = replacement;
+  _renderDeckCode();
   replacement.classList.add("code-updated");
   setTimeout(() => replacement.classList.remove("code-updated"), 1500);
 }
@@ -1405,17 +1449,17 @@ function _showError(msg) {
 // ============================================================
 
 function _clearCodeBlockHighlights() {
-  // Find the source code block in the chat
-  const block = _sourceCodeBlock;
-  if (!block) return;
-
-  block.querySelectorAll(".code-line.code-line-active, .code-line.code-line-loop").forEach(el => {
-    el.classList.remove("code-line-active", "code-line-loop");
-  });
+  const preview = document.getElementById("deck-code-view")?.querySelector(".code-block-wrapper");
+  for (const block of [_sourceCodeBlock, preview].filter(Boolean)) {
+    block.querySelectorAll(".code-line.code-line-active, .code-line.code-line-loop").forEach(el => {
+      el.classList.remove("code-line-active", "code-line-loop");
+    });
+  }
 }
 
 function _highlightCodeBlockLines(codeLines) {
-  const block = _sourceCodeBlock;
+  const block = document.getElementById("deck-panel")?.classList.contains("deck-fullscreen")
+    ? document.getElementById("deck-code-view")?.querySelector(".code-block-wrapper") : _sourceCodeBlock;
   if (!block || !codeLines || !Array.isArray(codeLines) || codeLines.length === 0) {
     _clearCodeBlockHighlights();
     return;
@@ -1864,8 +1908,18 @@ function _ensureResizeHandle() {
 document.addEventListener("DOMContentLoaded", () => {
   const t = document.getElementById("deck-toggle-btn");
   const c = document.getElementById("deck-close-btn");
+  const f = document.getElementById("deck-fullscreen-btn");
   if (t) t.addEventListener("click", toggleDeckPanel);
   if (c) c.addEventListener("click", closeDeckPanel);
+  if (f) f.addEventListener("click", () => {
+    _setDeckFullscreen(!document.getElementById("deck-panel").classList.contains("deck-fullscreen"));
+  });
+  document.addEventListener("keydown", event => {
+    if (event.key === "Escape" && document.getElementById("deck-panel")?.classList.contains("deck-fullscreen")) {
+      event.preventDefault();
+      _setDeckFullscreen(false);
+    }
+  });
 });
 
 window.parseDeckFromCode = parseDeckFromCode;

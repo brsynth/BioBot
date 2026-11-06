@@ -438,6 +438,7 @@ function clearUnknownAnswer(slide) {
 }
 
 function submitAllAnswers(form, parentDiv) {
+  if (typeof sendMessage !== "function" || !currentChatId || isTyping) return;
   const answers = collectQuestionAnswers(form);
   // Disable the form
   form.querySelectorAll("input, button").forEach(el => el.disabled = true);
@@ -462,14 +463,8 @@ function submitAllAnswers(form, parentDiv) {
   }
   const message = lines.join("\n");
 
-  // Send as a regular user message
-  const input = document.getElementById("user-input");
-  if (input) {
-    input.value = message;
-    if (typeof sendMessage === "function") {
-      sendMessage();
-    }
-  }
+  // Tie the progress indicator to the request that reviews these answers.
+  sendMessage({ message, questionnaireSummary: summary });
 }
 
 window.renderQuestionsForm = renderQuestionsForm;

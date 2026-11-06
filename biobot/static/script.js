@@ -382,9 +382,12 @@ function addMessage(text, sender, messageId = null) {
 // --- Edit a saved prompt and regenerate its continuation ---
 function renderUserMessage(div, text, messageId) {
   div.replaceChildren();
+  const questionnaireAnswers = text.startsWith("[PROTOCOL_PARAMS]");
+  div.classList.toggle("hidden", questionnaireAnswers);
+  if (questionnaireAnswers) return; // Already shown in the questionnaire summary.
   const content = document.createElement("div");
   content.className = "user-message-content";
-  content.textContent = text.replace(/^\[PROTOCOL_PARAMS\]\n?/, "");
+  content.textContent = text;
   div.appendChild(content);
   if (!messageId) return;
 
@@ -528,7 +531,7 @@ async function loadChatHistory(chatId) {
     for (let msgIdx = 0; msgIdx < messages.length; msgIdx++) {
       const msg = messages[msgIdx];
       if (msg.role === "user") {
-        // Strip [PROTOCOL_PARAMS] marker for display
+        // Internal questionnaire submissions stay hidden; their summary is displayed on the left.
         addMessage(msg.content || "", "user", msg.id);
       } else if (msg.role === "assistant") {
         const content = msg.content || "";
@@ -696,27 +699,13 @@ async function refreshChatList() {
     const menu = document.createElement("div");
     menu.className = "chat-options";
     menu.innerHTML = `
-      <span class="chat-dots">⋮</span>
-      <div class="chat-menu hidden">
-        <button class="rename-chat-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Rename</button>
-        <button class="delete-chat-btn"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> Delete</button>
-      </div>
+      <button type="button" class="rename-chat-btn" title="Rename conversation" aria-label="Rename conversation"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+      <button type="button" class="delete-chat-btn" title="Delete conversation" aria-label="Delete conversation"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
     `;
     li.appendChild(menu);
 
     li.onclick = (e) => {
-      if (!e.target.classList.contains("chat-dots") &&
-          !e.target.classList.contains("delete-chat-btn") &&
-          !e.target.classList.contains("rename-chat-btn")) {
-        loadChatHistory(chat.chat_id);
-      }
-    };
-
-    menu.querySelector(".chat-dots").onclick = (e) => {
-      e.stopPropagation();
-      // Close all other menus first
-      document.querySelectorAll('.chat-menu').forEach(m => m.classList.add('hidden'));
-      menu.querySelector(".chat-menu").classList.toggle("hidden");
+      if (!e.target.closest(".chat-options, .rename-input")) loadChatHistory(chat.chat_id);
     };
 
     menu.querySelector(".delete-chat-btn").onclick = (e) => {
@@ -726,14 +715,23 @@ async function refreshChatList() {
 
     menu.querySelector(".rename-chat-btn").onclick = (e) => {
       e.stopPropagation();
+      if (nameSpan.querySelector(".rename-input")) return;
       const currentName = nameSpan.textContent;
-      nameSpan.innerHTML = `<input type="text" class="rename-input" value="${currentName}" />`;
-      const input = nameSpan.querySelector(".rename-input");
+      const input = document.createElement("input");
+      input.type = "text";
+      input.className = "rename-input";
+      input.value = currentName;
+      input.setAttribute("aria-label", "Conversation name");
+      nameSpan.replaceChildren(input);
       input.focus();
       input.select();
 
+      let finished = false;
       const finishRename = async () => {
+        if (finished) return;
+        finished = true;
         const newName = input.value.trim();
+        let displayedName = currentName;
         if (newName && newName !== currentName) {
           try {
             const res = await fetch(`/chat/${chat.chat_id}/rename`, {
@@ -742,11 +740,12 @@ async function refreshChatList() {
               body: JSON.stringify({ name: newName }),
             });
             if (!res.ok) throw new Error("Rename failed");
+            displayedName = newName;
           } catch (err) {
             alert(err.message);
           }
         }
-        nameSpan.textContent = newName || currentName;
+        nameSpan.textContent = displayedName;
       };
 
       input.addEventListener("blur", finishRename);
@@ -754,6 +753,10 @@ async function refreshChatList() {
         if (ev.key === "Enter") {
           ev.preventDefault();
           finishRename();
+        } else if (ev.key === "Escape") {
+          ev.preventDefault();
+          finished = true;
+          nameSpan.textContent = currentName;
         }
       });
     };
@@ -995,6 +998,8 @@ async function sendMessage(edit = {}) {
       }
     }
 
+    edit.questionnaireSummary?.querySelector(".summary-generating")?.remove();
+    statusDiv?.remove();
     if (questionResponse !== null && !questionRendered) throw new Error("The questionnaire could not be loaded. Please try again.");
     await refreshChatList();
     selectChatListItem(currentChatId);
@@ -1016,6 +1021,8 @@ async function sendMessage(edit = {}) {
     appendChunkToBotMessage(errorDiv, "Error: " + err.message);
     console.error(err);
   } finally {
+    edit.questionnaireSummary?.querySelector(".summary-generating")?.remove();
+    statusDiv?.remove();
     clearInterval(thinkingInterval);
     document.getElementById("thinking-message")?.remove();
     isTyping = false;
@@ -1037,11 +1044,6 @@ newChatBtn.addEventListener("click", createNewChat);
 document.getElementById("logout-btn").addEventListener("click", () => {
   try { sessionStorage.removeItem("biobot-questionnaire-answers"); } catch (_) {}
   window.location.href = "/logout";
-});
-
-// Close menus on outside click
-document.addEventListener('click', () => {
-  document.querySelectorAll('.chat-menu').forEach(m => m.classList.add('hidden'));
 });
 
 // --- Reject Modal ---

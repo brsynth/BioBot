@@ -107,3 +107,49 @@ test('well maps use declared plate counts and do not invent an unspecified forma
   const unknown = w.context._renderPlateMap({ name: 'Source', format: null }, 'source', 'source', null);
   assert.equal(unknown.querySelectorAll('.deck-well').length, 0);
 });
+
+test('fullscreen shows the current protocol below the deck and restores the normal panel on close', () => {
+  const w = setup();
+  function node() {
+    const result = element('div');
+    const classes = new Set();
+    result.classList = { contains: name => classes.has(name), add: name => classes.add(name),
+      remove: name => classes.delete(name), toggle(name, value) { value ? classes.add(name) : classes.delete(name); } };
+    result.replaceChildren = () => result.children = [];
+    result.removeAttribute = name => delete result.attributes[name];
+    return result;
+  }
+  const panel = node(), view = node(), button = node(), sidebar = node(), chat = node();
+  const elements = { 'deck-panel': panel, 'deck-code-view': view, 'deck-fullscreen-btn': button,
+    sidebar, 'chat-panel': chat };
+  w.context.document.getElementById = id => elements[id] || null;
+  let expanded = 0;
+  w.context.detectFormat = () => 'python';
+  w.context.buildCodeBlock = code => {
+    const block = node();
+    block.code = code;
+    block.querySelector = selector => selector === '.code-preview-toggle'
+      ? { getAttribute: () => 'false', click: () => expanded++, remove() {} } : null;
+    return block;
+  };
+  w.context._setDeckFullscreen(true);
+  assert.equal(panel.classList.contains('deck-fullscreen'), true);
+  assert.equal(panel.attributes['aria-modal'], 'true');
+  assert.equal(button.attributes['aria-pressed'], 'true');
+  assert.equal(sidebar.inert, true);
+  assert.equal(chat.inert, true);
+  assert.equal(view.children[0].code, 'protocol');
+  assert.equal(expanded, 1);
+  w.context._renderDeckCode();
+  assert.equal(expanded, 1); // Selecting a slot must not rebuild or reset code scrolling.
+  vm.runInContext('_currentCode = "updated protocol";', w.context);
+  w.context._renderDeckCode();
+  assert.equal(view.children[0].code, 'updated protocol');
+  w.context.closeDeckPanel();
+  assert.equal(panel.classList.contains('deck-fullscreen'), false);
+  assert.equal(panel.classList.contains('hidden'), true);
+  assert.equal(sidebar.inert, false);
+  assert.equal(chat.inert, false);
+  assert.equal(view.children.length, 0);
+  assert.equal(button.attributes['aria-pressed'], 'false');
+});
