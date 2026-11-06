@@ -737,6 +737,20 @@ button.copy-btn:hover {
   background: var(--bg-code);
 }
 
+.code-line[hidden] {
+  display: none;
+}
+
+.code-preview-toggle {
+  justify-content: center;
+  width: 100%;
+  padding: 10px;
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+  background: #1a1a1a;
+}
+
 /* ========================================
    MODALS
    ======================================== */

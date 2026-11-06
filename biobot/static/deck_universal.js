@@ -1279,6 +1279,9 @@ function _highlightCodeBlockLines(codeLines) {
   // Clear previous highlights
   _clearCodeBlockHighlights();
 
+  // Playback reveals the full file so its active lines remain visible.
+  block.querySelector('.code-preview-toggle[aria-expanded="false"]')?.click();
+
   // Last line = action (red), earlier lines = loop headers (blue)
   const actionLine = codeLines[codeLines.length - 1];
   const loopLines = codeLines.slice(0, -1);

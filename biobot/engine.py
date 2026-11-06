@@ -3,6 +3,7 @@ import json
 from openai import OpenAI
 import os
 from config import get_api_key, biobot_model, light_functions_model
+from questionnaire import check_sufficient_info
     
 
 def get_openai_client(api_key=None):
@@ -32,7 +33,7 @@ def classify_prompt(prompt, chat_history=None, model_name=light_functions_model,
 You will be given a user message, and optionally the recent conversation that preceded it. Your task is to classify ONLY the user's LATEST message into one of three categories:
 
 1. "code"
-   The user explicitly wants to generate, modify, extend, correct, or complete a laboratory automation script or protocol.
+   The user wants to generate, modify, extend, correct, or complete a laboratory automation script or protocol, including terse requests that omit a verb.
 
    Examples:
    - Generate an OT-2 protocol to transfer 100 µL.
@@ -58,6 +59,7 @@ You will be given a user message, and optionally the recent conversation that pr
 IMPORTANT CLASSIFICATION RULES:
 
 - ALWAYS prioritize the intent expressed in the latest user message.
+- A terse request naming an experimental operation and an instrument is a protocol request ("code"), even without words like "generate" or "protocol". Missing parameters belong in the protocol questionnaire, not a general-chat response. Keep explicit requests for explanations or information in "general".
 - Use conversation history to understand references, pronouns, and the context of the request, NOT to automatically assume that the user wants to continue generating code.
 - A previous code-generation request does NOT mean that subsequent messages should be classified as "code".
 - Questions about previously generated code, its execution, functionality, parameters, or usage must be classified as "general" unless the user explicitly requests a modification or new code.
@@ -120,12 +122,20 @@ QUESTIONS_MARKER = "__QUESTIONS__:"
 
 def process_user_query(user_query, chat_history, model, api_key=None):
     history = [msg for msg in chat_history]
-    classification = classify_prompt(user_query, chat_history=history, api_key=api_key)
+    if os.environ.get("BIOBOT_SKIP_SUFFICIENT_CHECK"):
+        classification = classify_prompt(user_query, chat_history=history, api_key=api_key)
+    else:
+        assessment = check_sufficient_info(user_query, history, api_key or get_api_key(), allow_general=True)
+        if isinstance(assessment, dict):
+            return iter([QUESTIONS_MARKER + json.dumps(assessment)])
+        classification = "code" if assessment is None else "general"
 
     if classification == "code":
         def _rag_generator():
             env = os.environ.copy()
             env["API_KEY"] = api_key or get_api_key()
+            # The shared dispatcher already checked completeness before choosing this route.
+            env["BIOBOT_SKIP_SUFFICIENT_CHECK"] = "1"
 
             proc = subprocess.Popen(
                 [

@@ -12,7 +12,7 @@
   <link rel="stylesheet" href="/static/questions.css" />
   <link rel="stylesheet" href="/static/code_highlight_styles.css" />
 </head>
-<body data-user-id="{{ user.id if user else '' }}">
+<body data-user-id="{{ user.id if user else '' }}" data-answer-session="{{ session.get('answer_session', '') }}">
   <!-- Mobile sidebar overlay -->
   <div id="sidebar-overlay" class="sidebar-overlay"></div>
 

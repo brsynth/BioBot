@@ -14,6 +14,7 @@ from doc_loader import load_and_chunk_docs, get_supported_extensions
 from doc_fetcher import fetch_documentation
 from feasibility_check import check_feasibility, format_feasibility_response
 from handlers import detect_handler
+from questionnaire import check_sufficient_info
 
 
 def strip_code_fences(text):
@@ -42,111 +43,6 @@ def get_openai_client(api_key):
     return OpenAI(api_key=api_key)
 
 
-# ----------- SUFFICIENCY CHECK -------------
-SUFFICIENCY_PROMPT = """You are BioBot, an expert assistant in lab automation and liquid handling robots.
- 
-Your job is to check whether a user's protocol request contains enough information to generate a working script.
- 
-If the request has enough information (considering the full conversation history), reply with exactly: SUFFICIENT
- 
-If information is missing, you MUST ask ALL your questions AT ONCE in a single response. Do NOT hold back questions for follow-ups — ask everything you need in one shot so the user only has to answer once, then code generates immediately.
- 
-Reply with ONLY a valid JSON object (no markdown, no explanation) following this EXACT structure:
- 
-{
-  "message": "A short friendly message explaining what you need",
-  "questions": [
-    {
-      "id": "unique_id",
-      "question": "The question text",
-      "type": "single or multiple",
-      "options": [
-        {"value": "internal_value", "label": "Display label shown to user"},
-        {"value": "another_value", "label": "Another option"}
-      ],
-      "allow_other": false
-    }
-  ]
-}
- 
-RULES:
-- NEVER ask about information the user already provided. Read the conversation carefully. If the user named their robot, do NOT ask which platform. If they mentioned a pipette, do NOT ask which pipette. Only ask what is genuinely missing.
-- ASK EVERYTHING AT ONCE. After the user answers, code generates immediately. No follow-up rounds.
-- Ask which software/API interface the user uses if it is not specified.
-- "type": "single" = user picks ONE option (radio buttons).
-- "type": "multiple" = user picks ONE OR MORE (checkboxes).
-- "allow_other": true = adds a text field for custom answers.
-- Include practical, common options with reasonable defaults.
-- For pipettes: include volume ranges in labels.
-- For labware: include well counts and volumes.
-- ALWAYS include this as the LAST question to let the user add optional details:
-  {"id": "remarks", "question": "Any additional specifications or remarks? (optional — leave empty if none)", "type": "single", "options": [{"value": "none", "label": "No, generate the protocol"}], "allow_other": true}
-- Return ONLY "SUFFICIENT" or the JSON. Nothing else.
-"""
- 
- 
-def check_sufficient_info(query, history, api_key):
-    """
-    Check if the user's request has enough info for code generation.
-    If not, output structured questions as JSON for the frontend to render.
-    """
-    import json
-    import sys
- 
-    # Skip if the user already answered structured questions
-    if query.strip().startswith("[PROTOCOL_PARAMS]"):
-        return
- 
-    # Also skip if any recent message in history contains answered params
-    for m in (history or [])[-3:]:
-        if m.get("role") == "user" and "[PROTOCOL_PARAMS]" in m.get("content", ""):
-            return
- 
-    client = get_openai_client(api_key)
- 
-    recent = [m for m in history if m["role"] != "system"][-6:]
-    conversation = "\n".join(
-        f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content'][:400]}"
-        for m in recent
-    )
- 
-    response = client.responses.create(
-        model=light_functions_model,
-        input=[
-            {"role": "system", "content": SUFFICIENCY_PROMPT},
-            {"role": "user", "content": f"Conversation so far:\n{conversation}\n\nLatest request: {query}"}
-        ],
-    )
- 
-    answer = response.output_text.strip()
- 
-    if answer == "SUFFICIENT":
-        return  # Continue to code generation
- 
-    # Try to parse as structured questions JSON
-    try:
-        # Clean markdown fences if present
-        cleaned = answer
-        if cleaned.startswith("```"):
-            cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else cleaned[3:]
-        if cleaned.endswith("```"):
-            cleaned = cleaned[:-3].strip()
-        if cleaned.startswith("json"):
-            cleaned = cleaned[4:].strip()
- 
-        questions = json.loads(cleaned)
- 
-        # Validate structure
-        if "questions" in questions and isinstance(questions["questions"], list):
-            # Output as structured questions marker
-            print("QUESTIONS:" + json.dumps(questions), flush=True)
-            sys.exit(0)
-    except (json.JSONDecodeError, KeyError):
-        pass
- 
-    # Fallback: output as plain text (old behavior)
-    print(answer, flush=True)
-    sys.exit(0)
 
 
 def consolidate_request(query, history, api_key):
@@ -154,7 +50,7 @@ def consolidate_request(query, history, api_key):
 
     recent = [m for m in history if m["role"] != "system"][-8:]
     conversation = "\n".join(
-        f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content'][:500]}"
+        f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
         for m in recent
     )
 
@@ -167,6 +63,7 @@ def consolidate_request(query, history, api_key):
 Given a conversation between a user and an assistant about a protocol request, 
 write a structered, complete, self-contained protocol description that consolidates 
 ALL the information provided across the entire conversation. If the user mentioned the type of the output file he wants, mention it (example : txt, csv, python script, HSL etc..)
+Preserve "Don't know" answers as delegated choices, not supplied facts. Distinguish justified defaults from unresolved essential facts, retain actual values and units, and require adopted defaults to be stated explicitly in the output.
 
 Note that the request will be sent to an LLM. Restructure it and write it in natural langage in 3th person (the user wants to...) describing what the user wants to do, as if he had provided everything upfront.
 Return ONLY the consolidated request. No preamble, no explanation."""
@@ -518,7 +415,14 @@ Do not ask me to complete anything — return the complete, working output file.
 
 # 1. Check if we have enough info (skip for one-shot mode)
 if not os.environ.get("BIOBOT_SKIP_SUFFICIENT_CHECK"):
-    check_sufficient_info(user_query, chat_history, user_api_key)
+    try:
+        questions = check_sufficient_info(user_query, chat_history, user_api_key)
+    except ValueError as error:
+        print(str(error), flush=True)
+        sys.exit(0)
+    if questions is not None:
+        print("QUESTIONS:" + json.dumps(questions), flush=True)
+        sys.exit(0)
 
 # 2. Consolidate the request
 consolidated_query = consolidate_request(user_query, chat_history, user_api_key)

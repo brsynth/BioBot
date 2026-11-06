@@ -21,7 +21,7 @@ It helps users interact with an AI assistant to get guidance, protocols, and Pyt
 
 ### Protocol Generation
 - **Natural language → working code.** Describe what you want ("serial dilution, 1:10, 8 steps, 96-well plate") and BioBot generates a complete, executable protocol.
-- **Structured clarification.** When details are missing, BioBot presents interactive multiple-choice questions (platform, pipette, labware, volumes) instead of asking free-text follow-ups. Answer once, then the code generates.
+- **Structured clarification.** BioBot generates a questionnaire with numeric bounds and relationships inferred from the request. Answers are checked locally as you advance, and submitted parameters are reviewed for completeness and consistency before code generation.
 - **Self-correcting generation loop.** Generated code is automatically simulated. If it fails, errors are fed back to the LLM for correction (up to 3 attempts) before delivering the final result.
 - **Reverse semantic check.** After simulation passes, a second LLM call verifies that the code actually matches what the user asked for, not just that it runs without errors.
 
@@ -49,7 +49,7 @@ When a user asks BioBot for a protocol, the request goes through a multi-stage p
 
 **Classification.** The user's message is first sent to a lightweight LLM (GPT-4o-mini) that classifies it as one of three categories: *code* (the user wants a protocol script), *general* (a question about lab automation that doesn't require code), or *out* (unrelated to lab automation). General and out-of-scope messages are handled by a standard streaming chat response. Code requests enter the RAG pipeline.
 
-**Sufficiency check.** Before generating anything, a second LLM call evaluates whether the request contains enough information to produce a working protocol. It considers the full conversation history, if the user named their robot three messages ago, the system remembers. When details are missing, the LLM returns a structured JSON object describing the questions it needs answered, each with predefined options. The frontend renders these as an interactive stepper form: the user selects answers one at a time (radio buttons for single-choice, checkboxes for multi-choice, with an "Other" text field for custom values), then clicks "Generate Protocol." The compiled answers are sent back as a single message that skips the sufficiency check entirely, going straight to code generation.
+**Sufficiency check.** The shared dispatcher checks completeness before choosing chat or generation. Missing protocol details are collected together in one questionnaire, with justified defaults for routine choices. The stepper supports suggested answers, custom quantities with units, and “Don't know.” Numeric constraints are checked as the user advances; submitted answers are reviewed for consistency before generation.
 
 **Consolidation.** Multi-turn conversations are common, the user might say "serial dilution" in the first message, then "use my specified pipette" in a follow-up, then answer the structured questions in a third. Before retrieval, a consolidation step merges the entire conversation into one self-contained protocol description, as if the user had provided everything upfront. This ensures the RAG retrieval and code generation see the complete picture regardless of how the conversation unfolded.
 

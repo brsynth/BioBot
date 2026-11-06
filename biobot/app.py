@@ -227,6 +227,7 @@ def login():
 
         if user and check_password_hash(user["password"], password):
             session["user"] = user["id"]
+            session["answer_session"] = uuid.uuid4().hex
 
             # Migrate legacy users who registered before encryption was added
             if not user.get("encryption_salt"):
@@ -271,6 +272,7 @@ def login():
 def logout():
     session.pop("user", None)
     session.pop("encryption_key", None)
+    session.pop("answer_session", None)
     flash("You have been logged out.", "info")
     return redirect(url_for("login"))
 
@@ -424,6 +426,7 @@ def index():
         session.pop("user", None)
         return redirect("/login")
 
+    session.setdefault("answer_session", uuid.uuid4().hex)
     return render_template("index.html", user=user, version=__version__)
 
 

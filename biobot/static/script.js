@@ -318,10 +318,12 @@ function buildCodeBlock(code, format = "python") {
 
   // Render line-by-line so deck animation can highlight individual lines
   const lines = code.split("\n");
+  const previewLines = 8;
   for (let i = 0; i < lines.length; i++) {
     const lineDiv = document.createElement("div");
     lineDiv.className = "code-line";
     lineDiv.dataset.line = i + 1;
+    lineDiv.hidden = i >= previewLines;
 
     const lineNum = document.createElement("span");
     lineNum.className = "code-line-num";
@@ -340,6 +342,22 @@ function buildCodeBlock(code, format = "python") {
 
   wrapper.appendChild(toolbar);
   wrapper.appendChild(pre);
+  if (lines.length > previewLines) {
+    const toggle = document.createElement("button");
+    toggle.className = "code-action-btn code-preview-toggle";
+    toggle.type = "button";
+    toggle.textContent = `Show full file · ${lines.length} lines`;
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.addEventListener("click", () => {
+      const expanded = toggle.getAttribute("aria-expanded") !== "true";
+      codeElem.querySelectorAll(".code-line").forEach((line, index) => {
+        line.hidden = !expanded && index >= previewLines;
+      });
+      toggle.setAttribute("aria-expanded", String(expanded));
+      toggle.textContent = expanded ? "Collapse file" : `Show full file · ${lines.length} lines`;
+    });
+    wrapper.appendChild(toggle);
+  }
   return wrapper;
 }
 
@@ -836,6 +854,14 @@ async function sendMessage(edit = {}) {
   if (!edit.messageId) {
     input.value = "";
     input.style.height = "auto";
+  } else {
+    let next = userDiv.nextElementSibling;
+    while (next) {
+      const following = next.nextElementSibling;
+      next.remove();
+      next = following;
+    }
+    if (window.clearDeckPanel) window.clearDeckPanel();
   }
 
   const thinkingInterval = addThinkingMessage();
@@ -845,6 +871,8 @@ async function sendMessage(edit = {}) {
   let statusDiv = null;
   let isRagResponse = false;
   let finalRagCode = null;
+  let questionResponse = null;
+  let questionRendered = false;
 
   try {
     const res = await fetch(`/chat/${chatId}/stream`, {
@@ -874,15 +902,6 @@ async function sendMessage(edit = {}) {
       throw new Error(error.error || "Unable to send your prompt.");
     }
     const messageId = Number(res.headers.get("X-User-Message-Id"));
-    if (edit.messageId) {
-      let next = userDiv.nextElementSibling;
-      while (next) {
-        const following = next.nextElementSibling;
-        if (next.id !== "thinking-message") next.remove();
-        next = following;
-      }
-      if (window.clearDeckPanel) window.clearDeckPanel();
-    }
     renderUserMessage(userDiv, message, messageId || edit.messageId);
     if (!res.body) throw new Error("No response body");
 
@@ -893,7 +912,7 @@ async function sendMessage(edit = {}) {
       const { value, done } = await reader.read();
       if (done) break;
 
-      const chunk = decoder.decode(value);
+      const chunk = decoder.decode(value, { stream: true });
       const parts = chunk.split("__STATUS__:");
 
       const contentPart = parts[0];
@@ -928,15 +947,17 @@ async function sendMessage(edit = {}) {
         }
 
         // --- Structured questions from sufficiency check ---
-        if (contentPart.includes("__QUESTIONS__:")) {
-          const questionsJson = contentPart.split("__QUESTIONS__:").pop().trim();
+        if (questionResponse !== null || contentPart.includes("__QUESTIONS__:") || "__QUESTIONS__:".startsWith(contentPart)) {
+          questionResponse = (questionResponse || "") + contentPart;
+          const questionsJson = questionResponse.replace(/^__QUESTIONS__:/, "").trim();
           try {
             const questionsData = JSON.parse(fixTrailingCommas(questionsJson));
             if (window.renderQuestionsForm) {
               window.renderQuestionsForm(botDiv, questionsData);
+              questionRendered = true;
             }
           } catch (e) {
-            appendChunkToBotMessage(botDiv, questionsJson);
+            // A network read can split the marker or JSON; wait for the rest.
           }
         }
         // --- RAG failure: message + code ---
@@ -974,6 +995,7 @@ async function sendMessage(edit = {}) {
       }
     }
 
+    if (questionResponse !== null && !questionRendered) throw new Error("The questionnaire could not be loaded. Please try again.");
     await refreshChatList();
     selectChatListItem(currentChatId);
 
@@ -1013,6 +1035,7 @@ userInputElem.addEventListener("keydown", (e) => {
 newChatBtn.addEventListener("click", createNewChat);
 
 document.getElementById("logout-btn").addEventListener("click", () => {
+  try { sessionStorage.removeItem("biobot-questionnaire-answers"); } catch (_) {}
   window.location.href = "/logout";
 });
 

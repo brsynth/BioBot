@@ -173,12 +173,15 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
   margin-top: 6px;
   padding-top: 10px;
   border-top: 1px solid rgba(255, 255, 255, 0.04);
 }
 
-.q-back-btn {
+.q-back-btn,
+.q-unknown-btn {
   padding: 8px 18px;
   border: 1px solid #444;
   border-radius: 8px;
@@ -191,7 +194,8 @@
   transition: all 0.2s;
 }
 
-.q-back-btn:hover {
+.q-back-btn:hover,
+.q-unknown-btn:hover {
   border-color: #888;
   color: #fff;
 }
@@ -232,6 +236,7 @@
 
 .q-submit-btn:disabled,
 .q-next-btn:disabled,
+.q-unknown-btn:disabled,
 .q-back-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;

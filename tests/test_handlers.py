@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("tested_handlers", ROOT / "biobot/handlers.py")
 handlers = importlib.util.module_from_spec(spec)
 with patch.dict(sys.modules, {
-    "config": types.SimpleNamespace(biobot_model="test-model"),
+    "config": types.SimpleNamespace(biobot_model="test-model", light_functions_model="test-model"),
     "openai": types.SimpleNamespace(OpenAI=Mock()),
 }):
     spec.loader.exec_module(handlers)
@@ -47,9 +47,9 @@ class HandlerDiscoveryTests(unittest.TestCase):
         self.assertIsNone(config["simulate_cmd"])
         self.assertEqual(config["validation_strategy"], "llm_review")
         self.assertEqual(json.loads(self.registry.read_text()), registry)
-        self.outputs("robot_xyz")
+        self.outputs("robot_xyz", "none")
         self.assertEqual(handlers.detect_handler("Continue", [], "test-key"), (platform, registry))
-        self.assertEqual(self.client.responses.create.call_count, 3)
+        self.assertEqual(self.client.responses.create.call_count, 4)
 
     def test_unspecified_platform_never_chooses_a_cached_robot(self):
         self.outputs("unknown")
