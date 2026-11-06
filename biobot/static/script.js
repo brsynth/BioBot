@@ -137,10 +137,13 @@ const FORMAT_CONFIG = {
 };
 
 // --- Detect content format from the text itself ---
+// Uses multi-line scoring to correctly identify Python code even when it
+// starts with docstrings (""") or comments (#) instead of imports.
 function detectFormat(content) {
   const trimmed = content.trim();
+  if (!trimmed) return "text";
 
-  // Priority 1: Check for markdown fence language tag at the start
+  // Priority 1: markdown fence language tag
   const fenceMatch = trimmed.match(/^```(\w+)/);
   if (fenceMatch) {
     const lang = fenceMatch[1].toLowerCase();
@@ -148,24 +151,59 @@ function detectFormat(content) {
     return aliases[lang] || lang;
   }
 
-  // Priority 2: Detect from content patterns
+  // Priority 2: shebang
   const firstLine = trimmed.split("\n")[0];
-  if (firstLine.startsWith("import ") || firstLine.startsWith("from ") ||
-      firstLine.startsWith("#!/") || firstLine.startsWith("def ") ||
-      firstLine.startsWith("class ")) {
-    return "python";
+  if (firstLine.startsWith("#!/")) return "python";
+
+  // Priority 3: non-Python structured formats
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) return "json";
+  if (trimmed.startsWith("<?xml") || (trimmed.startsWith("<") && trimmed.includes("</") && !trimmed.startsWith("#"))) return "xml";
+
+  // Priority 4: multi-line Python scoring — scan up to 80 lines
+  const lines = trimmed.split("\n");
+  const scanLimit = Math.min(lines.length, 80);
+  let score = 0;
+  let hasTripleQuote = false;
+
+  for (let i = 0; i < scanLimit; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+
+    // Strong signals (+3)
+    if (/^(import |from \S+ import )/.test(line)) { score += 3; continue; }
+    if (/^(def |class )\w/.test(line)) { score += 3; continue; }
+
+    // Domain-specific Opentrons keywords (+4)
+    if (/\b(opentrons|protocol_api|ProtocolContext|load_labware|load_instrument|pick_up_tip|drop_tip|aspirate|dispense|load_liquid|define_liquid)\b/.test(line)) { score += 4; continue; }
+
+    // Metadata / requirements dict (+2)
+    if (/^(metadata|requirements)\s*=\s*\{/.test(line)) { score += 2; continue; }
+
+    // Control flow (+1)
+    if (/^(if |elif |else:|for |while |try:|except |with |return |raise )/.test(line)) { score += 1; continue; }
+
+    // Method calls like  variable.method( (+1)
+    if (/^\w+\.\w+\(/.test(line)) { score += 1; continue; }
+
+    // Triple-quote docstrings (+1, once)
+    if (!hasTripleQuote && (line.includes('"""') || line.includes("'''"))) { hasTripleQuote = true; score += 1; continue; }
+
+    // Python comments (+0.5)
+    if (line.startsWith("#") && !line.startsWith("#!")) { score += 0.5; continue; }
+
+    // Early exit if already confident
+    if (score >= 6) break;
   }
-  if (firstLine.includes(",") && !firstLine.startsWith("#") &&
-      !firstLine.startsWith("import") && !firstLine.startsWith("from") &&
-      !firstLine.startsWith("def")) {
-    return "csv";
+
+  if (score >= 3) return "python";
+
+  // Priority 5: CSV — needs 2+ commas on first line AND 2+ data rows
+  if (firstLine.includes(",")) {
+    const commaCount = (firstLine.match(/,/g) || []).length;
+    const csvRows = lines.filter(l => l.includes(",")).length;
+    if (commaCount >= 2 && csvRows >= 2) return "csv";
   }
-  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-    return "json";
-  }
-  if (trimmed.startsWith("<?xml") || (trimmed.startsWith("<") && !trimmed.startsWith("#"))) {
-    return "xml";
-  }
+
   return "text";
 }
 
@@ -542,8 +580,13 @@ async function loadChatHistory(chatId) {
             botDiv.appendChild(textP);
           }
         } else {
-          // No markdown fences — render as plain text
-          botDiv.innerHTML = escapeHtml(content).replace(/\n/g, "<br>");
+          // No markdown fences — try detecting format from content
+          const detectedFmt = detectFormat(content);
+          if (detectedFmt !== "text" && content.trim().split("\n").length > 3) {
+            botDiv.appendChild(buildCodeBlock(content, detectedFmt));
+          } else {
+            botDiv.innerHTML = escapeHtml(content).replace(/\n/g, "<br>");
+          }
         }
       }
     }
@@ -743,14 +786,6 @@ function addThinkingMessage() {
 
   // Return a dummy interval ID for compatibility (animation is pure CSS now)
   return setInterval(() => {}, 60000);
-
-  let count = 0;
-  const interval = setInterval(() => {
-    count = (count + 1) % 4;
-    dots.textContent = ".".repeat(count || 1);
-  }, 400);
-
-  return interval;
 }
 
 // --- Typewriter effect for large chunks ---

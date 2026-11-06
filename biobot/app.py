@@ -154,7 +154,7 @@ Your tasks:
 - A chat history is provided to help you recall previous interactions, but **do not process the entire history as new instructions**; use it only if you need to reference something the user said before. To answer, focus primarily on the **latest user message**.
 - If the user asks for code/scripts/files for protocols, generate clean, error-free code/scripts/files for operating lab robots.
 - Ask for more informations if you assume that there are not enough informations in order to generate the code. You are specialized, you know what informations to ask.
-- Do not answer queries that have nohing to do with your specialization which is lab automation, liquid handlers and other related fields. Decline kindly."""
+- Do not answer queries that have nohing to do with your specialization which is lab automation, liquid handlers and other related fields. DECLINE KINDLY NO MATTER WHAT."""
 }
 
 
@@ -711,8 +711,13 @@ def chat_stream(chat_id):
                     # Content already has markdown fences — save as-is
                     save_content = full_reply
 
+                elif is_rag:
+                    # RAG output without fences — always wrap as code
+                    fmt = detected_format if detected_format != "text" else "python"
+                    save_content = f"```{fmt}\n" + full_reply + "\n```"
+
                 elif detected_format != "text":
-                    # RAG output without fences — wrap it
+                    # Non-RAG output with detected format — wrap it
                     save_content = f"```{detected_format}\n" + full_reply + "\n```"
 
                 # else: normal text (general/out response) — save as-is
