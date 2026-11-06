@@ -69,7 +69,7 @@ RULES:
 - Return ONLY valid JSON. No trailing commas.
 """
 
-STEPS_PROMPT = """You are an expert in laboratory automation. Given protocol code and a list of deck position IDs, extract ALL liquid-handling steps in execution order.
+STEPS_PROMPT = """You are an expert in laboratory automation. Given protocol input (Python code, CSV picklist, HSL script, plain text instructions, or any other format) and a list of deck position IDs, extract ALL liquid-handling steps in execution order.
 
 Return ONLY valid JSON (no markdown, no explanation) matching this schema:
 
@@ -86,19 +86,38 @@ Return ONLY valid JSON (no markdown, no explanation) matching this schema:
   ]
 }
 
+FORMAT-SPECIFIC GUIDANCE:
+
+1. CSV / Picklist (e.g., Echo, Mosquito, CSV transfers):
+   - Each data row is typically one transfer step.
+   - Common columns: Source Well, Destination Well, Volume, Source Plate, Destination Plate.
+   - Map each row to a "transfer" action. Use "source" for the source plate/well and "destination" for the destination plate/well.
+   - code_lines = the 1-indexed line number of that CSV row (header is line 1, first data row is line 2, etc.).
+   - Group consecutive rows with the same source well into a single step if desired, or keep them as individual transfers.
+   - If the CSV has hundreds of rows, group transfers by source well or by plate region to keep steps under 50. Include code_lines for ALL grouped rows.
+
+2. Python code (e.g., Opentrons, PyHamilton):
+   - Each pipette call (aspirate, dispense, transfer, mix, pick_up_tip, drop_tip) is a step.
+   - For steps inside loops (for/while), include BOTH the loop header line(s) AND the action line(s) in code_lines.
+   - Multiple nested loops: include all enclosing loop headers.
+
+3. HSL / Venus scripts:
+   - Each Aspirate/Dispense/Tip pickup command is a step.
+   - Map sequence names to the correct deck position IDs.
+
+4. Plain text / other formats:
+   - Extract any described liquid transfers, aspirations, dispenses, or tip operations.
+   - Each described action = one step. code_lines = the line(s) describing that action.
+
 RULES:
-- source.slot and destination.slot MUST match a position id from the provided list.
+- source.slot and destination.slot MUST match a position id from the provided list. For CSV picklists with plate names, map the plate name to the closest matching position id.
 - For pickup_tip/drop_tip: use source only. Omit destination.
 - For aspirate/mix: use source only. For dispense: use destination only. For transfer: use both.
 - If individual wells cannot be determined, use an empty array [].
 - If no liquid handling steps exist, return {"steps": []}.
-- code_lines: an array of 1-indexed line numbers from the source code that produce this step.
-  For a simple call like `pipette.aspirate(100, plate['A1'])`, this is one line number.
-  For steps inside a loop (for/while), include BOTH the loop header line(s) AND the action line(s).
-  Example: if line 15 is `for well in wells:` and line 16 is `pipette.transfer(100, src, well)`,
-  then each unrolled transfer step gets code_lines: [15, 16].
-  Multiple nested loops: include all enclosing loop headers.
-  This field is REQUIRED for every step. Examine the code carefully to map each step to its exact line(s).
+- code_lines: an array of 1-indexed line numbers from the input that produce this step. This field is REQUIRED for every step.
+- For large inputs (>100 rows/lines), group related transfers into logical steps (e.g., all transfers from the same source well, or all transfers in a serial dilution). Include ALL relevant line numbers in code_lines for the group.
+- Keep the total number of steps reasonable (10-50 for most protocols).
 - Return ONLY valid JSON. No trailing commas.
 """
 
@@ -174,7 +193,7 @@ def generate_visualization(code: str, api_key: str = None) -> dict:
 
         steps_user_msg = (
             f"Deck position IDs: {json.dumps(pos_ids)}\n\n"
-            f"Extract the liquid-handling steps from this code.\n"
+            f"Extract the liquid-handling steps from this protocol input.\n"
             f"Each line is prefixed with its 1-indexed line number for code_lines mapping.\n\n"
             f"{numbered_code}"
         )
