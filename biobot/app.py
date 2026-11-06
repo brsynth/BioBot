@@ -655,8 +655,7 @@ def chat_stream(chat_id):
         try:
             result = process_user_query(user_message, messages, biobot_model, api_key=user_api_key)
             if result is None:
-                yield "Sorry, I couldn't process your request. Please try again."
-                return
+                raise RuntimeError("Couldn't process your request. Please try again.")
             for chunk in result:
                 if chunk.startswith(RAG_STATUS_PREFIX):
                     is_rag = True
@@ -675,23 +674,31 @@ def chat_stream(chat_id):
                         continue
                 full_reply += chunk
                 yield chunk
+            if not full_reply.strip():
+                raise RuntimeError("No answer was returned. Please retry your request.")
         except Exception as e:
             import sys
             print(f"Stream error: {e}", file=sys.stderr, flush=True)
             error_msg = str(e).lower()
             if "auth" in error_msg or "api key" in error_msg or "401" in error_msg or "403" in error_msg:
-                yield "Your API key appears to be invalid or expired. Please update it in Settings."
+                reply = "Your API key appears to be invalid or expired. Please update it in Settings."
             elif "credit_balance_exhausted" in error_msg:
-                yield "Your OpenAI API account has no credits remaining. Add credits in OpenAI billing, or use another API key in Settings."
+                reply = "Your OpenAI API account has no credits remaining. Add credits in OpenAI billing, or use another API key in Settings."
             elif any(code in error_msg for code in ("insufficient_quota", "spend_limit_exceeded", "usage_limit_exceeded")):
-                yield "Your OpenAI API account has reached its billing or usage limit. Check your OpenAI billing and limits, or use another API key in Settings."
+                reply = "Your OpenAI API account has reached its billing or usage limit. Check your OpenAI billing and limits, or use another API key in Settings."
             elif "rate limit" in error_msg or "429" in error_msg:
-                yield "Rate limit reached. Please wait a moment and try again."
+                reply = "Rate limit reached. Please wait a moment and try again."
+            elif "timeout" in error_msg or "timed out" in error_msg:
+                reply = "The request timed out while preparing the protocol. Please retry your request."
             elif "model" in error_msg or "404" in error_msg:
-                yield "The AI model is currently unavailable. Please try again later."
+                reply = "The AI model is currently unavailable. Please try again later."
             else:
-                yield f"An error occurred: {str(e)}"
-            return
+                reply = f"An error occurred: {str(e)}"
+            # A failed generation is a chat answer too: show it and keep it in history.
+            full_reply = FAILED_CODE_MARKER + reply
+            is_rag = False
+            detected_format = "text"
+            yield full_reply
 
         # --- Save to DB (after streaming is complete) ---
         try:

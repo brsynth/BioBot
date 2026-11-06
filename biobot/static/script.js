@@ -860,16 +860,36 @@ function addThinkingMessage() {
   return setInterval(() => {}, 60000);
 }
 
-// --- Typewriter effect for large chunks ---
-function typewriterAppend(div, text, delay = 18) {
-  const words = text.split(/(?<=\s)|(?=\s)/);
-  let i = 0;
-  function next() {
-    if (i >= words.length) return;
-    appendChunkToBotMessage(div, words[i++]);
-    setTimeout(next, delay);
-  }
-  next();
+// Status lines can be split or coalesced by the network. Once content starts,
+// everything that follows belongs to the reply, including marker-like code text.
+async function* readChatReply(body) {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  const marker = "__STATUS__:";
+  let pending = "", contentStarted = false;
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      pending += done ? decoder.decode() : decoder.decode(value, { stream: true });
+      while (!contentStarted && pending) {
+        if (pending.startsWith(marker)) {
+          const end = pending.indexOf("\n");
+          if (end < 0) break;
+          yield { type: "status", content: pending.slice(marker.length, end).trim() };
+          pending = pending.slice(end + 1);
+        } else if (marker.startsWith(pending)) break;
+        else contentStarted = true;
+      }
+      if (contentStarted && pending) {
+        yield { type: "content", content: pending };
+        pending = "";
+      }
+      if (done) {
+        if (pending) throw new Error("The reply was interrupted. Please retry your request.");
+        break;
+      }
+    }
+  } finally { reader.releaseLock?.(); }
 }
 
 // --- Send message ---
@@ -909,8 +929,8 @@ async function sendMessage(edit = {}) {
   let statusDiv = null;
   let isRagResponse = false;
   let finalRagCode = null;
-  let questionResponse = null;
-  let questionRendered = false;
+  let replyBuffer = "";
+  let replyMode = null;
 
   try {
     const res = await fetch(`/chat/${chatId}/stream`, {
@@ -944,99 +964,61 @@ async function sendMessage(edit = {}) {
     renderUserMessage(userDiv, message, messageId || edit.messageId);
     if (!res.body) throw new Error("No response body");
 
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-
-      const chunk = decoder.decode(value, { stream: true });
-      const parts = chunk.split("__STATUS__:");
-
-      const contentPart = parts[0];
-      const statusParts = parts.slice(1);
-
-      for (const statusText of statusParts) {
-        if (!statusText.trim()) continue;
-
+    for await (const part of readChatReply(res.body)) {
+      if (part.type === "status") {
         isRagResponse = true;
-
         clearInterval(thinkingInterval);
-        const thinkingElem = document.getElementById("thinking-message");
-        if (thinkingElem) thinkingElem.remove();
-
+        document.getElementById("thinking-message")?.remove();
         if (!statusDiv) {
           statusDiv = document.createElement("div");
           statusDiv.className = "chat-message chat-bot rag-status";
           chatHistoryElem.appendChild(statusDiv);
         }
-        statusDiv.innerHTML = `<span class="rag-spinner"></span>${statusText.trim()}`;
+        statusDiv.replaceChildren();
+        const spinner = document.createElement("span");
+        spinner.className = "rag-spinner";
+        statusDiv.append(spinner, document.createTextNode(part.content));
         scrollToBottom();
+        continue;
       }
-
-      if (contentPart) {
-        if (!firstChunkReceived) {
-          firstChunkReceived = true;
-          clearInterval(thinkingInterval);
-          const thinkingElem = document.getElementById("thinking-message");
-          if (thinkingElem) thinkingElem.remove();
-          if (statusDiv) { statusDiv.remove(); statusDiv = null; }
-          botDiv = addMessage("", "bot");
-        }
-
-        // --- Structured questions from sufficiency check ---
-        if (questionResponse !== null || contentPart.includes("__QUESTIONS__:") || "__QUESTIONS__:".startsWith(contentPart)) {
-          questionResponse = (questionResponse || "") + contentPart;
-          const questionsJson = questionResponse.replace(/^__QUESTIONS__:/, "").trim();
-          try {
-            const questionsData = JSON.parse(fixTrailingCommas(questionsJson));
-            if (window.renderQuestionsForm) {
-              window.renderQuestionsForm(botDiv, questionsData);
-              questionRendered = true;
-            }
-          } catch (e) {
-            // A network read can split the marker or JSON; wait for the rest.
-          }
-        }
-        // --- RAG failure: message + code ---
-        else if (contentPart.includes("__FAILED_CODE__:")) {
-          const failedContent = contentPart.split("__FAILED_CODE__:").pop();
-          const sepParts = failedContent.split("___CODE_SEP___");
-          const message = (sepParts[0] || "").trim();
-          const code = (sepParts[1] || "").trim();
-
-          if (message) {
-            const msgP = document.createElement("p");
-            msgP.textContent = message;
-            msgP.style.marginBottom = "12px";
-            botDiv.appendChild(msgP);
-          }
-          if (code) {
-            botDiv.appendChild(buildCodeBlock(code, detectFormat(code)));
-          }
-          isRagResponse = false;
-        }
-        // --- RAG success: raw output ---
-        else if (isRagResponse) {
-          botDiv.appendChild(buildCodeBlock(contentPart, detectFormat(contentPart)));
-          // Store final code — deck will be parsed ONCE after streaming completes
-          finalRagCode = contentPart;
-        }
-        // --- Normal streaming (general/out) ---
-        else {
-          if (contentPart.length > 120) {
-            typewriterAppend(botDiv, contentPart);
-          } else {
-            appendChunkToBotMessage(botDiv, contentPart);
-          }
-        }
+      if (!firstChunkReceived) {
+        firstChunkReceived = true;
+        clearInterval(thinkingInterval);
+        document.getElementById("thinking-message")?.remove();
+        statusDiv?.remove();
+        botDiv = addMessage("", "bot");
+      }
+      replyBuffer += part.content;
+      if (!replyMode) {
+        const markers = ["__QUESTIONS__:", "__FAILED_CODE__:"];
+        if (markers.some(marker => marker.startsWith(replyBuffer) && marker !== replyBuffer)) continue;
+        replyMode = replyBuffer.startsWith(markers[0]) ? "questions"
+          : replyBuffer.startsWith(markers[1]) ? "failed" : isRagResponse ? "code" : "text";
+      }
+      if (replyMode === "text") {
+        appendChunkToBotMessage(botDiv, replyBuffer);
+        replyBuffer = "";
       }
     }
 
+    if (!firstChunkReceived) throw new Error("No answer was received. Please retry your request.");
+    if (replyMode === "questions") {
+      const questions = JSON.parse(fixTrailingCommas(replyBuffer.slice("__QUESTIONS__:".length)));
+      window.renderQuestionsForm(botDiv, questions);
+    } else if (replyMode === "failed") {
+      const [message, code] = replyBuffer.slice("__FAILED_CODE__:".length).split("___CODE_SEP___");
+      const paragraph = document.createElement("p");
+      paragraph.textContent = message.trim();
+      botDiv.appendChild(paragraph);
+      if (code) botDiv.appendChild(buildCodeBlock(code, detectFormat(code)));
+    } else if (replyMode === "code") {
+      botDiv.appendChild(buildCodeBlock(replyBuffer, detectFormat(replyBuffer)));
+      finalRagCode = replyBuffer;
+    } else if (!replyMode) {
+      throw new Error("The reply was interrupted. Please retry your request.");
+    }
     edit.questionnaireSummary?.querySelector(".summary-generating")?.remove();
     statusDiv?.remove();
-    if (questionResponse !== null && !questionRendered) throw new Error("The questionnaire could not be loaded. Please try again.");
     await refreshChatList();
     if (requestController.signal.aborted) return;
     selectChatListItem(currentChatId);

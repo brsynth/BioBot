@@ -117,6 +117,25 @@ class ChatTrashTests(unittest.TestCase):
         self.assertNotIn('Late assistant response', [message['content'] for message in messages])
         self.assertEqual(len(messages), 3)
 
+    def test_generation_timeout_is_visible_and_saved_in_history(self):
+        conn = self.connection()
+        with conn, conn.cursor() as cursor:
+            cursor.execute("UPDATE users SET api_key = 'test-placeholder' WHERE id = 1")
+        conn.close()
+
+        def timeout(*args, **kwargs):
+            yield '__RAG_STATUS__:Indexing documentation...'
+            raise RuntimeError('Protocol preparation timed out. Please retry your request.')
+
+        with patch.object(self.server, 'decrypt_text', return_value='sk-test'), patch.object(self.server, 'process_user_query', side_effect=timeout):
+            result = self.client.post('/chat/one/stream', json={'message': 'Generate a protocol'}, buffered=True)
+        self.assertIn(b'__FAILED_CODE__:', result.data)
+        self.assertIn(b'timed out', result.data)
+        messages = self.client.get('/chat/one').get_json()
+        self.assertEqual(messages[-1]['role'], 'assistant')
+        self.assertIn('timed out', messages[-1]['content'])
+        self.assertNotIn('```', messages[-1]['content'])
+
 
 if __name__ == '__main__':
     unittest.main()

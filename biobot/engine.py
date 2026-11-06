@@ -2,6 +2,7 @@ import subprocess
 import json
 from openai import OpenAI
 import os
+import tempfile
 from config import get_api_key, biobot_model, light_functions_model
 from questionnaire import check_sufficient_info
     
@@ -137,60 +138,72 @@ def process_user_query(user_query, chat_history, model, api_key=None):
             # The shared dispatcher already checked completeness before choosing this route.
             env["BIOBOT_SKIP_SUFFICIENT_CHECK"] = "1"
 
-            proc = subprocess.Popen(
-                [
-                    "python3", "main_rag.py",
-                    user_query,
-                    json.dumps(history)
-                ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                bufsize=1,
-                env=env
-            )
+            # Keep diagnostics out of the reply without letting a full stderr pipe
+            # block a long-running documentation/indexing process.
+            with tempfile.TemporaryFile(mode="w+t") as errors:
+                proc = subprocess.Popen(
+                    [
+                        "python3", "main_rag.py",
+                        user_query,
+                        json.dumps(history)
+                    ],
+                    stdout=subprocess.PIPE,
+                    stderr=errors,
+                    text=True,
+                    bufsize=1,
+                    env=env
+                )
 
-            final_code_lines = []
-            failed_code_content = None
-            is_failed = False
-            detected_format = "python"
+                final_code_lines = []
+                failed_code_content = None
+                is_failed = False
+                detected_format = "python"
+                sent_questions = False
 
-            for raw_line in proc.stdout:
-                trimmed = raw_line.strip()
-                if not trimmed:
-                    if is_failed:
-                        failed_code_content += "\n"
-                    elif final_code_lines:
-                        final_code_lines.append("\n")
-                    continue
-                if trimmed.startswith(RAG_QUESTIONS_PREFIX):
-                    # Structured questions from sufficiency check — pass through to frontend
-                    yield QUESTIONS_MARKER + trimmed[len(RAG_QUESTIONS_PREFIX):]
-                elif trimmed.startswith(RAG_STEP_PREFIX):
-                    yield RAG_STATUS_PREFIX + trimmed[len(RAG_STEP_PREFIX):]
-                elif trimmed.startswith(RAG_FORMAT_PREFIX):
-                    detected_format = trimmed[len(RAG_FORMAT_PREFIX):]
-                elif trimmed.startswith(RAG_FAILED_PREFIX):
-                    is_failed = True
-                    failed_code_content = trimmed[len(RAG_FAILED_PREFIX):]
-                elif is_failed:
-                    failed_code_content += "\n" + raw_line.rstrip()
-                elif trimmed.startswith("consolidated request:"):
-                    continue
+                for raw_line in proc.stdout:
+                    trimmed = raw_line.strip()
+                    if not trimmed:
+                        if is_failed:
+                            failed_code_content += "\n"
+                        elif final_code_lines:
+                            final_code_lines.append("\n")
+                        continue
+                    if trimmed.startswith(RAG_QUESTIONS_PREFIX):
+                        sent_questions = True
+                        # Structured questions from sufficiency check — pass through to frontend
+                        yield QUESTIONS_MARKER + trimmed[len(RAG_QUESTIONS_PREFIX):]
+                    elif trimmed.startswith(RAG_STEP_PREFIX):
+                        yield RAG_STATUS_PREFIX + trimmed[len(RAG_STEP_PREFIX):]
+                    elif trimmed.startswith(RAG_FORMAT_PREFIX):
+                        detected_format = trimmed[len(RAG_FORMAT_PREFIX):]
+                    elif trimmed.startswith(RAG_FAILED_PREFIX):
+                        is_failed = True
+                        failed_code_content = trimmed[len(RAG_FAILED_PREFIX):]
+                    elif is_failed:
+                        failed_code_content += "\n" + raw_line.rstrip()
+                    elif trimmed.startswith("consolidated request:"):
+                        continue
+                    else:
+                        final_code_lines.append(raw_line.rstrip() + "\n")
+
+                proc.wait()
+                errors.seek(0)
+                stderr_out = errors.read()
+                if proc.returncode != 0:
+                    print("main_rag.py error:", stderr_out)
+                    if "timeout" in stderr_out.lower() or "timed out" in stderr_out.lower():
+                        raise RuntimeError("Protocol preparation timed out. Please retry your request.")
+                    raise RuntimeError("Protocol generation failed. Please retry your request.")
+
+                # Send format + content as a single yield
+                if is_failed and failed_code_content:
+                    yield FORMAT_MARKER + detected_format + "\n" + FAILED_CODE_MARKER + failed_code_content
                 else:
-                    final_code_lines.append(raw_line.rstrip() + "\n")
-
-            proc.wait()
-            if proc.returncode != 0:
-                stderr_out = proc.stderr.read()
-                print("main_rag.py error:", stderr_out)
-
-            # Send format + content as a single yield
-            if is_failed and failed_code_content:
-                yield FORMAT_MARKER + detected_format + "\n" + FAILED_CODE_MARKER + failed_code_content
-            else:
-                content = "".join(final_code_lines).strip()
-                yield FORMAT_MARKER + detected_format + "\n" + content
+                    content = "".join(final_code_lines).strip()
+                    if content:
+                        yield FORMAT_MARKER + detected_format + "\n" + content
+                    elif not sent_questions:
+                        raise RuntimeError("Protocol generation ended without an answer. Please retry your request.")
 
         return _rag_generator()
 

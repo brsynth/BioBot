@@ -119,6 +119,33 @@ class DispatchTests(unittest.TestCase):
             self.assertEqual(list(engine.process_user_query("Question", [], "model", api_key="key")), ["Answer"])
         assess.assert_not_called()
 
+    def test_subprocess_timeout_is_reported_instead_of_an_empty_reply(self):
+        def start(*args, **kwargs):
+            kwargs["stderr"].write("openai.APITimeoutError: Request timed out.\n")
+            return Mock(stdout=iter(["STEP:Indexing documentation...\n"]), returncode=1)
+        with patch.object(engine, "check_sufficient_info", return_value=None), \
+             patch.object(engine.subprocess, "Popen", side_effect=start), patch("builtins.print"):
+            reply = engine.process_user_query("Complete request", [], "model", api_key="key")
+            self.assertTrue(next(reply).startswith(engine.RAG_STATUS_PREFIX))
+            with self.assertRaisesRegex(RuntimeError, "timed out"):
+                list(reply)
+
+    def test_status_only_success_is_not_a_valid_answer(self):
+        process = Mock(stdout=iter(["STEP:Preparing...\n"]), returncode=0)
+        with patch.object(engine, "check_sufficient_info", return_value=None), \
+             patch.object(engine.subprocess, "Popen", return_value=process):
+            with self.assertRaisesRegex(RuntimeError, "without an answer"):
+                list(engine.process_user_query("Complete request", [], "model", api_key="key"))
+
+    def test_subprocess_questionnaire_does_not_require_protocol_output(self):
+        questions = {"questions": [{"id": "device", "question": "Which device?"}]}
+        process = Mock(stdout=iter(["QUESTIONS:" + json.dumps(questions)]), returncode=0)
+        with patch.object(engine, "check_sufficient_info", return_value=None), \
+             patch.object(engine.subprocess, "Popen", return_value=process):
+            reply = list(engine.process_user_query("Complete request", [], "model", api_key="key"))
+        self.assertEqual(len(reply), 1)
+        self.assertTrue(reply[0].startswith(engine.QUESTIONS_MARKER))
+
 
 if __name__ == "__main__":
     unittest.main()

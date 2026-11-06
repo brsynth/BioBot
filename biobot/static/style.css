@@ -571,6 +571,15 @@ body {
   letter-spacing: 0.01em;
 }
 
+.input-disclaimer a {
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.input-disclaimer a:hover,
+.input-disclaimer a:focus-visible { color: var(--accent); }
+
 /* --- Code Blocks --- */
 pre {
   background: var(--bg-code);
