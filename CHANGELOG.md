@@ -2,6 +2,14 @@
 
 <!-- version list -->
 
+## v1.4.1 (2026-11-06)
+
+### Bug Fixes
+
+- **code block**: Classify generated output correctly
+  ([`7773dd8`](https://github.com/brsynth/BioBot/commit/7773dd82134a541ac0313b0ccad8e4683a9e8fb6))
+
+
 ## v1.4.0 (2026-11-03)
 
 ### Refactoring
