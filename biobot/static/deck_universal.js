@@ -1170,6 +1170,8 @@ function clearDeckPanel() {
   const playbar = document.getElementById("anim-playback-bar");
   if (playbar) playbar.remove();
   _removeTipOverlay();
+  // Clear any code block highlights in the chat
+  _clearCodeBlockHighlights();
   const c = document.getElementById("deck-svg-container");
   if (c) c.innerHTML = '<p class="deck-empty-message">Generate a protocol to see the deck layout</p>';
   const bar = document.getElementById("deck-apply-bar");
@@ -1251,6 +1253,55 @@ function _showLoading() {
 function _showError(msg) {
   const c = document.getElementById("deck-svg-container");
   if (c) c.innerHTML = `<p class="deck-empty-message" style="color:#ff4d4d">${msg}</p>`;
+}
+
+// ============================================================
+// Code Block Highlighting — sync chat code lines with animation
+// ============================================================
+
+function _clearCodeBlockHighlights() {
+  // Find the source code block in the chat
+  const block = _sourceCodeBlock;
+  if (!block) return;
+
+  block.querySelectorAll(".code-line.code-line-active, .code-line.code-line-loop").forEach(el => {
+    el.classList.remove("code-line-active", "code-line-loop");
+  });
+}
+
+function _highlightCodeBlockLines(codeLines) {
+  const block = _sourceCodeBlock;
+  if (!block || !codeLines || !Array.isArray(codeLines) || codeLines.length === 0) {
+    _clearCodeBlockHighlights();
+    return;
+  }
+
+  // Clear previous highlights
+  _clearCodeBlockHighlights();
+
+  // Last line = action (red), earlier lines = loop headers (blue)
+  const actionLine = codeLines[codeLines.length - 1];
+  const loopLines = codeLines.slice(0, -1);
+
+  // Apply loop header highlights (blue)
+  for (const ln of loopLines) {
+    const lineEl = block.querySelector(`.code-line[data-line="${ln}"]`);
+    if (lineEl) lineEl.classList.add("code-line-loop");
+  }
+
+  // Apply action line highlight (red)
+  const actionEl = block.querySelector(`.code-line[data-line="${actionLine}"]`);
+  if (actionEl) {
+    actionEl.classList.add("code-line-active");
+    // Scroll the code block so the active line is visible
+    const pre = block.querySelector(".code-block-pre");
+    if (pre) {
+      const lineTop = actionEl.offsetTop - pre.offsetTop;
+      const preHeight = pre.clientHeight;
+      const targetScroll = lineTop - preHeight / 2 + actionEl.offsetHeight / 2;
+      pre.scrollTo({ top: Math.max(0, targetScroll), behavior: "smooth" });
+    }
+  }
 }
 
 // ============================================================
@@ -1389,6 +1440,7 @@ function _applyStepVisuals(stepIndex, animate) {
 
   if (stepIndex < 0 || stepIndex >= _animSteps.length) {
     _updateStepDescription(null);
+    _clearCodeBlockHighlights();
     return;
   }
 
@@ -1410,6 +1462,9 @@ function _applyStepVisuals(stepIndex, animate) {
   if (animate) _showTipAnimation(step, colors);
 
   _updateStepDescription(step, colors);
+
+  // Highlight corresponding lines in the chat code block
+  _highlightCodeBlockLines(step.code_lines);
 }
 
 function _highlightSlot(container, slotId, colors, wells) {

@@ -262,7 +262,7 @@ function buildCodeBlock(code, format = "python") {
     deckBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg> Deck';
     deckBtn.addEventListener("click", () => {
       if (window.parseDeckFromCode) {
-        window.parseDeckFromCode(code);
+        window.parseDeckFromCode(code, wrapper);
       }
     });
     actions.appendChild(deckBtn);
@@ -315,7 +315,27 @@ function buildCodeBlock(code, format = "python") {
   const pre = document.createElement("pre");
   pre.className = "code-block-pre";
   const codeElem = document.createElement("code");
-  codeElem.textContent = code;
+
+  // Render line-by-line so deck animation can highlight individual lines
+  const lines = code.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const lineDiv = document.createElement("div");
+    lineDiv.className = "code-line";
+    lineDiv.dataset.line = i + 1;
+
+    const lineNum = document.createElement("span");
+    lineNum.className = "code-line-num";
+    lineNum.textContent = i + 1;
+
+    const lineText = document.createElement("span");
+    lineText.className = "code-line-text";
+    lineText.textContent = lines[i] || " ";  // preserve empty lines
+
+    lineDiv.appendChild(lineNum);
+    lineDiv.appendChild(lineText);
+    codeElem.appendChild(lineDiv);
+  }
+
   pre.appendChild(codeElem);
 
   wrapper.appendChild(toolbar);
@@ -959,7 +979,10 @@ async function sendMessage(edit = {}) {
 
     // Parse deck ONCE after streaming is fully complete (final code only)
     if (finalRagCode && window.parseDeckFromCode && finalRagCode.length > 50) {
-      window.parseDeckFromCode(finalRagCode);
+      // Find the code block that was just built for this RAG code
+      const codeBlocks = botDiv.querySelectorAll(".code-block-wrapper");
+      const lastBlock = codeBlocks.length ? codeBlocks[codeBlocks.length - 1] : null;
+      window.parseDeckFromCode(finalRagCode, lastBlock);
     }
 
   } catch (err) {

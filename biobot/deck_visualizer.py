@@ -65,6 +65,7 @@ RULES:
 - Derive dimensions, position labels, instruments, capacities, and carrier types from the supplied protocol. Do not assume a robot from the file format.
 - CRITICAL: include ALL deck positions, including empty/unused ones. For grid robots, include EVERY slot in the grid (e.g. an OT-2 has slots 1-11 plus a fixed trash in slot 12 — always return all 12 with grid rows=3, cols=4). Populate grid.labels with EVERY position id in order.
 - For each position, set row and col (0-indexed) matching its physical location on the deck.
+- Use null or an empty list for information that cannot be determined from the input.
 - Return ONLY valid JSON. No trailing commas.
 """
 
@@ -79,7 +80,8 @@ Return ONLY valid JSON (no markdown, no explanation) matching this schema:
       "source": {"slot": "position id from the provided list", "wells": ["A1","B1"]},
       "destination": {"slot": "position id from the provided list", "wells": ["A1","B1"]},
       "volume": "e.g. 100µL",
-      "description": "Human-readable step description"
+      "description": "Human-readable step description",
+      "code_lines": [10, 11]
     }
   ]
 }
@@ -90,6 +92,13 @@ RULES:
 - For aspirate/mix: use source only. For dispense: use destination only. For transfer: use both.
 - If individual wells cannot be determined, use an empty array [].
 - If no liquid handling steps exist, return {"steps": []}.
+- code_lines: an array of 1-indexed line numbers from the source code that produce this step.
+  For a simple call like `pipette.aspirate(100, plate['A1'])`, this is one line number.
+  For steps inside a loop (for/while), include BOTH the loop header line(s) AND the action line(s).
+  Example: if line 15 is `for well in wells:` and line 16 is `pipette.transfer(100, src, well)`,
+  then each unrolled transfer step gets code_lines: [15, 16].
+  Multiple nested loops: include all enclosing loop headers.
+  This field is REQUIRED for every step. Examine the code carefully to map each step to its exact line(s).
 - Return ONLY valid JSON. No trailing commas.
 """
 
@@ -157,9 +166,17 @@ def generate_visualization(code: str, api_key: str = None) -> dict:
     # --- Call 2: Steps extraction (non-critical) ---
     try:
         pos_ids = [p.get("id", "") for p in state.get("positions", [])]
+
+        # Number each line of the code so the LLM can reference them
+        numbered_code = "\n".join(
+            f"{i+1}: {line}" for i, line in enumerate(code.split("\n"))
+        )
+
         steps_user_msg = (
             f"Deck position IDs: {json.dumps(pos_ids)}\n\n"
-            f"Extract the liquid-handling steps from this code:\n\n{code}"
+            f"Extract the liquid-handling steps from this code.\n"
+            f"Each line is prefixed with its 1-indexed line number for code_lines mapping.\n\n"
+            f"{numbered_code}"
         )
 
         steps_response = client.responses.create(
@@ -176,6 +193,9 @@ def generate_visualization(code: str, api_key: str = None) -> dict:
     except Exception:
         # Steps failed — deck still works, just no animation
         state["steps"] = []
+
+    # Include the raw code for the frontend code viewer
+    state["_protocol_code"] = code
 
     return state
 

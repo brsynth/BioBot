@@ -1,0 +1,82 @@
+/* ========================================
+   Code Block Line Highlighting
+   Syncs chat code lines with deck animation
+   ======================================== */
+
+/* --- Line-by-line code rendering --- */
+.code-line {
+  display: flex;
+  align-items: stretch;
+  min-height: 22px;
+  line-height: 22px;
+  transition: background 0.2s ease, border-color 0.2s ease;
+  border-left: 3px solid transparent;
+  padding-right: 12px;
+}
+
+.code-line-num {
+  display: inline-block;
+  width: 36px;
+  min-width: 36px;
+  text-align: right;
+  padding-right: 12px;
+  color: #555;
+  user-select: none;
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+}
+
+.code-line-text {
+  white-space: pre;
+  flex: 1;
+}
+
+/* --- Active line: the pipette action being animated (red) --- */
+.code-line.code-line-active {
+  background: rgba(224, 108, 117, 0.18);
+  border-left-color: #e06c75;
+  animation: codeLinePulse 2s ease-in-out infinite;
+}
+
+.code-line.code-line-active .code-line-num {
+  color: #e06c75;
+  font-weight: 700;
+}
+
+.code-line.code-line-active .code-line-text {
+  color: #fff;
+}
+
+@keyframes codeLinePulse {
+  0%, 100% { background: rgba(224, 108, 117, 0.18); }
+  50%      { background: rgba(224, 108, 117, 0.30); }
+}
+
+/* --- Loop header lines: for/while that generate this step (blue) --- */
+.code-line.code-line-loop {
+  background: rgba(97, 175, 239, 0.10);
+  border-left-color: #61afef;
+}
+
+.code-line.code-line-loop .code-line-num {
+  color: #61afef;
+  font-weight: 600;
+}
+
+.code-line.code-line-loop .code-line-text {
+  color: #a8c8e8;
+}
+
+/* --- Hover --- */
+.code-line:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.code-line.code-line-active:hover {
+  background: rgba(224, 108, 117, 0.25);
+}
+
+.code-line.code-line-loop:hover {
+  background: rgba(97, 175, 239, 0.15);
+}
