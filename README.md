@@ -28,6 +28,8 @@ It helps users interact with an AI assistant to get guidance, protocols, and Pyt
 ### Interactive Deck Visualizer
 - **Split-screen deck layout** alongside the chat, showing the robot's worktable with all labware, pipettes, and modules.
 - **Platform-adaptive rendering.** The protocol determines whether the deck is shown as a grid, carriers on tracks, or source/destination plate maps.
+- **Reusable deck library.** A device's physical layout is generated once and stored in PostgreSQL. Protocol contents and steps are cached privately per user and file, so reopening a deck makes no model calls.
+- **Copies and community alternatives.** Choose a saved layout in the deck panel, use **Edit a copy** to change its geometry or default hardware, then **Save copy**. Copies are private until their owner clicks **Publish**; other users can then select them for the same device. Choosing a layout preserves the current protocol's actual labware and steps.
 - **Click, double-click, and drag-and-drop** to move labware, swap slots, change instruments, and edit parameters. The code updates in real time.
 - **Automatic coherence.** Changing a pipette auto-updates the tiprack; changing labware validates well references; volume edits are checked against pipette ranges.
 
@@ -148,6 +150,7 @@ BioBot/
 │   ├── config.py               # Database and secrets
 │   ├── crypt.py                # Encryption
 │   ├── deck_visualizer.py      # Generic deck extraction and edits
+│   ├── deck_library.py         # Persistent device layouts, copies, and private protocol cache
 │   ├── feasibility_check.py    # Protocol feasibility review
 │   ├── email_service.py        # Password-reset email
 │   ├── templates/              # Chat and authentication pages

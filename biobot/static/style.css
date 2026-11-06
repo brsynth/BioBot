@@ -3375,3 +3375,55 @@ button.copy-btn:hover {
 .deck-resize-handle.active::after {
   background: #4488ff;
 }
+
+/* Device deck library */
+.deck-library-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 14px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.deck-library-controls > label {
+  display: flex;
+  flex: 1 1 200px;
+  flex-direction: column;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+.deck-library-controls select,
+.deck-library-controls input {
+  min-width: 0;
+  padding: 7px;
+  background: var(--bg-code);
+  border: 1px solid var(--border-light);
+  border-radius: 5px;
+  color: var(--text-primary);
+}
+.deck-library-name { flex: 1 1 180px; }
+.deck-library-controls p {
+  width: 100%;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+.deck-layout-editor {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+  max-height: 230px;
+  overflow: auto;
+}
+.deck-layout-editor label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.75rem;
+}
+.deck-layout-editor input { width: 62px; }
+#deck-library-notice { width: 100%; color: var(--accent); font-size: 0.8rem; }

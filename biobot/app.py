@@ -951,72 +951,89 @@ def update_user_profile():
 # ---------------------
 # Deck visualizer route
 # ---------------------
+def _deck_request_context(data, user_id):
+    conn = get_db_connection()
+    try:
+        user = fetchone_dict(conn, "SELECT api_key FROM users WHERE id = %s", (user_id,))
+        api_key = decrypt_text(user["api_key"]) if user and user.get("api_key") else None
+        history = []
+        chat_id = data.get("chat_id")
+        if chat_id:
+            if not fetchone_dict(conn, "SELECT 1 FROM chat_names WHERE chat_id = %s AND user_id = %s", (chat_id, user_id)):
+                raise ValueError("Chat not found.")
+            rows = fetchall_dict(conn, "SELECT role, content FROM chat_history WHERE chat_id = %s AND user_id = %s ORDER BY id", (chat_id, user_id))
+            history = [{"role": row["role"], "content": decrypt_message(row["content"])} for row in rows]
+        return api_key, history
+    finally:
+        conn.close()
+
+
 @app.route("/deck/visualize", methods=["POST"])
 def visualize_deck():
-    """Extract deck state JSON from any protocol code using the LLM."""
     user_id = session.get("user")
     if not user_id:
         return jsonify({"error": "Not logged in"}), 403
-
-    data = request.get_json()
-    code = data.get("code", "")
-    if not code:
+    data = request.get_json(silent=True) or {}
+    code = data.get("code")
+    if not isinstance(code, str) or not code.strip():
         return jsonify({"error": "No code provided"}), 400
-
-    user_api_key = None
-    conn = None
+    from deck_library import get_deck
     try:
-        conn = get_db_connection()
-        user = fetchone_dict(conn, "SELECT api_key FROM users WHERE id = %s", (user_id,))
-        if user and user.get("api_key"):
-            user_api_key = decrypt_text(user["api_key"])
+        api_key, history = _deck_request_context(data, user_id)
+        return jsonify(get_deck(code, user_id, api_key, history, data.get("template_id")))
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
     except Exception:
-        pass
-    finally:
-        if conn:
-            conn.close()
-
-    from deck_visualizer import generate_visualization
-    try:
-        state = generate_visualization(code, api_key=user_api_key)
-        return jsonify(state)
-    except Exception as e:
-        return jsonify({"error": f"Visualization error: {str(e)}"}), 400
+        app.logger.exception("Deck visualization failed")
+        return jsonify({"error": "Could not load the deck. Please try again."}), 502
 
 
 @app.route("/deck/update", methods=["POST"])
 def update_deck():
-    """Apply batched deck changes to code using the LLM, then re-extract state."""
     user_id = session.get("user")
     if not user_id:
         return jsonify({"error": "Not logged in"}), 403
-
-    data = request.get_json()
-    code = data.get("code", "")
-    changes = data.get("changes", [])
-    if not code or not changes:
+    data = request.get_json(silent=True) or {}
+    code, changes = data.get("code"), data.get("changes")
+    if not isinstance(code, str) or not code.strip() or not isinstance(changes, list) or not changes:
         return jsonify({"error": "Missing code or changes"}), 400
-
-    user_api_key = None
-    conn = None
+    from deck_visualizer import update_code_from_changes
+    from deck_library import get_deck
     try:
-        conn = get_db_connection()
-        user = fetchone_dict(conn, "SELECT api_key FROM users WHERE id = %s", (user_id,))
-        if user and user.get("api_key"):
-            user_api_key = decrypt_text(user["api_key"])
+        api_key, history = _deck_request_context(data, user_id)
+        updated = update_code_from_changes(code, changes, api_key)
+        state = get_deck(updated, user_id, api_key, history, data.get("template_id"))
+        return jsonify({"code": updated, "state": state})
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
     except Exception:
-        pass
-    finally:
-        if conn:
-            conn.close()
+        app.logger.exception("Deck update failed")
+        return jsonify({"error": "Could not update the protocol. Please try again."}), 502
 
-    from deck_visualizer import update_code_from_changes, generate_visualization
+
+@app.route("/deck/library", methods=["POST"])
+def copy_library_deck():
+    user_id = session.get("user")
+    if not user_id:
+        return jsonify({"error": "Not logged in"}), 403
+    data = request.get_json(silent=True) or {}
+    from deck_library import save_copy
     try:
-        updated_code = update_code_from_changes(code, changes, api_key=user_api_key)
-        new_state = generate_visualization(updated_code, api_key=user_api_key)
-        return jsonify({"code": updated_code, "state": new_state})
-    except Exception as e:
-        return jsonify({"error": f"Update error: {str(e)}"}), 400
+        return jsonify(save_copy(user_id, data.get("parent_id"), data.get("name"), data.get("layout"))), 201
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+
+
+@app.route("/deck/library/<template_id>/publish", methods=["POST"])
+def publish_library_deck(template_id):
+    user_id = session.get("user")
+    if not user_id:
+        return jsonify({"error": "Not logged in"}), 403
+    from deck_library import publish_deck
+    try:
+        return jsonify(publish_deck(user_id, template_id))
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
 
 
 @app.route("/deck/catalog", methods=["POST"])

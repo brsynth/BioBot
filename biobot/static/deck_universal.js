@@ -14,6 +14,9 @@ let _deckAbort = null;
 let _selectedSlot = null;
 let _pendingChanges = [];
 let _sourceCodeBlock = null;  // the specific code block element the deck was opened from
+let _libraryEditing = false;
+let _libraryDraftName = "";
+let _libraryBeforeEdit = null;
 
 // Animation state
 let _animSteps = [];
@@ -37,29 +40,37 @@ const ACTION_COLORS = {
 // Main Entry
 // ============================================================
 
-async function parseDeckFromCode(code, sourceBlock) {
-  const chatId = window.currentChatId || null;
+async function parseDeckFromCode(code, sourceBlock, templateId = null) {
+  const chatId = typeof currentChatId !== "undefined" ? currentChatId : null;
   if (_deckAbort) { _deckAbort.abort(); _deckAbort = null; }
 
   _currentCode = code;
   _originalCode = code;
+  _currentState = null;
+  _originalState = null;
   _selectedSlot = null;
   _pendingChanges = [];
   _sourceCodeBlock = sourceBlock || null;
+  _libraryEditing = false;
+  _libraryBeforeEdit = null;
+  _clearCodeBlockHighlights();
+  _stopDeckAnimation();
+  document.getElementById("deck-apply-bar")?.remove();
   _openDeckPanel();
   _showLoading();
 
-  _deckAbort = new AbortController();
+  const controller = new AbortController();
+  _deckAbort = controller;
   const parseForChat = chatId;
 
   try {
     const res = await fetch("/deck/visualize", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code }),
-      signal: _deckAbort.signal,
+      body: JSON.stringify({ code, chat_id: chatId, template_id: templateId }),
+      signal: controller.signal,
     });
-    _deckAbort = null;
+    if (_deckAbort !== controller) return;
 
     if (!res.ok) {
       // Try to read the actual error from the server response
@@ -68,6 +79,7 @@ async function parseDeckFromCode(code, sourceBlock) {
         const errData = await res.json();
         if (errData.error) errMsg = errData.error;
       } catch (_) { /* response wasn't JSON */ }
+      if (_deckAbort !== controller) return;
       console.error("Deck server error:", res.status, errMsg);
       _showError(errMsg);
       return;
@@ -75,16 +87,187 @@ async function parseDeckFromCode(code, sourceBlock) {
 
     const state = await res.json();
     if (state.error) { console.error("Deck state error:", state.error); _showError(state.error); return; }
-    if (parseForChat && window.currentChatId !== parseForChat) return;
+    if (_deckAbort !== controller || parseForChat && currentChatId !== parseForChat) return;
 
     _currentState = state;
     _originalState = JSON.parse(JSON.stringify(state));  // deep copy for discard
     _renderDeck(state);
   } catch (e) {
     if (e.name === "AbortError") return;
+    if (_deckAbort !== controller) return;
     console.error("Deck fetch error:", e);
     _showError("Error generating deck: " + e.message);
+  } finally {
+    if (_deckAbort === controller) _deckAbort = null;
   }
+}
+
+function _stopDeckAnimation() {
+  _animPlaying = false;
+  _animSteps = [];
+  _animStepIndex = -1;
+  _animBusy = false;
+  if (_animTimer) { clearInterval(_animTimer); _animTimer = null; }
+  _removeTipOverlay();
+}
+
+function _libraryButton(label, action) {
+  const button = document.createElement("button");
+  button.className = "code-action-btn";
+  button.type = "button";
+  button.textContent = label;
+  button.addEventListener("click", action);
+  return button;
+}
+
+function _libraryNotice(message) {
+  let notice = document.getElementById("deck-library-notice");
+  if (!notice) {
+    notice = document.createElement("div");
+    notice.id = "deck-library-notice";
+    notice.setAttribute("role", "alert");
+    document.querySelector(".deck-library-controls")?.appendChild(notice);
+  }
+  notice.textContent = message;
+}
+
+function _renderLibraryControls(wrapper, state) {
+  const library = state._library;
+  if (!library) return;
+  const controls = document.createElement("div");
+  controls.className = "deck-library-controls";
+  wrapper.appendChild(controls);
+  if (_libraryEditing) {
+    const name = document.createElement("input");
+    name.className = "deck-library-name";
+    name.setAttribute("aria-label", "Name for your deck copy");
+    name.maxLength = 120;
+    name.value = _libraryDraftName;
+    name.addEventListener("input", () => _libraryDraftName = name.value);
+    controls.append(name, _libraryButton("Save copy", _saveLibraryCopy), _libraryButton("Cancel", () => {
+      _libraryEditing = false;
+      _currentState = _libraryBeforeEdit;
+      _libraryBeforeEdit = null;
+      _pendingChanges = [];
+      _renderDeck(_currentState);
+    }));
+    const hint = document.createElement("p");
+    hint.textContent = "Editing a private copy. Adjust the physical layout below; double-click hardware to change defaults. Protocol contents stay tied to their code.";
+    controls.appendChild(hint);
+    _renderLayoutEditor(controls, state);
+    return;
+  }
+  const label = document.createElement("label");
+  label.textContent = "Deck library";
+  const select = document.createElement("select");
+  select.setAttribute("aria-label", "Choose a device deck from the library");
+  for (const item of library.alternatives) {
+    const option = document.createElement("option");
+    option.value = item.id;
+    option.textContent = `${item.name} · ${item.author}${!item.is_default && !item.published ? " (private)" : ""}`;
+    option.selected = item.id === library.selected.id;
+    select.appendChild(option);
+  }
+  select.disabled = _pendingChanges.length > 0;
+  select.addEventListener("change", () => parseDeckFromCode(_currentCode, _sourceCodeBlock, select.value));
+  label.appendChild(select);
+  const edit = _libraryButton("Edit a copy", () => {
+    _stopDeckAnimation();
+    _clearCodeBlockHighlights();
+    _libraryBeforeEdit = _currentState;
+    _libraryEditing = true;
+    _libraryDraftName = `${library.selected.name} copy`;
+    _currentState = JSON.parse(JSON.stringify(library.layout));
+    _currentState._library = library;
+    _pendingChanges = [];
+    _renderDeck(_currentState);
+  });
+  edit.disabled = _pendingChanges.length > 0;
+  controls.append(label, edit);
+  if (library.selected.owner_id === Number(document.body.dataset.userId) && !library.selected.published) {
+    controls.appendChild(_libraryButton("Publish", _publishLibraryDeck));
+  }
+}
+
+function _renderLayoutEditor(parent, state) {
+  const editor = document.createElement("div");
+  editor.className = "deck-layout-editor";
+  function field(label, value, change, min = 0) {
+    const wrapper = document.createElement("label");
+    wrapper.textContent = label;
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = min;
+    input.step = 1;
+    input.value = value ?? "";
+    input.addEventListener("change", () => {
+      const next = Number(input.value);
+      if (!Number.isInteger(next) || next < min || next > (state.layout_type === "grid" ? 128 : 4096)) {
+        _libraryNotice("Enter a valid positive whole number within the layout's size limits.");
+        input.value = value ?? "";
+        return;
+      }
+      change(next);
+      if (state.grid && state.positions) {
+        state.grid.labels = Array.from({ length: state.grid.rows * state.grid.cols }, () => null);
+        for (const pos of state.positions) state.grid.labels[pos.row * state.grid.cols + pos.col] = pos.id;
+      }
+      _renderDeck(state);
+    });
+    wrapper.appendChild(input);
+    editor.appendChild(wrapper);
+  }
+  if (state.layout_type === "grid") {
+    field("Rows", state.grid.rows, value => state.grid.rows = value, 1);
+    field("Columns", state.grid.cols, value => state.grid.cols = value, 1);
+    for (const pos of state.positions || []) {
+      field(`${pos.id} row`, pos.row + 1, value => pos.row = value - 1, 1);
+      field(`${pos.id} column`, pos.col + 1, value => pos.col = value - 1, 1);
+    }
+  } else if (state.layout_type === "linear") {
+    for (const carrier of state.carriers?.items || []) {
+      field(`${carrier.name || carrier.type} track`, carrier.track, value => carrier.track = value);
+    }
+  } else {
+    for (const role of ["source", "destination"]) {
+      state.plates ||= {};
+      state.plates[role] ||= {};
+      field(`${role} well count`, state.plates[role].format, value => state.plates[role].format = value, 1);
+    }
+  }
+  parent.appendChild(editor);
+}
+
+let _librarySaving = false;
+async function _saveLibraryCopy() {
+  if (_librarySaving) return;
+  _librarySaving = true;
+  const state = _currentState;
+  try {
+    const response = await fetch("/deck/library", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ parent_id: state._library.selected.id, name: _libraryDraftName, layout: state }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Could not save the deck copy.");
+    if (_currentState === state) await parseDeckFromCode(_currentCode, _sourceCodeBlock, result.id);
+  } catch (error) {
+    if (_currentState === state) _libraryNotice(error.message);
+  } finally { _librarySaving = false; }
+}
+
+async function _publishLibraryDeck() {
+  if (_librarySaving) return;
+  _librarySaving = true;
+  const state = _currentState;
+  try {
+    const response = await fetch(`/deck/library/${state._library.selected.id}/publish`, { method: "POST" });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || "Could not publish this deck.");
+    if (_currentState === state) await parseDeckFromCode(_currentCode, _sourceCodeBlock, result.id);
+  } catch (error) {
+    if (_currentState === state) _libraryNotice(error.message);
+  } finally { _librarySaving = false; }
 }
 
 // ============================================================
@@ -105,6 +288,7 @@ function _renderDeck(state) {
   title.textContent = state.platform || "Deck Layout";
   if (state.title) title.textContent += " — " + state.title;
   wrapper.appendChild(title);
+  _renderLibraryControls(wrapper, state);
 
   // Instruments bar — always show (even if empty, shows both empty mounts)
   wrapper.appendChild(_renderInstruments(state.instruments || []));
@@ -172,11 +356,8 @@ function _renderGrid(state) {
 
   // If we have labels, ensure grid fits them all
   if (labels.length > 0 && (!grid.rows || !grid.cols)) {
-    // Common liquid handler layouts
-    const total = labels.length;
-    if (total <= 12) { rows = 3; cols = 4; }      // OT-2 style (slots 1-11 + trash)
-    else if (total <= 16) { rows = 4; cols = 4; }
-    else { cols = Math.ceil(Math.sqrt(total)); rows = Math.ceil(total / cols); }
+    cols = Math.ceil(Math.sqrt(labels.length));
+    rows = Math.ceil(labels.length / cols);
   }
 
   // Ensure grid covers all positions with row/col
@@ -216,6 +397,12 @@ function _renderGrid(state) {
 
       // If no position found, create an empty slot with the label or index
       if (!pos) {
+        if (labels.length && !label) {
+          const gap = document.createElement("div");
+          gap.className = "deck-grid-gap";
+          deck.appendChild(gap);
+          continue;
+        }
         pos = { id: label || `${idx + 1}`, type: "empty" };
       }
 
@@ -289,8 +476,10 @@ function _renderPlates(state) {
 
   // Match positions to source/dest plates by checking variable/labware names
   // Only match positions whose type is "plate" (not tipracks, trash, etc.)
-  const platePosns = positions.filter(p => p.type === "plate");
-  const nonPlatePosns = positions.filter(p => p.type !== "plate");
+  const platePosns = positions.filter(p => p.type === "plate" ||
+    plates.source && String(p.id).toLowerCase().includes("source") ||
+    plates.destination && String(p.id).toLowerCase().includes("dest"));
+  const nonPlatePosns = positions.filter(p => !platePosns.includes(p));
 
   function _findPlatePos(keyword) {
     return platePosns.find(p =>
@@ -344,9 +533,10 @@ function _renderPlates(state) {
 }
 
 function _renderPlateMap(plate, role, slotId, posData) {
-  const format = plate.format || 96;
-  const rows = format <= 96 ? 8 : 16;
-  const cols = format <= 96 ? 12 : 24;
+  const format = Number.isInteger(plate.format) && plate.format > 0 ? plate.format : null;
+  // Standard rectangular aspect ratio, derived from the declared well count.
+  const rows = format ? Math.max(1, Math.round(Math.sqrt(format * 2 / 3))) : 0;
+  const cols = rows ? Math.ceil(format / rows) : 0;
   const usedWells = new Set(plate.wells_used || []);
 
   // The section acts as a "slot" for the animation system
@@ -362,7 +552,7 @@ function _renderPlateMap(plate, role, slotId, posData) {
   header.innerHTML = `
     <span class="deck-plate-name">${plateName}</span>
     ${plate.type ? `<span class="deck-plate-type">${plate.type}</span>` : ""}
-    <span class="deck-plate-format">${format}-well</span>
+    <span class="deck-plate-format">${format ? `${format}-well` : "Format from protocol"}</span>
   `;
   section.appendChild(header);
 
@@ -373,7 +563,11 @@ function _renderPlateMap(plate, role, slotId, posData) {
   // Row labels (A, B, C, ...)
   const rowLabelCol = document.createElement("div");
   rowLabelCol.className = "deck-plate-row-labels";
-  const rowLabels = "ABCDEFGHIJKLMNOP";
+  const rowLabels = Array.from({ length: rows }, (_, index) => {
+    let label = "", number = index + 1;
+    while (number > 0) { number--; label = String.fromCharCode(65 + number % 26) + label; number = Math.floor(number / 26); }
+    return label;
+  });
   for (let r = 0; r < rows; r++) {
     const lbl = document.createElement("div");
     lbl.className = "deck-plate-row-label";
@@ -404,6 +598,7 @@ function _renderPlateMap(plate, role, slotId, posData) {
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
+      if (r * cols + c >= format) continue;
       const wellId = `${rowLabels[r]}${c + 1}`;
       const well = document.createElement("div");
       well.className = "deck-well";
@@ -450,8 +645,8 @@ function _renderPlateMap(plate, role, slotId, posData) {
     }
     let html = `<div class="info-row"><span class="info-label">Plate:</span> <span style="color:var(--accent)">${plateName}</span></div>`;
     if (plate.type) html += `<div class="info-row"><span class="info-label">Type:</span> ${plate.type}</div>`;
-    html += `<div class="info-row"><span class="info-label">Format:</span> ${format}-well (${rows}×${cols})</div>`;
-    html += `<div class="info-row"><span class="info-label">Wells used:</span> ${usedWells.size} of ${rows * cols}</div>`;
+    html += `<div class="info-row"><span class="info-label">Format:</span> ${format ? `${format}-well (${rows}×${cols})` : "Not specified"}</div>`;
+    if (format) html += `<div class="info-row"><span class="info-label">Wells used:</span> ${usedWells.size} of ${format}</div>`;
     if (posData?.labware) html += `<div class="info-row"><span class="info-label">API name:</span> <code>${posData.labware}</code></div>`;
     if (posData?.variable) html += `<div class="info-row"><span class="info-label">Variable:</span> <code>${posData.variable}</code></div>`;
     info.innerHTML = html;
@@ -532,9 +727,14 @@ function _renderMiniPlate(pos, rows, cols, wellClass) {
   const usedWells = _wellUsageMap[pos.id] || new Set();
 
   let html = `<div class="slot-mini-grid" style="grid-template-columns:repeat(${cols},1fr);grid-template-rows:repeat(${rows},1fr)">`;
-  const rowLabels = "ABCDEFGHIJKLMNOP";
+  const rowLabels = Array.from({ length: rows }, (_, index) => {
+    let label = "", number = index + 1;
+    while (number > 0) { number--; label = String.fromCharCode(65 + number % 26) + label; number = Math.floor(number / 26); }
+    return label;
+  });
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
+      if (r * cols + c >= format) continue;
       const wellId = `${rowLabels[r]}${c + 1}`;
       const usedClass = usedWells.has(wellId) ? " well-used" : "";
       html += `<div class="${wellClass} deck-well${usedClass}" title="${wellId}" data-well="${wellId}"></div>`;
@@ -584,18 +784,10 @@ function _renderInstruments(instruments) {
     bar.appendChild(chip);
   }
 
-  // Add empty mount chips if only one pipette is present
-  const mounts = instruments.map(i => i.mount?.toLowerCase());
-  for (const mount of ["left", "right"]) {
-    if (!mounts.includes(mount)) {
-      const emptyChip = document.createElement("div");
-      emptyChip.className = "deck-instrument empty-instrument";
-      emptyChip.innerHTML = `<span class="inst-mount">${mount}</span><span class="inst-empty">Empty — double-click to add</span>`;
-      emptyChip.addEventListener("dblclick", () => {
-        _showInstrumentSelector({ name: "", model: "", mount: mount, tipracks: [] }, true);
-      });
-      bar.appendChild(emptyChip);
-    }
+  // Only offer empty mounts already established by this device's instruments.
+  if (!instruments.length) {
+    const add = _libraryButton("Add instrument", () => _showInstrumentSelector({ name: "", model: "", mount: null, tipracks: [] }, true));
+    bar.appendChild(add);
   }
 
   return bar;
@@ -1024,7 +1216,7 @@ function _applyChange(slotId, newLabware, oldLabware) {
 function _renderApplyBar() {
   let bar = document.getElementById("deck-apply-bar");
 
-  if (_pendingChanges.length === 0) {
+  if (_libraryEditing || _pendingChanges.length === 0) {
     if (bar) bar.remove();
     return;
   }
@@ -1066,57 +1258,34 @@ function _discardChanges() {
 }
 
 async function _commitChanges() {
-  if (_pendingChanges.length === 0) return;
-
+  if (_libraryEditing || _pendingChanges.length === 0) return;
+  const state = _currentState;
   const applyBtn = document.getElementById("deck-apply-btn");
   if (applyBtn) { applyBtn.textContent = "Applying..."; applyBtn.disabled = true; }
-
-  // Step 1: Apply locally via string replacement (instant, always works)
-  let updatedCode = _currentCode;
-  for (const c of _pendingChanges) {
-    if ((c.type === "change_labware") && c.old && c.new) {
-      updatedCode = updatedCode.split(c.old).join(c.new);
-    }
-    if ((c.type === "change_instrument") && c.old_model && c.new_model) {
-      updatedCode = updatedCode.split(c.old_model).join(c.new_model);
-    }
-    if ((c.type === "change_instrument") && c.mount && c.new_mount && c.mount !== c.new_mount) {
-      // Swap mount in code: mount="left" → mount="right"
-      const mountRe = new RegExp(`(mount\\s*=\\s*["'])${c.mount}(["'])`, 'g');
-      updatedCode = updatedCode.replace(mountRe, `$1${c.new_mount}$2`);
-    }
-  }
-
-  // Step 2: Try LLM for coherence (tiprack sync, volume adjust) — non-blocking enhancement
   try {
-    const res = await fetch("/deck/update", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code: _currentCode, changes: _pendingChanges }),
+    const response = await fetch("/deck/update", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: _currentCode, changes: _pendingChanges,
+        chat_id: typeof currentChatId !== "undefined" ? currentChatId : null,
+        template_id: state._library?.selected.id }),
     });
-    if (res.ok) {
-      const result = await res.json();
-      // Use LLM code only if it looks valid (not empty, not an error message)
-      if (result.code && result.code.length > 50 && !result.error) {
-        updatedCode = result.code;
-      }
-      if (result.state && result.state.positions) {
-        _currentState = result.state;
-      }
-    }
-  } catch (e) {
-    // LLM failed — local replacement is already done, continue
+    const result = await response.json();
+    if (!response.ok || !result.code || !result.state) throw new Error(result.error || "Could not apply these changes.");
+    if (_currentState !== state) return;
+    _currentCode = result.code;
+    _currentState = result.state;
+    _originalState = JSON.parse(JSON.stringify(result.state));
+    _updateSourceCodeBlock(result.code);
+    _originalCode = result.code;
+    _pendingChanges = [];
+    _selectedSlot = null;
+    _renderDeck(_currentState);
+    document.getElementById("deck-apply-bar")?.remove();
+  } catch (error) {
+    if (_currentState === state) _libraryNotice(error.message);
+  } finally {
+    if (applyBtn) { applyBtn.textContent = "Apply Changes"; applyBtn.disabled = false; }
   }
-
-  // Step 3: Commit
-  _currentCode = updatedCode;
-  _updateSourceCodeBlock(updatedCode);
-  _pendingChanges = [];
-  _selectedSlot = null;
-  _renderDeck(_currentState);
-
-  const bar = document.getElementById("deck-apply-bar");
-  if (bar) bar.remove();
 }
 
 function _guessType(labware) {
@@ -1164,6 +1333,7 @@ function clearDeckPanel() {
   closeDeckPanel();
   _currentCode = null; _originalCode = null; _currentState = null; _originalState = null;
   _selectedSlot = null; _pendingChanges = []; _sourceCodeBlock = null;
+  _libraryEditing = false; _libraryBeforeEdit = null;
   // Animation cleanup
   _animSteps = []; _animStepIndex = -1; _animPlaying = false; _animBusy = false;
   if (_animTimer) { clearInterval(_animTimer); _animTimer = null; }
@@ -1209,50 +1379,25 @@ function _updateSourceCodeBlock(newCode) {
     return;
   }
 
-  // Update the code text
-  const codeElem = block.querySelector("code");
-  if (codeElem) {
-    codeElem.textContent = newCode;
-  }
-
-  // Update the copy button closure
-  const copyBtn = block.querySelector(".copy-action-btn");
-  if (copyBtn) {
-    const newCopy = copyBtn.cloneNode(true);
-    newCopy.addEventListener("click", () => {
-      navigator.clipboard.writeText(newCode).then(() => {
-        const original = newCopy.innerHTML;
-        newCopy.textContent = "Copied!";
-        setTimeout(() => { newCopy.innerHTML = original; }, 1500);
-      });
-    });
-    copyBtn.parentNode.replaceChild(newCopy, copyBtn);
-  }
-
-  // Update the deck button closure
-  const deckBtn = block.querySelector(".deck-action-btn");
-  if (deckBtn) {
-    const newDeck = deckBtn.cloneNode(true);
-    newDeck.addEventListener("click", () => {
-      if (window.parseDeckFromCode) window.parseDeckFromCode(newCode, block);
-    });
-    deckBtn.parentNode.replaceChild(newDeck, deckBtn);
-  }
-
-  // Store reference for future updates
-  _sourceCodeBlock = block;
-
-  // Flash green to confirm update
-  block.classList.add("code-updated");
-  setTimeout(() => block.classList.remove("code-updated"), 1500);
+  // Rebuild actions and line previews against the new full file.
+  const replacement = buildCodeBlock(newCode, detectFormat(newCode));
+  block.replaceWith(replacement);
+  _sourceCodeBlock = replacement;
+  replacement.classList.add("code-updated");
+  setTimeout(() => replacement.classList.remove("code-updated"), 1500);
 }
+
 function _showLoading() {
   const c = document.getElementById("deck-svg-container");
-  if (c) c.innerHTML = '<div class="deck-loading"><div class="deck-loading-spinner"></div><span>Generating deck...</span><span class="deck-loading-sub">This may take a few seconds</span></div>';
+  if (c) c.innerHTML = '<div class="deck-loading"><div class="deck-loading-spinner"></div><span>Loading deck...</span><span class="deck-loading-sub">Saved device layouts are reused automatically</span></div>';
 }
 function _showError(msg) {
-  const c = document.getElementById("deck-svg-container");
-  if (c) c.innerHTML = `<p class="deck-empty-message" style="color:#ff4d4d">${msg}</p>`;
+  const container = document.getElementById("deck-svg-container");
+  if (!container) return;
+  const message = document.createElement("p");
+  message.className = "deck-empty-message";
+  message.textContent = msg;
+  container.replaceChildren(message);
 }
 
 // ============================================================

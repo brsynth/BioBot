@@ -105,6 +105,8 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
+        from deck_library import init_deck_tables
+        init_deck_tables(cur)
         conn.commit()
     finally:
         conn.close()
