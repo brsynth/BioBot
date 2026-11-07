@@ -993,12 +993,12 @@ function _bindDeckArea(area, id, pos, details = []) {
     area.setAttribute("role", "button");
     area.setAttribute("aria-label", `${empty ? "Add hardware" : pos.labware_display || pos.labware} at position ${id}`);
   }
-  _bindDeckTooltip(area, [
+  if (!empty) _bindDeckTooltip(area, [
     `Position: ${id}`, pos.labware_display || pos.labware,
     pos.labware_display && pos.labware !== pos.labware_display && `Labware: ${pos.labware}`,
     pos.variable && `Variable: ${pos.variable}`, pos.module && `Module: ${pos.module}`,
     pos.type && `Type: ${pos.type}`, ...details,
-    empty ? "Click to add hardware" : movable ? "Drag to an empty position · Double-click to change" : null,
+    movable ? "Drag to an empty position · Double-click to change" : null,
   ]);
   function activate() {
     _hideDeckTooltip();
@@ -1406,10 +1406,7 @@ function _fitDeck() {
   const container = document.getElementById("deck-svg-container");
   const wrapper = container?.querySelector(".deck-wrapper");
   if (!wrapper) return;
-  if (!panel?.classList.contains("deck-fullscreen")) {
-    for (const property of ["width", "transform", "left", "top"]) wrapper.style.removeProperty(property);
-    return;
-  }
+  if (!panel || panel.classList.contains("hidden")) return;
   const width = Math.max(1, container.clientWidth - 24);
   const height = Math.max(1, container.clientHeight - 24);
   wrapper.style.width = `${Math.max(320, width)}px`;
@@ -1480,7 +1477,7 @@ function _ensureDeckSplitter() {
 function _renderDeckCode() {
   const panel = document.getElementById("deck-panel");
   const view = document.getElementById("deck-code-view");
-  if (!view || !panel?.classList.contains("deck-fullscreen") || view._displayedCode === _currentCode) return;
+  if (!view || !panel || view._displayedCode === _currentCode) return;
   view.replaceChildren();
   view._displayedCode = _currentCode;
   if (!_currentCode) {
@@ -1511,14 +1508,8 @@ function _setDeckFullscreen(expanded) {
   button?.setAttribute("aria-pressed", String(expanded));
   button?.setAttribute("aria-label", label);
   if (button) button.title = label;
-  if (expanded) {
-    _ensureDeckSplitter();
-    _renderDeckCode();
-  }
-  else {
-    const view = document.getElementById("deck-code-view");
-    if (view) { view.replaceChildren(); view._displayedCode = undefined; }
-  }
+  _ensureDeckSplitter();
+  _renderDeckCode();
   _watchDeckFit();
 }
 
@@ -1530,6 +1521,8 @@ function _openDeckPanel() {
   if (chat) chat.classList.add("with-deck");
   if (btn) btn.classList.add("active");
   _ensureResizeHandle();
+  _ensureDeckSplitter();
+  _renderDeckCode();
 }
 function closeDeckPanel() {
   _hideDeckTooltip();
@@ -1545,6 +1538,10 @@ function closeDeckPanel() {
 function toggleDeckPanel() {
   const panel = document.getElementById("deck-panel");
   if (panel) panel.classList.contains("hidden") ? _openDeckPanel() : closeDeckPanel();
+}
+function toggleProtocolDeck(code, sourceLink) {
+  if (_currentCode === code && _sourceCodeBlock === sourceLink) toggleDeckPanel();
+  else parseDeckFromCode(code, sourceLink);
 }
 function clearDeckPanel() {
   if (_deckAbort) { _deckAbort.abort(); _deckAbort = null; }
@@ -1564,6 +1561,8 @@ function clearDeckPanel() {
   if (c) c.innerHTML = '<p class="deck-empty-message">Generate a protocol to see the deck layout</p>';
   const bar = document.getElementById("deck-apply-bar");
   if (bar) bar.remove();
+  const view = document.getElementById("deck-code-view");
+  if (view) { view.replaceChildren(); view._displayedCode = undefined; }
 }
 
 // ============================================================
@@ -1573,13 +1572,18 @@ function clearDeckPanel() {
 function _updateSourceCodeBlock(newCode) {
   // Try the stored reference first
   let block = _sourceCodeBlock;
+  if (block?._protocolCode !== undefined) {
+    block._protocolCode = newCode;
+    _renderDeckCode();
+    return;
+  }
 
   // Fallback: find the code block whose content matches our original code
   if (!block) {
-    const allBlocks = document.querySelectorAll(".code-block-wrapper");
+    const allBlocks = document.querySelectorAll("#chat-history .protocol-deck-link, #chat-history .code-block-wrapper");
     for (const b of allBlocks) {
       const codeEl = b.querySelector("code");
-      if (codeEl && _originalCode && codeEl.textContent.trim() === _originalCode.trim()) {
+      if (_originalCode && (b._protocolCode || codeEl?.textContent || "").trim() === _originalCode.trim()) {
         block = b;
         break;
       }
@@ -1588,7 +1592,7 @@ function _updateSourceCodeBlock(newCode) {
 
   // Last resort fallback: last code block in the chat
   if (!block) {
-    const allBlocks = document.querySelectorAll("#chat-history .code-block-wrapper");
+    const allBlocks = document.querySelectorAll("#chat-history .protocol-deck-link, #chat-history .code-block-wrapper");
     if (allBlocks.length) block = allBlocks[allBlocks.length - 1];
   }
 
@@ -1598,7 +1602,7 @@ function _updateSourceCodeBlock(newCode) {
   }
 
   // Rebuild actions and line previews against the new full file.
-  const replacement = buildCodeBlock(newCode, detectFormat(newCode));
+  const replacement = buildDeckLink(newCode);
   block.replaceWith(replacement);
   _sourceCodeBlock = replacement;
   _renderDeckCode();
@@ -1633,8 +1637,7 @@ function _clearCodeBlockHighlights() {
 }
 
 function _highlightCodeBlockLines(codeLines) {
-  const block = document.getElementById("deck-panel")?.classList.contains("deck-fullscreen")
-    ? document.getElementById("deck-code-view")?.querySelector(".code-block-wrapper") : _sourceCodeBlock;
+  const block = document.getElementById("deck-code-view")?.querySelector(".code-block-wrapper");
   if (!block || !codeLines || !Array.isArray(codeLines) || codeLines.length === 0) {
     _clearCodeBlockHighlights();
     return;
@@ -2103,3 +2106,4 @@ window.parseDeckFromCode = parseDeckFromCode;
 window.preloadHardwareCatalog = preloadHardwareCatalog;
 window.clearDeckPanel = clearDeckPanel;
 window.toggleDeckPanel = toggleDeckPanel;
+window.toggleProtocolDeck = toggleProtocolDeck;

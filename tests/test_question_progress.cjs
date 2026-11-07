@@ -19,8 +19,8 @@ function request(failure = false, packets = null, pauseAfterStatus = false) {
     currentChatId: 'chat', isTyping: false, sendBtn: {}, window: {}, console: { error() {} },
     TextDecoder, AbortController, setTimeout() {}, clearInterval() {},
     chatHistoryElem: { appendChild: node => statuses.push(node) },
-    addMessage: () => ({ appendChild: node => displayed.push(node) }),
-    buildCodeBlock: code => { blocks.push(code); return {}; }, detectFormat: () => 'python', renderUserMessage() {}, addThinkingMessage: () => 1,
+    addMessage: () => ({ appendChild: node => displayed.push(node), querySelectorAll: () => displayed }),
+    buildDeckLink: code => { blocks.push(code); return {}; }, detectFormat: () => 'python', renderUserMessage() {}, addThinkingMessage: () => 1,
     scrollToBottom() {}, appendChunkToBotMessage() {}, selectChatListItem() {},
     refreshChatList: () => new Promise(resolve => finishRefresh = resolve),
     fetch: async () => {
@@ -68,6 +68,18 @@ test('stops questionnaire progress when the request fails', async () => {
   assert.equal(failed.progress.removed, true);
   assert.equal(failed.context.isTyping, false);
   assert.equal(failed.context.sendBtn.disabled, false);
+});
+
+test('opens the deck immediately after the answer without waiting for the chat list', async () => {
+  const pending = request();
+  let opened;
+  pending.context.window.parseDeckFromCode = (...args) => opened = args;
+  await new Promise(setImmediate);
+  assert.equal(opened[0], 'pass\n');
+  assert.equal(opened[1], pending.displayed[0]);
+  assert.equal(pending.context.isTyping, true);
+  pending.finish();
+  await pending.completion;
 });
 
 test('robot detection starts hardware preloading without displaying the internal event', async () => {

@@ -59,6 +59,22 @@ test('lists published alternatives with attribution and switches using the same 
   assert.deepEqual(selected, ['protocol', null, 'public']);
 });
 
+test('the chat link toggles its active deck without reloading, and opens another protocol when needed', () => {
+  const w = setup();
+  const link = {};
+  w.context.sourceLink = link;
+  vm.runInContext('_sourceCodeBlock = sourceLink;', w.context);
+  let toggled = 0, opened;
+  w.context.toggleDeckPanel = () => toggled++;
+  w.context.parseDeckFromCode = (...args) => opened = args;
+  w.context.toggleProtocolDeck('protocol', link);
+  w.context.toggleProtocolDeck('protocol', link);
+  assert.equal(toggled, 2);
+  assert.equal(opened, undefined);
+  w.context.toggleProtocolDeck('other protocol', link);
+  assert.deepEqual(opened, ['other protocol', link]);
+});
+
 test('editing creates a separate layout draft and cancel preserves protocol state', () => {
   const w = setup();
   const original = JSON.stringify(w.context.state);
@@ -263,14 +279,14 @@ test('an inferred empty grid position remains available when hardware is added',
   assert.equal(w.context.state.positions[1].labware, 'plate_api');
 });
 
-test('fullscreen scales the entire deck to fit and restores natural sizing on exit', () => {
+test('the entire deck scales to fit in both normal and fullscreen panes', () => {
   const w = setup();
   let fullscreen = true;
   const wrapper = { scrollWidth: 1200, scrollHeight: 800,
     style: { removeProperty(name) { delete this[name]; } } };
   const container = { clientWidth: 624, clientHeight: 424, querySelector: () => wrapper };
   w.context.document.getElementById = id => id === 'deck-panel'
-    ? { classList: { contains: () => fullscreen } } : id === 'deck-svg-container' ? container : null;
+    ? { classList: { contains: name => name === 'deck-fullscreen' && fullscreen } } : id === 'deck-svg-container' ? container : null;
   w.context._fitDeck();
   assert.equal(wrapper.style.transform, 'scale(0.5)');
   assert.equal(wrapper.style.left, '12px');
@@ -280,8 +296,8 @@ test('fullscreen scales the entire deck to fit and restores natural sizing on ex
   assert.equal(wrapper.style.transform, 'scale(0.25)');
   fullscreen = false;
   w.context._fitDeck();
-  assert.equal(wrapper.style.transform, undefined);
-  assert.equal(wrapper.style.width, undefined);
+  assert.equal(wrapper.style.transform, 'scale(0.25)');
+  assert.equal(wrapper.style.width, '600px');
 });
 
 test('active code lines are centered using viewport coordinates regardless of offset parents', () => {
@@ -457,6 +473,8 @@ test('fullscreen shows the current protocol below the deck and restores the norm
       ? { getAttribute: () => 'false', click: () => expanded++, remove() {} } : null;
     return block;
   };
+  w.context._renderDeckCode();
+  assert.equal(view.children[0].code, 'protocol');
   w.context._setDeckFullscreen(true);
   assert.equal(panel.classList.contains('deck-fullscreen'), true);
   assert.equal(panel.attributes['aria-modal'], 'true');
@@ -475,6 +493,6 @@ test('fullscreen shows the current protocol below the deck and restores the norm
   assert.equal(panel.classList.contains('hidden'), true);
   assert.equal(sidebar.inert, false);
   assert.equal(chat.inert, false);
-  assert.equal(view.children.length, 0);
+  assert.equal(view.children[0].code, 'updated protocol');
   assert.equal(button.attributes['aria-pressed'], 'false');
 });

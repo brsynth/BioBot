@@ -1,0 +1,60 @@
+:root { color-scheme: dark; }
+:root[data-theme="daylight"] {
+  color-scheme: light;
+  --bg-primary: #f7faf8;
+  --bg-secondary: #ffffff;
+  --bg-sidebar: #eef3f0;
+  --bg-elevated: #ffffff;
+  --bg-input: #f0f5f2;
+  --bg-hover: #e3ece6;
+  --bg-code: #f2f6f3;
+  --accent: #00794b;
+  --accent-dim: #00613c;
+  --accent-glow: rgba(0, 121, 75, 0.08);
+  --accent-glow-strong: rgba(0, 121, 75, 0.16);
+  --text-primary: #18251e;
+  --text-secondary: #52665a;
+  --text-muted: #65786d;
+  --text-on-accent: #ffffff;
+  --danger: #bc293d;
+  --danger-hover: #a32032;
+  --border: #d4dfd8;
+  --border-light: #c2d0c7;
+  --shadow-sm: 0 1px 3px #183e2410;
+  --shadow-md: 0 4px 16px #183e2414;
+  --shadow-lg: 0 8px 32px #183e241c;
+  --shadow-glow: 0 0 20px #00794b12;
+}
+
+.appearance-control { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; color: var(--text-secondary); font-size: 0.8rem; }
+.appearance-control select { min-height: 36px; padding: 5px 8px; border: 1px solid var(--border-light); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--text-primary); font: inherit; cursor: pointer; }
+.appearance-control select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* Legacy deck surfaces use fixed dark colors; keep them consistent with daylight. */
+[data-theme="daylight"] :is(.deck-grid, .deck-linear, .deck-plates, .deck-slot.empty,
+  .deck-carrier, .deck-instruments, .deck-instrument, .deck-info-panel, .anim-step-desc, .anim-playback-bar,
+  .code-toolbar, .code-preview-toggle,
+  .deck-selector-content, .reject-modal-content, .mount-option, .instrument-mount-selector) {
+  background: var(--bg-input);
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+[data-theme="daylight"] :is(.deck-slot.filled, .deck-plate-section, .deck-apply-bar) {
+  background: var(--bg-elevated);
+  border-color: var(--border-light);
+}
+[data-theme="daylight"] :is(.deck-slot.filled:hover, .deck-slot.deck-drop-target) { border-color: var(--accent); }
+[data-theme="daylight"] :is(.deck-selector-search, .deck-selector-custom-input, .deck-well, .anim-speed-select) { background: var(--bg-input); color: var(--text-primary); border-color: var(--border-light); }
+[data-theme="daylight"] :is(.selector-name, .deck-selector-header h4, .info-row, .mount-option, .mount-option:hover, .deck-selector-close:hover) { color: var(--text-primary); }
+[data-theme="daylight"] :is(.deck-plate-format, .deck-plate-row-label, .deck-plate-col-label,
+  .selector-detail, .selector-id, .custom-hint, .deck-info-hint, .slot-empty-label,
+  .slot-number, .deck-selector-category, .apply-bar-hint) { color: var(--text-secondary); }
+[data-theme="daylight"] :is(.custom-apply-btn, .apply-bar-apply) { color: var(--text-on-accent); }
+[data-theme="daylight"] .slot-mini-grid { background: var(--bg-code); border-color: var(--border); }
+[data-theme="daylight"] .mini-well { background: var(--accent-glow); border-color: #00794b66; }
+[data-theme="daylight"] .mini-tip { background: #a66a001a; border-color: #a66a0066; }
+[data-theme="daylight"] .mini-tube { background: #285fa01a; border-color: #285fa066; }
+[data-theme="daylight"] .code-line-num { color: var(--text-muted); }
+[data-theme="daylight"] .version-tag { color: var(--text-muted); }
+[data-theme="daylight"] .code-line-active .code-line-text { color: var(--text-primary); }
+[data-theme="daylight"] .code-line-loop .code-line-text { color: #225f94; }

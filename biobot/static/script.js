@@ -117,6 +117,21 @@ if (sidebarOverlay) {
   sidebarOverlay.addEventListener("click", closeSidebar);
 }
 
+const sidebarCollapseBtn = document.getElementById("sidebar-collapse-btn");
+function setSidebarCollapsed(collapsed) {
+  sidebar.classList.toggle("collapsed", collapsed);
+  const label = collapsed ? "Expand sidebar" : "Collapse sidebar";
+  sidebarCollapseBtn?.setAttribute("aria-expanded", String(!collapsed));
+  sidebarCollapseBtn?.setAttribute("aria-label", label);
+  if (sidebarCollapseBtn) sidebarCollapseBtn.title = label;
+}
+try { setSidebarCollapsed(localStorage.getItem("biobot-sidebar-collapsed") === "true"); } catch (_) {}
+sidebarCollapseBtn?.addEventListener("click", () => {
+  const collapsed = !sidebar.classList.contains("collapsed");
+  setSidebarCollapsed(collapsed);
+  try { localStorage.setItem("biobot-sidebar-collapsed", String(collapsed)); } catch (_) {}
+});
+
 // --- Escape HTML ---
 // Fix invalid JSON from LLMs (trailing commas before ] or })
 function fixTrailingCommas(jsonStr) {
@@ -208,6 +223,20 @@ function detectFormat(content) {
   }
 
   return "text";
+}
+
+// Chat keeps a reference to the file; its contents are shown only below the deck.
+function buildDeckLink(code) {
+  const link = document.createElement("a");
+  link.className = "protocol-deck-link";
+  link.href = "#deck-panel";
+  link.textContent = "Open deck";
+  link._protocolCode = code;
+  link.addEventListener("click", event => {
+    event.preventDefault();
+    window.toggleProtocolDeck?.(link._protocolCode, link);
+  });
+  return link;
 }
 
 // --- Build a styled code block with copy + download buttons ---
@@ -474,34 +503,26 @@ function renderUserMessage(div, text, messageId) {
 // --- Append chunk to bot message (handles code blocks) ---
 function appendChunkToBotMessage(div, chunk) {
   div._buffer += chunk;
-
-  // Capture the language tag from markdown fences: ```python, ```csv, ```json, etc.
-  const codeBlockRegex = /```(\w*)\s*\n([\s\S]*?)```/g;
-  let lastIndex = 0;
-  let match;
-  const fragments = [];
-
-  while ((match = codeBlockRegex.exec(div._buffer)) !== null) {
-    const before = div._buffer.slice(lastIndex, match.index);
-    if (before) fragments.push({ type: "text", content: before });
-    fragments.push({ type: "code", content: match[2], format: match[1] || "text" });
-    lastIndex = codeBlockRegex.lastIndex;
-  }
-
-  const remaining = div._buffer.slice(lastIndex);
-  div._buffer = remaining;
-
-  for (const frag of fragments) {
-    if (frag.type === "text") {
-      div.innerHTML += escapeHtml(frag.content).replace(/\n/g, "<br>");
-    } else if (frag.type === "code") {
-      div.appendChild(buildCodeBlock(frag.content, frag.format));
+  while (div._buffer) {
+    const start = div._buffer.indexOf("```");
+    if (start < 0) {
+      // A network read may end partway through the opening fence.
+      const trailing = div._buffer.match(/`{1,2}$/)?.[0] || "";
+      const text = div._buffer.slice(0, div._buffer.length - trailing.length);
+      if (text) div.appendChild(document.createTextNode(text));
+      div._buffer = trailing;
+      break;
     }
-  }
-
-  if (div._buffer && !div._buffer.startsWith("```")) {
-    div.innerHTML += escapeHtml(div._buffer).replace(/\n/g, "<br>");
-    div._buffer = "";
+    if (start > 0) {
+      div.appendChild(document.createTextNode(div._buffer.slice(0, start)));
+      div._buffer = div._buffer.slice(start);
+    }
+    const header = div._buffer.indexOf("\n");
+    if (header < 0) break;
+    const end = div._buffer.indexOf("```", header + 1);
+    if (end < 0) break;
+    div.appendChild(buildDeckLink(div._buffer.slice(header + 1, end)));
+    div._buffer = div._buffer.slice(end + 3);
   }
 
   scrollToBottom();
@@ -610,8 +631,7 @@ async function loadChatHistory(chatId) {
             botDiv.appendChild(textP);
           }
           // The code block itself
-          const format = match[1] || detectFormat(match[2]);
-          botDiv.appendChild(buildCodeBlock(match[2], format));
+          botDiv.appendChild(buildDeckLink(match[2]));
           lastIndex = codeBlockRegex.lastIndex;
         }
 
@@ -627,7 +647,7 @@ async function loadChatHistory(chatId) {
           // No markdown fences — try detecting format from content
           const detectedFmt = detectFormat(content);
           if (detectedFmt !== "text" && content.trim().split("\n").length > 3) {
-            botDiv.appendChild(buildCodeBlock(content, detectedFmt));
+            botDiv.appendChild(buildDeckLink(content));
           } else {
             botDiv.innerHTML = escapeHtml(content).replace(/\n/g, "<br>");
           }
@@ -1007,6 +1027,10 @@ async function sendMessage(edit = {}) {
     }
 
     if (!firstChunkReceived) throw new Error("No answer was received. Please retry your request.");
+    if (replyMode === "text" && botDiv._buffer && !botDiv._buffer.startsWith("```")) {
+      botDiv.appendChild(document.createTextNode(botDiv._buffer));
+      botDiv._buffer = "";
+    }
     if (replyMode === "questions") {
       const questions = JSON.parse(fixTrailingCommas(replyBuffer.slice("__QUESTIONS__:".length)));
       window.renderQuestionsForm(botDiv, questions);
@@ -1015,26 +1039,24 @@ async function sendMessage(edit = {}) {
       const paragraph = document.createElement("p");
       paragraph.textContent = message.trim();
       botDiv.appendChild(paragraph);
-      if (code) botDiv.appendChild(buildCodeBlock(code, detectFormat(code)));
+      if (code) botDiv.appendChild(buildDeckLink(code));
     } else if (replyMode === "code") {
-      botDiv.appendChild(buildCodeBlock(replyBuffer, detectFormat(replyBuffer)));
+      botDiv.appendChild(buildDeckLink(replyBuffer));
       finalRagCode = replyBuffer;
     } else if (!replyMode) {
       throw new Error("The reply was interrupted. Please retry your request.");
     }
     edit.questionnaireSummary?.querySelector(".summary-generating")?.remove();
     statusDiv?.remove();
+    // Open the completed file immediately, before waiting for the chat-list refresh.
+    if (finalRagCode && window.parseDeckFromCode) {
+      const links = botDiv.querySelectorAll(".protocol-deck-link");
+      const link = links.length ? links[links.length - 1] : null;
+      window.parseDeckFromCode(finalRagCode, link);
+    }
     await refreshChatList();
     if (requestController.signal.aborted) return;
     selectChatListItem(currentChatId);
-
-    // Parse deck ONCE after streaming is fully complete (final code only)
-    if (finalRagCode && window.parseDeckFromCode && finalRagCode.length > 50) {
-      // Find the code block that was just built for this RAG code
-      const codeBlocks = botDiv.querySelectorAll(".code-block-wrapper");
-      const lastBlock = codeBlocks.length ? codeBlocks[codeBlocks.length - 1] : null;
-      window.parseDeckFromCode(finalRagCode, lastBlock);
-    }
 
   } catch (err) {
     if (err.name === "AbortError") return;
