@@ -835,7 +835,6 @@ async function createNewChat() {
 // --- Thinking indicator ---
 function addThinkingMessage() {
   const div = document.createElement("div");
-  div.className = "chat-message chat-bot";
   div.id = "thinking-message";
 
   const label = document.createElement("span");
@@ -966,12 +965,13 @@ async function sendMessage(edit = {}) {
 
     for await (const part of readChatReply(res.body)) {
       if (part.type === "status") {
+        edit.questionnaireSummary?.querySelector(".summary-generating")?.remove();
         isRagResponse = true;
         clearInterval(thinkingInterval);
         document.getElementById("thinking-message")?.remove();
         if (!statusDiv) {
           statusDiv = document.createElement("div");
-          statusDiv.className = "chat-message chat-bot rag-status";
+          statusDiv.className = "rag-status";
           chatHistoryElem.appendChild(statusDiv);
         }
         statusDiv.replaceChildren();
@@ -982,6 +982,7 @@ async function sendMessage(edit = {}) {
         continue;
       }
       if (!firstChunkReceived) {
+        edit.questionnaireSummary?.querySelector(".summary-generating")?.remove();
         firstChunkReceived = true;
         clearInterval(thinkingInterval);
         document.getElementById("thinking-message")?.remove();

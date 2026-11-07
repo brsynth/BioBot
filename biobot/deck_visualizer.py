@@ -99,6 +99,7 @@ Rules:
 - Handle coherence: if a pipette changes, update the tiprack. If a tiprack changes, check the pipette is compatible. If volumes exceed the new pipette range, adjust them.
 - For labware changes: replace the old API name with the new one everywhere it appears.
 - For additions: add the appropriate load statement in the right place.
+- For move_labware: move the existing hardware from from_slot to to_slot. Preserve its variable and update affected deck references; do not create a second copy or change the experimental operations.
 - For removals: remove or comment out the load statement and warn if it's referenced elsewhere.
 - Keep all other code intact — variables, logic, comments, structure.
 
@@ -147,7 +148,7 @@ RULES:
 - Group by category (e.g., "Tip Racks", "Well Plates", "Reservoirs", "Tube Racks", "Modules").
 - Include the correct API load names that the platform actually uses in code.
 - For pipettes/instruments: include model names, volume ranges, and mount options.
-- Include 5-15 items per category — the most commonly used ones.
+- Include up to 5 common items per category. Keep descriptions concise.
 - For the "detail" field: include key specs (volume, well count, dimensions).
 - If changing an instrument (pipette/channel), return instrument options instead of labware.
 - Return ONLY the JSON. No markdown, no explanation.
@@ -158,7 +159,7 @@ def get_catalog(platform: str, position_type: str = "labware",
                 current: str = None, api_key: str = None) -> dict:
     """Ask the LLM for compatible hardware options for a given platform and position."""
     import json
-    client = OpenAI(api_key=api_key or get_api_key())
+    client = OpenAI(api_key=api_key or get_api_key(), timeout=40, max_retries=0)
 
     prompt = f"Platform: {platform}\n"
     prompt += f"I need to {'change' if current else 'add'} {position_type} options.\n"
@@ -231,6 +232,7 @@ def bind_protocol(code, layout, api_key=None):
 In addition to steps, include these protocol-specific fields in the same JSON object:
 - title: a short protocol title.
 - positions: [{id, labware, labware_display, variable, type, module}] for loaded hardware. IDs MUST come from the supplied device template. Do not invent physical positions.
+- type must be exactly one of: plate, tiprack, reservoir, tuberack, module, trash, carrier, empty. Classify the actual hardware; do not use generic "labware" or source/destination roles as types.
 - instruments: [{name, model, mount, tipracks}] describing instruments used by this protocol.
 - plates: {source: {name, type, format, wells_used}, destination: {name, type, format, wells_used}} for plate-based protocols, otherwise null. Each format MUST be an integer well count or null, never a string with units.
 - carriers: {items: [{track, positions: [{index, labware, variable}]}]} when the protocol loads carriers, otherwise null.

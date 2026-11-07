@@ -42,6 +42,7 @@ class SufficiencyTests(unittest.TestCase):
         result = questionnaire.check_sufficient_info("Prepare a protocol", [], "key")
         self.assertEqual(result["questions"][0]["units"], {"": 1})
         self.assertEqual(self.client.responses.create.call_count, 1)
+        self.assertEqual(self.client.responses.create.call_args.kwargs["model"], config.biobot_model)
 
     def test_repairs_missing_unit_metadata_before_display(self):
         original = {"questions": [{"id": "quantity", "type": "number", "question": "Quantity (mM)?"}]}
@@ -67,6 +68,25 @@ class SufficiencyTests(unittest.TestCase):
         data = {"questions": [{"id": "correction", "question": "Correct this value?"}]}
         self.outputs(json.dumps(data))
         self.assertEqual(questionnaire.check_sufficient_info("[PROTOCOL_PARAMS] conflicting answer", [], "key"), data)
+        self.assertEqual([call.kwargs["model"] for call in self.client.responses.create.call_args_list],
+                         [config.biobot_model])
+
+    def test_completed_questionnaire_preserves_original_context_and_validates_answers(self):
+        data = {"questions": [{"id": "derived", "question": "What is the calculated quantity?"}]}
+        self.outputs("SUFFICIENT")
+        history = [{"role": "user", "content": "original experimental request"}]
+        history += [{"role": "assistant", "content": "__QUESTIONS__:" + json.dumps(data)},
+                    {"role": "user", "content": "[PROTOCOL_PARAMS] earlier answer"}] * 4
+        self.assertIsNone(questionnaire.check_sufficient_info("[PROTOCOL_PARAMS] latest answer", history, "key"))
+        content = self.client.responses.create.call_args.kwargs["input"]
+        self.assertIn("original experimental request", content[1]["content"])
+        self.assertIn("do not design another questionnaire", content[0]["content"])
+
+    def test_invalid_followup_review_is_bounded(self):
+        self.outputs("more questions", "invalid")
+        with self.assertRaisesRegex(ValueError, "retry"):
+            questionnaire.check_sufficient_info("[PROTOCOL_PARAMS] answers", [], "key")
+        self.assertEqual(self.client.responses.create.call_count, 2)
 
     def test_free_text_followup_is_repaired_into_questionnaire(self):
         data = {"questions": [{"id": "model", "question": "Which instrument model?"}]}

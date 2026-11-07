@@ -76,8 +76,11 @@ def check_sufficient_info(query, history, api_key, *, allow_general=False):
     """
 
     client = get_openai_client(api_key)
+    submitted = query.lstrip().startswith("[PROTOCOL_PARAMS]")
  
-    recent = [m for m in history if m["role"] != "system"][-6:]
+    recent = [m for m in history if m["role"] != "system"]
+    if not submitted:
+        recent = recent[-6:]
     conversation = "\n".join(
         f"{'User' if m['role'] == 'user' else 'Assistant'}: {m['content']}"
         for m in recent
@@ -86,6 +89,14 @@ def check_sufficient_info(query, history, api_key, *, allow_general=False):
     prompt = SUFFICIENCY_PROMPT
     if allow_general:
         prompt += "\nFirst assess the latest user's intent in context. For an informational or unrelated request that does not require a protocol, return exactly NOT_PROTOCOL. For a protocol request with missing or conflicting information, ALWAYS return the questionnaire JSON, never a prose request for details. For a complete protocol request return SUFFICIENT. Do not infer a protocol request merely from earlier conversation."
+    if submitted:
+        prompt += """
+The latest message submits a completed questionnaire. Validate the answers; do not design another questionnaire.
+Combine answers from ALL previous questionnaires with the latest submission; the latest explicit answer wins.
+Return SUFFICIENT unless the supplied facts contain a concrete physical or logical contradiction, or an indispensable user-only fact remains unknown and cannot be derived or reasonably defaulted.
+Calculate derived quantities yourself. Never ask the user to confirm a calculation, supply redundant parameters, repeat an answered question, or choose implementation details.
+Only return correction questions for an actual unresolved blocker. In message, explain the conflicting supplied values or why the unknown fact prevents generation. Preserve all other answers and ask only for the correction.
+"""
     messages = [
         {"role": "system", "content": prompt},
         {"role": "user", "content": f"Conversation so far:\n{conversation}\n\nLatest request: {query}"},
@@ -108,15 +119,14 @@ def check_sufficient_info(query, history, api_key, *, allow_general=False):
                     return False
         return True
 
-    # One bounded repair covers prose, malformed JSON, and missing unit metadata.
+    # One bounded repair covers malformed questionnaires and missing unit metadata.
     for attempt in range(2):
         response = client.responses.create(model=biobot_model, input=messages)
         answer = response.output_text.strip()
-        if attempt == 0:
-            if answer == "SUFFICIENT":
-                return None
-            if allow_general and answer == "NOT_PROTOCOL":
-                return "NOT_PROTOCOL"
+        if answer == "SUFFICIENT" and (attempt == 0 or submitted):
+            return None
+        if allow_general and not submitted and attempt == 0 and answer == "NOT_PROTOCOL":
+            return "NOT_PROTOCOL"
         try:
             questions = json.loads(strip_code_fences(answer))
         except json.JSONDecodeError:

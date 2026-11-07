@@ -17,6 +17,8 @@ let _sourceCodeBlock = null;  // the specific code block element the deck was op
 let _libraryEditing = false;
 let _libraryDraftName = "";
 let _libraryBeforeEdit = null;
+let _deckFitObserver = null;
+let _draggedDeckArea = null;
 
 // Animation state
 let _animSteps = [];
@@ -276,6 +278,7 @@ async function _publishLibraryDeck() {
 // ============================================================
 
 function _renderDeck(state) {
+  _hideDeckTooltip();
   const container = document.getElementById("deck-svg-container");
   if (!container) return;
   container.innerHTML = "";
@@ -327,7 +330,7 @@ function _renderDeck(state) {
   const info = document.createElement("div");
   info.id = "deck-info";
   info.className = "deck-info-panel";
-  info.innerHTML = '<span class="deck-info-hint">Click a position for details</span>';
+  info.innerHTML = '<span class="deck-info-hint">Hover for details · Drag hardware to an empty position · Click Empty to add</span>';
   wrapper.appendChild(info);
 
   container.appendChild(wrapper);
@@ -337,6 +340,7 @@ function _renderDeck(state) {
     _initAnimation(state);
     _applyStepVisuals(-1, false);  // Bug 2 fix: show clean initial state immediately
   }
+  _watchDeckFit();
 }
 
 // ============================================================
@@ -344,7 +348,7 @@ function _renderDeck(state) {
 // ============================================================
 
 function _renderGrid(state) {
-  const positions = state.positions || [];
+  const positions = state.positions ||= [];
   const grid = state.grid || {};
   const labels = grid.labels || [];
 
@@ -405,6 +409,7 @@ function _renderGrid(state) {
           continue;
         }
         pos = { id: label || `${idx + 1}`, type: "empty" };
+        positions.push(pos);
       }
 
       // Assign row/col so animation can locate slots
@@ -444,18 +449,7 @@ function _renderLinear(state) {
     card.appendChild(header);
 
     for (const pos of (carrier.positions || [])) {
-      const slot = document.createElement("div");
-      slot.className = `deck-slot ${pos.labware ? "filled" : "empty"}`;
-      slot.dataset.id = `${carrier.type}_${pos.index}`;
-      if (_selectedSlot === slot.dataset.id) slot.classList.add("selected");
-
-      slot.innerHTML = `<span class="slot-num">${pos.index}</span>` +
-        (pos.labware
-          ? `<span class="slot-labware">${pos.labware}</span>
-             ${pos.variable ? `<span class="slot-var">${pos.variable}</span>` : ""}`
-          : `<span class="slot-empty-label">Empty</span>`);
-
-      slot.addEventListener("click", () => _selectSlot(slot.dataset.id, pos));
+      const slot = _createSlot({ ...pos, id: `${carrier.type}_${pos.index}` });
       card.appendChild(slot);
     }
 
@@ -552,8 +546,7 @@ function _renderPlateMap(plate, role, slotId, posData) {
   const plateName = plate.name || (role === "source" ? "Source Plate" : "Destination Plate");
   header.innerHTML = `
     <span class="deck-plate-name">${plateName}</span>
-    ${plate.type ? `<span class="deck-plate-type">${plate.type}</span>` : ""}
-    <span class="deck-plate-format">${format ? `${format}-well` : "Format from protocol"}</span>
+    ${format ? `<span class="deck-plate-format">${format}-well</span>` : ""}
   `;
   section.appendChild(header);
 
@@ -604,24 +597,13 @@ function _renderPlateMap(plate, role, slotId, posData) {
       const well = document.createElement("div");
       well.className = "deck-well";
       well.dataset.well = wellId;
-      well.title = wellId;
 
       if (usedWells.has(wellId)) {
         well.classList.add(role === "source" ? "well-source" : "well-dest");
       }
 
-      // Click handler: show well info
-      well.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const info = document.getElementById("deck-info");
-        if (!info) return;
-        const used = usedWells.has(wellId);
-        let html = `<div class="info-row"><span class="info-label">Well:</span> <span style="color:var(--accent)">${wellId}</span></div>`;
-        html += `<div class="info-row"><span class="info-label">Plate:</span> ${plateName}</div>`;
-        html += `<div class="info-row"><span class="info-label">Status:</span> ${used ? '<span style="color:#00ff99">Used</span>' : '<span style="color:#666">Empty</span>'}</div>`;
-        if (plate.type) html += `<div class="info-row"><span class="info-label">Type:</span> ${plate.type}</div>`;
-        info.innerHTML = html;
-      });
+      _bindDeckTooltip(well, [`Well: ${wellId}`, `Plate: ${plateName}`,
+        `Status: ${usedWells.has(wellId) ? "Used" : "Empty"}`]);
 
       grid.appendChild(well);
     }
@@ -631,27 +613,12 @@ function _renderPlateMap(plate, role, slotId, posData) {
   gridWrapper.appendChild(gridCol);
   section.appendChild(gridWrapper);
 
-  // Click on section header to show plate info
-  section.addEventListener("click", () => {
-    _selectedSlot = (_selectedSlot === slotId) ? null : slotId;
-    // Don't re-render the whole deck, just toggle selection visually
-    document.querySelectorAll(".deck-plate-section.selected").forEach(el => el.classList.remove("selected"));
-    if (_selectedSlot === slotId) section.classList.add("selected");
-
-    const info = document.getElementById("deck-info");
-    if (!info) return;
-    if (_selectedSlot !== slotId) {
-      info.innerHTML = '<span class="deck-info-hint">Click a well or plate for details</span>';
-      return;
-    }
-    let html = `<div class="info-row"><span class="info-label">Plate:</span> <span style="color:var(--accent)">${plateName}</span></div>`;
-    if (plate.type) html += `<div class="info-row"><span class="info-label">Type:</span> ${plate.type}</div>`;
-    html += `<div class="info-row"><span class="info-label">Format:</span> ${format ? `${format}-well (${rows}×${cols})` : "Not specified"}</div>`;
-    if (format) html += `<div class="info-row"><span class="info-label">Wells used:</span> ${usedWells.size} of ${format}</div>`;
-    if (posData?.labware) html += `<div class="info-row"><span class="info-label">API name:</span> <code>${posData.labware}</code></div>`;
-    if (posData?.variable) html += `<div class="info-row"><span class="info-label">Variable:</span> <code>${posData.variable}</code></div>`;
-    info.innerHTML = html;
-  });
+  _bindDeckArea(section, slotId, posData || { fixed: true, labware: plate.type || plateName, type: "plate" }, [
+    `Plate: ${plateName}`,
+    plate.type && `Labware: ${plate.type}`,
+    `Format: ${format ? `${format}-well (${rows}×${cols})` : "Not specified"}`,
+    format && `Wells used: ${usedWells.size} of ${format}`,
+  ]);
 
   return section;
 }
@@ -660,10 +627,18 @@ function _renderPlateMap(plate, role, slotId, posData) {
 // Shared Components
 // ============================================================
 
+function _deckAreaType(type, labware) {
+  const key = String(type || "").toLowerCase().replace(/[\s_-]/g, "");
+  if (key.endsWith("plate")) return "plate";
+  if (key.endsWith("trash")) return "trash";
+  if (!key || key === "labware" || key === "empty" && labware) return _guessType(labware);
+  return key;
+}
+
 function _createSlot(pos) {
   const slot = document.createElement("div");
-  const filled = pos.labware && pos.type !== "empty";
-  const slotType = pos.type || (filled ? _guessType(pos.labware) : "empty");
+  const filled = !!pos.labware;
+  const slotType = _deckAreaType(pos.type, pos.labware);
   slot.className = `deck-slot ${filled ? "filled" : "empty"} ${slotType}`;
   slot.dataset.id = pos.id;
   if (_selectedSlot === pos.id) slot.classList.add("selected");
@@ -677,24 +652,21 @@ function _createSlot(pos) {
       slot.innerHTML += `<span class="slot-module-badge">${pos.module}</span>`;
     }
 
-    // Type-specific interior visual
-    slot.innerHTML += _renderSlotInterior(slotType, pos);
-
-    // Labware name
+    // One muted label above the hardware; implementation details live in the tooltip.
     slot.innerHTML += `<span class="slot-labware-name ${slotType === "trash" ? "trash-label" : ""} ${slotType === "module" ? "module-label" : ""}">${pos.labware_display || _shorten(pos.labware)}</span>`;
-    if (pos.variable) slot.innerHTML += `<span class="slot-label">${pos.variable}</span>`;
+    slot.innerHTML += _renderSlotInterior(slotType, pos);
   } else {
     slot.innerHTML += `<span class="slot-icon">${slotType === "trash" ? "🗑" : "+"}</span>`;
     slot.innerHTML += `<span class="slot-empty-label">${slotType === "trash" ? "Trash" : "Empty"}</span>`;
   }
 
-  slot.addEventListener("click", () => _selectSlot(pos.id, pos));
-  slot.addEventListener("dblclick", () => _showSelector(pos.id, pos.labware || null));
+  _bindDeckArea(slot, pos.id, pos);
 
   return slot;
 }
 
 function _renderSlotInterior(type, pos) {
+  type = _deckAreaType(type, pos.labware);
   if (type === "plate") {
     return _renderMiniPlate(pos, 8, 12, "mini-well");
   }
@@ -735,10 +707,9 @@ function _renderMiniPlate(pos, rows, cols, wellClass) {
   });
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      if (r * cols + c >= format) continue;
       const wellId = `${rowLabels[r]}${c + 1}`;
       const usedClass = usedWells.has(wellId) ? " well-used" : "";
-      html += `<div class="${wellClass} deck-well${usedClass}" title="${wellId}" data-well="${wellId}"></div>`;
+      html += `<div class="${wellClass} deck-well${usedClass}" data-well="${wellId}"></div>`;
     }
   }
   html += `</div>`;
@@ -757,25 +728,9 @@ function _renderInstruments(instruments) {
       (inst.mount ? `<span class="inst-mount">${inst.mount}</span>` : "") +
       (inst.tipracks?.length ? `<span class="inst-tips">Tips: ${inst.tipracks.join(", ")}</span>` : "");
 
-    // Click to select and show details
-    chip.addEventListener("click", () => {
-      const id = `inst_${inst.mount || inst.name}`;
-      _selectedSlot = (_selectedSlot === id) ? null : id;
-      _renderDeck(_currentState);
-
-      const info = document.getElementById("deck-info");
-      if (!info) return;
-      if (!_selectedSlot) {
-        info.innerHTML = '<span class="deck-info-hint">Click a position for details. Double-click to change.</span>';
-        return;
-      }
-      let html = `<div class="info-row"><span class="info-label">Instrument:</span> <span style="color:#00ff99">${inst.name}</span></div>`;
-      if (inst.model) html += `<div class="info-row"><span class="info-label">API name:</span> <code>${inst.model}</code></div>`;
-      if (inst.mount) html += `<div class="info-row"><span class="info-label">Mount:</span> ${inst.mount}</div>`;
-      if (inst.tipracks?.length) html += `<div class="info-row"><span class="info-label">Tip racks:</span> slots ${inst.tipracks.join(", ")}</div>`;
-      html += `<div class="info-row" style="color:#666;font-size:0.7rem;margin-top:6px">Double-click to change</div>`;
-      info.innerHTML = html;
-    });
+    chip.tabIndex = 0;
+    _bindDeckTooltip(chip, [inst.name, inst.model, inst.mount && `Mount: ${inst.mount}`,
+      inst.tipracks?.length && `Tip racks: ${inst.tipracks.join(", ")}`, "Double-click to change"]);
 
     // Double-click to open instrument selector
     chip.addEventListener("dblclick", () => {
@@ -994,33 +949,143 @@ function _applyInstrumentChange(oldInst, newModel, newMount) {
   _renderApplyBar();
 }
 
-function _selectSlot(id, pos) {
-  _selectedSlot = (_selectedSlot === id) ? null : id;
-  _renderDeck(_currentState);
+function _hideDeckTooltip() {
+  document.getElementById("deck-area-tooltip")?.remove();
+}
 
-  const info = document.getElementById("deck-info");
-  if (!info) return;
-  if (!_selectedSlot) {
-    info.innerHTML = '<span class="deck-info-hint">Click a position for details. Double-click to change.</span>';
-    return;
+function _bindDeckTooltip(area, lines) {
+  let suppressed = false;
+  function show(event) {
+    if (suppressed || _draggedDeckArea !== null) return;
+    _hideDeckTooltip();
+    const tip = document.createElement("div");
+    tip.id = "deck-area-tooltip";
+    tip.setAttribute("role", "tooltip");
+    tip.textContent = lines.filter(Boolean).join("\n");
+    document.body.appendChild(tip);
+    const rect = area.getBoundingClientRect();
+    const x = event.clientX ?? rect.left, y = event.clientY ?? rect.bottom;
+    tip.style.left = `${Math.max(8, Math.min(x + 12, window.innerWidth - tip.offsetWidth - 8))}px`;
+    tip.style.top = `${Math.max(8, Math.min(y + 12, window.innerHeight - tip.offsetHeight - 8))}px`;
   }
+  area.addEventListener("pointerenter", show);
+  area.addEventListener("focus", show);
+  area.addEventListener("pointerleave", () => { suppressed = false; _hideDeckTooltip(); });
+  area.addEventListener("blur", _hideDeckTooltip);
+  area.addEventListener("pointerdown", () => { suppressed = true; _hideDeckTooltip(); });
+}
 
-  let html = `<div class="info-row"><span class="info-label">Position:</span> ${pos.id}</div>`;
-  if (pos.labware) html += `<div class="info-row"><span class="info-label">Labware:</span> <span style="color:#00ff99">${pos.labware_display || pos.labware}</span></div>`;
-  if (pos.labware && pos.labware !== pos.labware_display) html += `<div class="info-row"><span class="info-label">API name:</span> <code>${pos.labware}</code></div>`;
-  if (pos.variable) html += `<div class="info-row"><span class="info-label">Variable:</span> <code>${pos.variable}</code></div>`;
-  if (pos.module) html += `<div class="info-row"><span class="info-label">Module:</span> ${pos.module}</div>`;
-  if (pos.type) html += `<div class="info-row"><span class="info-label">Type:</span> ${pos.type}</div>`;
-  info.innerHTML = html;
+function _fixedDeckArea(pos) {
+  return pos.fixed || pos.module || ["trash", "module"].includes(_deckAreaType(pos.type, pos.labware))
+    || /^fixed(?:[\s_-]|$)/i.test(pos.type || "");
+}
+
+function _movableDeckArea(pos) {
+  return !!pos.labware && !_fixedDeckArea(pos);
+}
+
+function _bindDeckArea(area, id, pos, details = []) {
+  const empty = !pos.labware && !_fixedDeckArea(pos);
+  const movable = _movableDeckArea(pos);
+  area.tabIndex = 0;
+  if (empty || movable) {
+    area.setAttribute("role", "button");
+    area.setAttribute("aria-label", `${empty ? "Add hardware" : pos.labware_display || pos.labware} at position ${id}`);
+  }
+  _bindDeckTooltip(area, [
+    `Position: ${id}`, pos.labware_display || pos.labware,
+    pos.labware_display && pos.labware !== pos.labware_display && `Labware: ${pos.labware}`,
+    pos.variable && `Variable: ${pos.variable}`, pos.module && `Module: ${pos.module}`,
+    pos.type && `Type: ${pos.type}`, ...details,
+    empty ? "Click to add hardware" : movable ? "Drag to an empty position · Double-click to change" : null,
+  ]);
+  function activate() {
+    _hideDeckTooltip();
+    if (empty) _showSelector(id, null);
+  }
+  area.addEventListener("click", activate);
+  area.addEventListener("keydown", event => {
+    if (event.target !== area || (!empty && !movable) || !["Enter", " "].includes(event.key)) return;
+    event.preventDefault();
+    _hideDeckTooltip();
+    _showSelector(id, pos.labware || null);
+  });
+  area.addEventListener("dblclick", () => {
+    if (movable) { _hideDeckTooltip(); _showSelector(id, pos.labware); }
+  });
+  area.draggable = movable;
+  area.addEventListener("dragstart", event => {
+    if (!movable) { event.preventDefault(); return; }
+    _hideDeckTooltip();
+    _draggedDeckArea = String(id);
+    event.dataTransfer.setData("text/plain", String(id));
+    event.dataTransfer.effectAllowed = "move";
+  });
+  area.addEventListener("dragend", () => {
+    _draggedDeckArea = null;
+    _hideDeckTooltip();
+    document.querySelectorAll(".deck-drop-target").forEach(node => node.classList.remove("deck-drop-target"));
+  });
+  area.addEventListener("dragover", event => {
+    if (!empty || _draggedDeckArea === null || _draggedDeckArea === String(id)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    area.classList.add("deck-drop-target");
+  });
+  area.addEventListener("dragleave", () => area.classList.remove("deck-drop-target"));
+  area.addEventListener("drop", event => {
+    event.preventDefault();
+    area.classList.remove("deck-drop-target");
+    const source = _draggedDeckArea;
+    _draggedDeckArea = null;
+    if (empty && source !== null) _moveDeckArea(source, String(id));
+  });
+}
+
+function _moveDeckArea(from, to) {
+  if (!_currentState || from === to) return;
+  const entries = (_currentState.positions || []).map(pos => [String(pos.id), pos]);
+  for (const carrier of _currentState.carriers?.items || []) {
+    for (const pos of carrier.positions || []) entries.push([`${carrier.type}_${pos.index}`, pos]);
+  }
+  const source = entries.find(([id]) => id === from)?.[1];
+  const target = entries.find(([id]) => id === to)?.[1];
+  if (!source || !target || !_movableDeckArea(source) || target.labware || _fixedDeckArea(target)) return;
+  _stopDeckAnimation();
+  const change = { type: "move_labware", from_slot: from, to_slot: to,
+    labware: source.labware, variable: source.variable || null };
+  for (const key of ["labware", "labware_display", "variable", "type"]) {
+    target[key] = source[key];
+    source[key] = key === "type" ? "empty" : null;
+  }
+  for (const step of _currentState.steps || []) {
+    for (const role of ["source", "destination"]) {
+      if (String(step[role]?.slot) === from) step[role].slot = to;
+    }
+  }
+  for (const instrument of _currentState.instruments || []) {
+    instrument.tipracks = (instrument.tipracks || []).map(id => String(id) === from ? to : id);
+  }
+  if (!_libraryEditing) _pendingChanges.push(change);
+  _selectedSlot = null;
+  _renderDeck(_currentState);
+  _renderApplyBar();
 }
 
 // ============================================================
 // Selector Modal — LLM-driven catalog
 // ============================================================
 
+const _hardwareCatalogs = new Map();
+
+function _closeDeckSelector(modal) {
+  modal?._catalogAbort?.abort();
+  modal?.remove();
+}
+
 async function _showSelector(slotId, currentLabware) {
   const existing = document.getElementById("deck-selector-modal");
-  if (existing) existing.remove();
+  if (existing) _closeDeckSelector(existing);
 
   const platform = _currentState?.platform || "Unknown";
 
@@ -1040,30 +1105,43 @@ async function _showSelector(slotId, currentLabware) {
     </div>
   `;
 
-  modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+  modal.addEventListener("click", (e) => { if (e.target === modal) _closeDeckSelector(modal); });
   document.body.appendChild(modal);
-  document.getElementById("deck-selector-close-btn").addEventListener("click", () => modal.remove());
+  document.getElementById("deck-selector-close-btn").addEventListener("click", () => _closeDeckSelector(modal));
 
-  // Fetch catalog from LLM
+  // Editing stays available while suggestions load, or if the lookup fails.
+  const list = _renderCatalog(modal, { categories: [] }, slotId, currentLabware);
+  const cacheKey = JSON.stringify([platform, currentLabware]);
+  if (_hardwareCatalogs.has(cacheKey)) {
+    _renderCatalogItems(list, _hardwareCatalogs.get(cacheKey), modal, slotId, currentLabware);
+    return;
+  }
+  list.innerHTML = '<div class="deck-selector-loading"><div class="deck-loading-spinner"></div><span>Loading compatible hardware...</span></div>';
+  const controller = new AbortController();
+  modal._catalogAbort = controller;
+  const timeout = setTimeout(() => controller.abort(), 45000);
   try {
     const res = await fetch("/deck/catalog", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ platform, position_type: "labware", current: currentLabware }),
+      signal: controller.signal,
     });
 
     if (!res.ok) throw new Error("Failed to load catalog");
     const catalog = await res.json();
     if (catalog.error) throw new Error(catalog.error);
-
-    _renderCatalog(modal, catalog, slotId, currentLabware);
+    if (!Array.isArray(catalog.categories)) throw new Error("Invalid hardware catalog");
+    _hardwareCatalogs.set(cacheKey, catalog);
+    if (!modal.isConnected) return;
+    _renderCatalogItems(list, catalog, modal, slotId, currentLabware);
+    _filterCatalog(modal, modal.querySelector(".deck-selector-search").value);
   } catch (e) {
-    const content = modal.querySelector(".deck-selector-content");
-    if (content) {
-      content.querySelector(".deck-selector-loading").innerHTML =
-        `<span style="color:#ff4d4d">Error: ${e.message}</span>`;
-    }
-  }
+    if (!modal.isConnected) return;
+    list.textContent = e.name === "AbortError"
+      ? "Hardware lookup timed out. Enter custom labware below or reopen to retry."
+      : "Could not load suggested hardware. Enter custom labware below or reopen to retry.";
+  } finally { clearTimeout(timeout); }
 }
 
 function _renderCatalog(modal, catalog, slotId, currentLabware) {
@@ -1084,34 +1162,13 @@ function _renderCatalog(modal, catalog, slotId, currentLabware) {
     const removeBtn = document.createElement("div");
     removeBtn.className = "deck-selector-item remove";
     removeBtn.innerHTML = `<span style="color:#ff4d4d">✕ Remove labware</span>`;
-    removeBtn.addEventListener("click", () => { modal.remove(); _applyChange(slotId, null, currentLabware); });
+    removeBtn.addEventListener("click", () => { _closeDeckSelector(modal); _applyChange(slotId, null, currentLabware); });
     content.appendChild(removeBtn);
   }
 
-  // Categories and items
   const list = document.createElement("div");
   list.className = "deck-selector-list";
-
-  for (const cat of (catalog.categories || [])) {
-    const catDiv = document.createElement("div");
-    catDiv.className = "deck-selector-category";
-    catDiv.textContent = cat.name;
-    list.appendChild(catDiv);
-
-    for (const item of (cat.items || [])) {
-      const itemDiv = document.createElement("div");
-      itemDiv.className = `deck-selector-item ${item.id === currentLabware ? "active" : ""}`;
-      itemDiv.dataset.search = `${item.name} ${item.id} ${item.detail || ""}`.toLowerCase();
-      itemDiv.innerHTML = `
-        <span class="selector-name">${item.name}</span>
-        <span class="selector-detail">${item.detail || ""}</span>
-        <span class="selector-id">${item.id}</span>
-      `;
-      itemDiv.addEventListener("click", () => { modal.remove(); _applyChange(slotId, item.id, currentLabware); });
-      list.appendChild(itemDiv);
-    }
-  }
-
+  _renderCatalogItems(list, catalog, modal, slotId, currentLabware);
   content.appendChild(list);
 
   // Custom labware input at the bottom
@@ -1133,16 +1190,41 @@ function _renderCatalog(modal, catalog, slotId, currentLabware) {
 
   customBtn.addEventListener("click", () => {
     const val = customInput.value.trim();
-    if (val) { modal.remove(); _applyChange(slotId, val, currentLabware); }
+    if (val) { _closeDeckSelector(modal); _applyChange(slotId, val, currentLabware); }
   });
   customInput.addEventListener("keydown", (e) => {
     if (e.key === "Enter") {
       const val = customInput.value.trim();
-      if (val) { modal.remove(); _applyChange(slotId, val, currentLabware); }
+      if (val) { _closeDeckSelector(modal); _applyChange(slotId, val, currentLabware); }
     }
   });
 
   setTimeout(() => search.focus(), 100);
+  return list;
+}
+
+function _renderCatalogItems(list, catalog, modal, slotId, currentLabware) {
+  list.replaceChildren();
+  for (const cat of (catalog.categories || [])) {
+    const catDiv = document.createElement("div");
+    catDiv.className = "deck-selector-category";
+    catDiv.textContent = cat.name;
+    list.appendChild(catDiv);
+
+    for (const item of (cat.items || [])) {
+      const itemDiv = document.createElement("div");
+      itemDiv.className = `deck-selector-item ${item.id === currentLabware ? "active" : ""}`;
+      itemDiv.dataset.search = `${item.name} ${item.id} ${item.detail || ""}`.toLowerCase();
+      itemDiv.innerHTML = `
+        <span class="selector-name">${item.name}</span>
+        <span class="selector-detail">${item.detail || ""}</span>
+        <span class="selector-id">${item.id}</span>
+      `;
+      itemDiv.addEventListener("click", () => { _closeDeckSelector(modal); _applyChange(slotId, item.id, currentLabware); });
+      list.appendChild(itemDiv);
+    }
+  }
+
 }
 
 function _filterCatalog(content, query) {
@@ -1308,6 +1390,82 @@ function _shorten(name) {
 // Panel Management
 // ============================================================
 
+function _fitDeck() {
+  const panel = document.getElementById("deck-panel");
+  const container = document.getElementById("deck-svg-container");
+  const wrapper = container?.querySelector(".deck-wrapper");
+  if (!wrapper) return;
+  if (!panel?.classList.contains("deck-fullscreen")) {
+    for (const property of ["width", "transform", "left", "top"]) wrapper.style.removeProperty(property);
+    return;
+  }
+  const width = Math.max(1, container.clientWidth - 24);
+  const height = Math.max(1, container.clientHeight - 24);
+  wrapper.style.width = `${Math.max(320, width)}px`;
+  const naturalWidth = wrapper.scrollWidth, naturalHeight = wrapper.scrollHeight;
+  if (!naturalWidth || !naturalHeight) return;
+  const scale = Math.min(1, width / naturalWidth, height / naturalHeight);
+  wrapper.style.transform = `scale(${scale})`;
+  wrapper.style.left = `${12 + (width - naturalWidth * scale) / 2}px`;
+  wrapper.style.top = `${12 + (height - naturalHeight * scale) / 2}px`;
+}
+
+function _watchDeckFit() {
+  _deckFitObserver?.disconnect();
+  _fitDeck();
+  const container = document.getElementById("deck-svg-container");
+  if (!container || typeof ResizeObserver === "undefined") return;
+  _deckFitObserver = new ResizeObserver(_fitDeck);
+  _deckFitObserver.observe(container);
+  const wrapper = container.querySelector(".deck-wrapper");
+  if (wrapper) _deckFitObserver.observe(wrapper);
+}
+
+function _ensureDeckSplitter() {
+  const panel = document.getElementById("deck-panel");
+  const code = panel?.querySelector(".deck-code-panel");
+  if (!code || panel.querySelector(".deck-splitter")) return;
+  const splitter = document.createElement("div");
+  splitter.className = "deck-splitter";
+  splitter.tabIndex = 0;
+  splitter.setAttribute("role", "separator");
+  splitter.setAttribute("aria-label", "Resize deck and code panes");
+  splitter.setAttribute("aria-orientation", "horizontal");
+  splitter.setAttribute("aria-controls", "deck-svg-container deck-code-view");
+  splitter.setAttribute("aria-valuemin", "0");
+  splitter.setAttribute("aria-valuemax", "100");
+  code.before(splitter);
+  let startY = 0, startHeight = 0;
+  function resize(height) {
+    const header = panel.querySelector(".deck-panel-header");
+    const available = panel.clientHeight - header.offsetHeight - splitter.offsetHeight;
+    const minimum = Math.min(80, available / 2);
+    const value = Math.max(minimum, Math.min(height, available - minimum));
+    panel.style.setProperty("--deck-code-height", `${value}px`);
+    splitter.setAttribute("aria-valuenow", String(Math.round(100 * (available - value) / available)));
+    _fitDeck();
+  }
+  splitter.addEventListener("pointerdown", event => {
+    event.preventDefault();
+    startY = event.clientY;
+    startHeight = code.getBoundingClientRect().height;
+    splitter.focus();
+    splitter.setPointerCapture(event.pointerId);
+  });
+  splitter.addEventListener("pointermove", event => {
+    if (splitter.hasPointerCapture(event.pointerId)) resize(startHeight + startY - event.clientY);
+  });
+  splitter.addEventListener("pointerup", event => {
+    if (splitter.hasPointerCapture(event.pointerId)) splitter.releasePointerCapture(event.pointerId);
+  });
+  splitter.addEventListener("keydown", event => {
+    if (!["ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    resize(event.key === "Home" ? panel.clientHeight : event.key === "End" ? 0
+      : code.getBoundingClientRect().height + (event.key === "ArrowUp" ? 24 : -24));
+  });
+}
+
 function _renderDeckCode() {
   const panel = document.getElementById("deck-panel");
   const view = document.getElementById("deck-code-view");
@@ -1342,11 +1500,15 @@ function _setDeckFullscreen(expanded) {
   button?.setAttribute("aria-pressed", String(expanded));
   button?.setAttribute("aria-label", label);
   if (button) button.title = label;
-  if (expanded) _renderDeckCode();
+  if (expanded) {
+    _ensureDeckSplitter();
+    _renderDeckCode();
+  }
   else {
     const view = document.getElementById("deck-code-view");
     if (view) { view.replaceChildren(); view._displayedCode = undefined; }
   }
+  _watchDeckFit();
 }
 
 function _openDeckPanel() {
@@ -1359,6 +1521,8 @@ function _openDeckPanel() {
   _ensureResizeHandle();
 }
 function closeDeckPanel() {
+  _hideDeckTooltip();
+  _draggedDeckArea = null;
   _setDeckFullscreen(false);
   const panel = document.getElementById("deck-panel");
   const chat = document.getElementById("chat-panel");
@@ -1487,13 +1651,15 @@ function _highlightCodeBlockLines(codeLines) {
     actionEl.classList.add("code-line-active");
     // Scroll the code block so the active line is visible
     const pre = block.querySelector(".code-block-pre");
-    if (pre) {
-      const lineTop = actionEl.offsetTop - pre.offsetTop;
-      const preHeight = pre.clientHeight;
-      const targetScroll = lineTop - preHeight / 2 + actionEl.offsetHeight / 2;
-      pre.scrollTo({ top: Math.max(0, targetScroll), behavior: "smooth" });
-    }
+    if (pre) _revealCodeLine(pre, actionEl);
   }
+}
+
+function _revealCodeLine(pre, line) {
+  const viewport = pre.getBoundingClientRect(), target = line.getBoundingClientRect();
+  const top = pre.scrollTop + target.top - viewport.top - pre.clientTop
+    - (pre.clientHeight - target.height) / 2;
+  pre.scrollTo({ top: Math.max(0, Math.min(top, pre.scrollHeight - pre.clientHeight)), behavior: "instant" });
 }
 
 // ============================================================
