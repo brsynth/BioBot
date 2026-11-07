@@ -973,7 +973,7 @@ def _deck_request_context(data, user_id):
         history = []
         chat_id = data.get("chat_id")
         if chat_id:
-            if not fetchone_dict(conn, "SELECT 1 FROM chat_names WHERE chat_id = %s AND user_id = %s", (chat_id, user_id)):
+            if not fetchone_dict(conn, "SELECT 1 FROM chat_names WHERE chat_id = %s AND user_id = %s AND deleted_at IS NULL", (chat_id, user_id)):
                 raise ValueError("Chat not found.")
             rows = fetchall_dict(conn, "SELECT role, content FROM chat_history WHERE chat_id = %s AND user_id = %s ORDER BY id", (chat_id, user_id))
             history = [{"role": row["role"], "content": decrypt_message(row["content"])} for row in rows]
@@ -1017,12 +1017,42 @@ def update_deck():
         api_key, history = _deck_request_context(data, user_id)
         updated = update_code_from_changes(code, changes, api_key)
         state = get_deck(updated, user_id, api_key, history, data.get("template_id"))
+        if data.get("chat_id"):
+            _save_deck_protocol(data["chat_id"], user_id, code, updated)
         return jsonify({"code": updated, "state": state})
     except ValueError as error:
         return jsonify({"error": str(error)}), 400
     except Exception:
         app.logger.exception("Deck update failed")
         return jsonify({"error": "Could not update the protocol. Please try again."}), 502
+
+
+def _save_deck_protocol(chat_id, user_id, original, updated):
+    """Persist the displayed file, preserving other code blocks and surrounding text."""
+    import re
+    conn = get_db_connection()
+    try:
+        with conn:
+            if not fetchone_dict(conn, "SELECT 1 FROM chat_names WHERE chat_id = %s AND user_id = %s AND deleted_at IS NULL FOR UPDATE",
+                                 (chat_id, user_id)):
+                raise ValueError("Chat not found.")
+            rows = fetchall_dict(conn, "SELECT id, content FROM chat_history WHERE chat_id = %s AND user_id = %s AND role = 'assistant' ORDER BY id DESC FOR UPDATE",
+                                 (chat_id, user_id))
+            normalize = lambda text: text.replace("\r\n", "\n").strip()
+            for row in rows:
+                content = decrypt_message(row["content"])
+                for match in re.finditer(r"```[^\n`]*\n(.*?)\n```", content, re.DOTALL):
+                    if normalize(match[1]) == normalize(original):
+                        content = content[:match.start(1)] + updated.rstrip("\n") + content[match.end(1):]
+                        execute(conn, "UPDATE chat_history SET content = %s WHERE id = %s AND user_id = %s",
+                                (encrypt_message(content), row["id"], user_id))
+                        return
+            # Older clients may already contain an applied file that was never saved.
+            # Keep that version without overwriting an unrelated historical protocol.
+            execute(conn, "INSERT INTO chat_history (chat_id, user_id, role, content) VALUES (%s, %s, 'assistant', %s)",
+                    (chat_id, user_id, encrypt_message("```\n" + updated.rstrip("\n") + "\n```")))
+    finally:
+        conn.close()
 
 
 @app.route("/deck/library", methods=["POST"])
@@ -1060,7 +1090,6 @@ def deck_catalog():
     data = request.get_json()
     platform = data.get("platform", "")
     position_type = data.get("position_type", "labware")
-    current = data.get("current", None)
 
     if not platform:
         return jsonify({"error": "Platform required"}), 400
@@ -1078,9 +1107,9 @@ def deck_catalog():
         if conn:
             conn.close()
 
-    from deck_visualizer import get_catalog
+    from deck_library import get_hardware_catalog
     try:
-        catalog = get_catalog(platform, position_type, current, api_key=user_api_key)
+        catalog = get_hardware_catalog(platform, position_type, api_key=user_api_key)
         return jsonify(catalog)
     except Exception as e:
         return jsonify({"error": f"Catalog error: {str(e)}"}), 400

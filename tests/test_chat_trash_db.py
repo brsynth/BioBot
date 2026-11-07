@@ -13,6 +13,8 @@ class ChatTrashTests(unittest.TestCase):
         sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'biobot'))
         import config
         import app as server
+        import deck_library as library
+        self.library = library
         self.config, self.server = config, server
         self.connect = config.get_db_connection
         self.schema = 'test_trash_' + uuid.uuid4().hex
@@ -21,7 +23,7 @@ class ChatTrashTests(unittest.TestCase):
             cursor.execute(f'CREATE SCHEMA "{self.schema}"')
         conn.close()
         self.addCleanup(self.drop_schema)
-        for module in (config, server):
+        for module in (config, server, library):
             patcher = patch.object(module, 'get_db_connection', side_effect=self.connection)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -135,6 +137,64 @@ class ChatTrashTests(unittest.TestCase):
         self.assertEqual(messages[-1]['role'], 'assistant')
         self.assertIn('timed out', messages[-1]['content'])
         self.assertNotIn('```', messages[-1]['content'])
+
+    def test_applied_deck_code_survives_reload_and_reopening(self):
+        original = 'load original plate'
+        updated = 'load original plate\nload added plate'
+        content = 'Protocol:\n```text\n' + original + '\n```\nNotes:\n```text\nkeep this block\n```'
+        conn = self.connection()
+        with conn, conn.cursor() as cursor:
+            cursor.execute("UPDATE chat_history SET content = %s WHERE chat_id = 'one' AND role = 'assistant'", (self.server.encrypt_message(content),))
+        conn.close()
+        state = {'positions': [{'id': 'new', 'labware': 'added plate'}]}
+        with patch('deck_visualizer.update_code_from_changes', return_value=updated), \
+             patch.object(self.library, 'get_deck', return_value=state) as deck:
+            result = self.client.post('/deck/update', json={'chat_id': 'one', 'code': original,
+                'changes': [{'type': 'add_labware', 'slot': 'new', 'new': 'added plate'}]})
+            self.assertEqual(result.status_code, 200)
+            saved = self.client.get('/chat/one').get_json()[-1]['content']
+            self.assertEqual(saved, content.replace(original, updated))
+            reopened = self.client.post('/deck/visualize', json={'chat_id': 'one', 'code': updated})
+            self.assertEqual(reopened.get_json(), state)
+            self.assertEqual(deck.call_args.args[0], updated)
+
+    def test_legacy_unsaved_deck_edits_are_saved_as_a_new_version(self):
+        self.server._save_deck_protocol('one', 1, 'unsaved previous version', 'updated file')
+        messages = self.client.get('/chat/one').get_json()
+        self.assertEqual(messages[-2]['content'], 'Original response')
+        self.assertEqual(messages[-1]['content'], '```\nupdated file\n```')
+
+    def test_deck_changes_are_not_saved_if_rendering_the_updated_file_fails(self):
+        with patch('deck_visualizer.update_code_from_changes', return_value='updated file'), \
+             patch.object(self.library, 'get_deck', side_effect=ValueError('invalid layout')):
+            result = self.client.post('/deck/update', json={'chat_id': 'one', 'code': 'original', 'changes': [{}]})
+        self.assertEqual(result.status_code, 400)
+        self.assertEqual(self.client.get('/chat/one').get_json()[-1]['content'], 'Original response')
+
+    def test_deck_edits_cannot_be_saved_to_another_users_chat_or_trash(self):
+        for chat_id in ('foreign', 'missing'):
+            with self.assertRaisesRegex(ValueError, 'Chat not found'):
+                self.server._save_deck_protocol(chat_id, 1, 'old', 'new')
+        self.client.delete('/chat/one')
+        with self.assertRaisesRegex(ValueError, 'Chat not found'):
+            self.server._save_deck_protocol('one', 1, 'old', 'new')
+
+    def test_hardware_catalog_is_persisted_and_reused_per_robot_and_hardware_type(self):
+        catalog = {'categories': [{'name': 'Plates', 'items': [{'id': 'plate_api', 'name': 'Plate'}]}]}
+        with patch('deck_visualizer.get_catalog', return_value=catalog) as generate:
+            self.assertEqual(self.library.get_hardware_catalog('Robot XYZ', api_key='test'), catalog)
+            self.assertEqual(self.library.get_hardware_catalog('robot-xyz', api_key='another'), catalog)
+            self.assertEqual(generate.call_count, 1)
+            self.library.get_hardware_catalog('Robot XYZ', 'instrument', api_key='test')
+            self.assertEqual(generate.call_count, 2)
+
+    def test_failed_catalog_lookup_does_not_poison_the_persistent_cache(self):
+        catalog = {'categories': [{'name': 'Plates', 'items': []}]}
+        with patch('deck_visualizer.get_catalog', side_effect=[RuntimeError('timeout'), catalog]) as generate:
+            with self.assertRaisesRegex(RuntimeError, 'timeout'):
+                self.library.get_hardware_catalog('Robot XYZ', api_key='test')
+            self.assertEqual(self.library.get_hardware_catalog('Robot XYZ', api_key='test'), catalog)
+            self.assertEqual(generate.call_count, 2)
 
 
 if __name__ == '__main__':

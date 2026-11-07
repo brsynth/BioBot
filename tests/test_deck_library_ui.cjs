@@ -32,6 +32,7 @@ function setup() {
     },
   });
   vm.runInContext(source, context);
+  const renderInitialDeck = context._renderDeck;
   vm.runInContext('_renderDeck = function(state) { rendered = state; }; _removeTipOverlay = function() {}; _clearCodeBlockHighlights = function() {};', context);
   const library = { selected: { id: 'base', name: 'Device default', owner_id: null, is_default: true },
     alternatives: [{ id: 'base', name: 'Device default', author: 'BioBot', is_default: true },
@@ -40,7 +41,7 @@ function setup() {
       positions: [{ id: 'a', row: 0, col: 0 }, { id: 'b', row: 0, col: 1 }] } };
   context.state = { ...structuredClone(library.layout), steps: [{ volume: '10 uL' }], _library: library };
   vm.runInContext('_currentState = state; _currentCode = "protocol";', context);
-  return { context, requests, render() {
+  return { context, requests, renderInitialDeck, render() {
     const wrapper = element('div');
     context._renderLibraryControls(wrapper, context.state);
     return wrapper;
@@ -355,12 +356,52 @@ test('hardware lookup timeout replaces the spinner without removing custom entry
   assert.equal(w.rendered[0].customEntryAvailable, true);
 });
 
-test('closing the hardware dialog cancels its lookup', async () => {
+test('closing a dialog leaves shared preload available without updating the closed dialog', async () => {
   const w = catalogSetup();
   const pending = w.context._showSelector('a', null);
   w.close.events.click();
+  w.finish();
   await pending;
   assert.equal(w.rendered[0].textContent, undefined);
+  assert.equal(w.rendered[0].suggestionsLoaded, undefined);
+  await w.context._showSelector('b', 'another_labware');
+  assert.equal(w.requests(), 1);
+});
+
+test('background preloading and slot selectors share one request per robot', async () => {
+  const w = catalogSetup();
+  const preload = w.context._loadHardwareCatalog('Device');
+  const pending = w.context._showSelector('a', 'existing_labware');
+  assert.equal(w.requests(), 1);
+  assert.equal(w.context._loadHardwareCatalog(' device '), preload);
+  w.finish();
+  await Promise.all([preload, pending]);
+  await w.context._showSelector('b', null);
+  assert.equal(w.requests(), 1);
+});
+
+test('a failed background preload can be retried when opening a slot', async () => {
+  const w = catalogSetup();
+  w.context.preloadHardwareCatalog('Device');
+  w.timeout();
+  await new Promise(setImmediate);
+  const pending = w.context._showSelector('a', null);
+  assert.equal(w.requests(), 2);
+  w.finish();
+  await pending;
+  assert.equal(w.rendered[0].suggestionsLoaded, true);
+});
+
+test('initial deck rendering starts preloading for its identified robot', () => {
+  const w = setup();
+  const container = element('div');
+  let platform;
+  w.context.document.getElementById = id => id === 'deck-svg-container' ? container : null;
+  w.context._watchDeckFit = () => {};
+  w.context.preloadHardwareCatalog = value => platform = value;
+  w.context.state.steps = [];
+  w.renderInitialDeck(w.context.state);
+  assert.equal(platform, 'Device');
 });
 
 test('divider supports dragging and keyboard resizing while keeping both panes available', () => {

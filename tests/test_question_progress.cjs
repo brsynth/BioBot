@@ -70,6 +70,19 @@ test('stops questionnaire progress when the request fails', async () => {
   assert.equal(failed.context.sendBtn.disabled, false);
 });
 
+test('robot detection starts hardware preloading without displaying the internal event', async () => {
+  const pending = request(false, ['__STATUS__:__DEVICE__:Robot Model\n__STATUS__:Generating protocol...\npass\n']);
+  let robot;
+  pending.context.window.preloadHardwareCatalog = value => robot = value;
+  await new Promise(setImmediate);
+  assert.equal(robot, 'Robot Model');
+  assert.equal(pending.statuses.length, 1);
+  assert.equal(pending.statuses[0].children[1].textContent, 'Generating protocol...');
+  assert.deepEqual(pending.blocks, ['pass\n']);
+  pending.finish();
+  await pending.completion;
+});
+
 
 test('renders one complete protocol even when its bytes arrive in separate reads', async () => {
   const pending = request(false, ['__STATUS__:Generating...\nfirst line\n', 'second line\n', 'last line\n']);

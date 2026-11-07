@@ -34,7 +34,36 @@ def init_deck_tables(cursor):
             binding JSONB NOT NULL,
             PRIMARY KEY (user_id, code_hash)
         );
+        CREATE TABLE IF NOT EXISTS deck_catalogs (
+            platform_key TEXT NOT NULL,
+            position_type TEXT NOT NULL,
+            catalog JSONB NOT NULL,
+            PRIMARY KEY (platform_key, position_type)
+        );
     """)
+
+
+def get_hardware_catalog(platform, position_type="labware", api_key=None):
+    """Reuse a public hardware catalog across page loads and concurrent requests."""
+    from deck_visualizer import get_catalog
+    key = re.sub(r"[\s_-]", "", platform.strip().casefold())
+    conn = get_db_connection()
+    try:
+        with conn, conn.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"catalog:{key}:{position_type}",))
+            cursor.execute("SELECT catalog FROM deck_catalogs WHERE platform_key = %s AND position_type = %s", (key, position_type))
+            row = cursor.fetchone()
+            if row:
+                return row[0]
+            # Store only platform-wide suggestions, never a user's custom hardware.
+            catalog = get_catalog(platform, position_type, api_key=api_key)
+            if not isinstance(catalog, dict) or not isinstance(catalog.get("categories"), list) or not catalog["categories"]:
+                raise ValueError("No hardware suggestions were returned. Please retry.")
+            cursor.execute("INSERT INTO deck_catalogs (platform_key, position_type, catalog) VALUES (%s, %s, %s)",
+                           (key, position_type, Json(catalog)))
+            return catalog
+    finally:
+        conn.close()
 
 
 # Only physical layout/default hardware is shared; protocol data never enters a template.

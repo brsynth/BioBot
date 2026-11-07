@@ -168,7 +168,7 @@ def get_catalog(platform: str, position_type: str = "labware",
     prompt += "Return compatible options for this platform."
 
     response = client.responses.create(
-        model=biobot_model,
+        model=light_functions_model,
         input=[
             {"role": "system", "content": CATALOG_PROMPT},
             {"role": "user", "content": prompt}

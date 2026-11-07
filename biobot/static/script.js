@@ -965,6 +965,10 @@ async function sendMessage(edit = {}) {
 
     for await (const part of readChatReply(res.body)) {
       if (part.type === "status") {
+        if (part.content.startsWith("__DEVICE__:")) {
+          window.preloadHardwareCatalog?.(part.content.slice("__DEVICE__:".length));
+          continue;
+        }
         edit.questionnaireSummary?.querySelector(".summary-generating")?.remove();
         isRagResponse = true;
         clearInterval(thinkingInterval);

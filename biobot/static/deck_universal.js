@@ -341,6 +341,7 @@ function _renderDeck(state) {
     _applyStepVisuals(-1, false);  // Bug 2 fix: show clean initial state immediately
   }
   _watchDeckFit();
+  preloadHardwareCatalog(state.platform);
 }
 
 // ============================================================
@@ -1077,9 +1078,38 @@ function _moveDeckArea(from, to) {
 // ============================================================
 
 const _hardwareCatalogs = new Map();
+const _hardwareCatalogRequests = new Map();
+
+function preloadHardwareCatalog(platform) {
+  if (typeof platform === "string" && platform.trim()) _loadHardwareCatalog(platform).catch(() => {});
+}
+
+function _loadHardwareCatalog(platform) {
+  const key = platform.trim().toLowerCase().replace(/[\s_-]/g, "");
+  if (_hardwareCatalogs.has(key)) return Promise.resolve(_hardwareCatalogs.get(key));
+  if (_hardwareCatalogRequests.has(key)) return _hardwareCatalogRequests.get(key);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45000);
+  const request = (async () => {
+    const response = await fetch("/deck/catalog", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ platform, position_type: "labware", current: null }),
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error("Failed to load catalog");
+    const catalog = await response.json();
+    if (catalog.error || !Array.isArray(catalog.categories)) throw new Error("Invalid hardware catalog");
+    _hardwareCatalogs.set(key, catalog);
+    return catalog;
+  })().finally(() => {
+    clearTimeout(timeout);
+    _hardwareCatalogRequests.delete(key);
+  });
+  _hardwareCatalogRequests.set(key, request);
+  return request;
+}
 
 function _closeDeckSelector(modal) {
-  modal?._catalogAbort?.abort();
   modal?.remove();
 }
 
@@ -1111,28 +1141,9 @@ async function _showSelector(slotId, currentLabware) {
 
   // Editing stays available while suggestions load, or if the lookup fails.
   const list = _renderCatalog(modal, { categories: [] }, slotId, currentLabware);
-  const cacheKey = JSON.stringify([platform, currentLabware]);
-  if (_hardwareCatalogs.has(cacheKey)) {
-    _renderCatalogItems(list, _hardwareCatalogs.get(cacheKey), modal, slotId, currentLabware);
-    return;
-  }
   list.innerHTML = '<div class="deck-selector-loading"><div class="deck-loading-spinner"></div><span>Loading compatible hardware...</span></div>';
-  const controller = new AbortController();
-  modal._catalogAbort = controller;
-  const timeout = setTimeout(() => controller.abort(), 45000);
   try {
-    const res = await fetch("/deck/catalog", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ platform, position_type: "labware", current: currentLabware }),
-      signal: controller.signal,
-    });
-
-    if (!res.ok) throw new Error("Failed to load catalog");
-    const catalog = await res.json();
-    if (catalog.error) throw new Error(catalog.error);
-    if (!Array.isArray(catalog.categories)) throw new Error("Invalid hardware catalog");
-    _hardwareCatalogs.set(cacheKey, catalog);
+    const catalog = await _loadHardwareCatalog(platform);
     if (!modal.isConnected) return;
     _renderCatalogItems(list, catalog, modal, slotId, currentLabware);
     _filterCatalog(modal, modal.querySelector(".deck-selector-search").value);
@@ -1141,7 +1152,7 @@ async function _showSelector(slotId, currentLabware) {
     list.textContent = e.name === "AbortError"
       ? "Hardware lookup timed out. Enter custom labware below or reopen to retry."
       : "Could not load suggested hardware. Enter custom labware below or reopen to retry.";
-  } finally { clearTimeout(timeout); }
+  }
 }
 
 function _renderCatalog(modal, catalog, slotId, currentLabware) {
@@ -2089,5 +2100,6 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 window.parseDeckFromCode = parseDeckFromCode;
+window.preloadHardwareCatalog = preloadHardwareCatalog;
 window.clearDeckPanel = clearDeckPanel;
 window.toggleDeckPanel = toggleDeckPanel;

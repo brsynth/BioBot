@@ -451,6 +451,7 @@ if handler_id is None:
     }), flush=True)
     sys.exit(0)
 handler_config = handlers[handler_id]
+print("STEP:__DEVICE__:" + handler_config.get("name", handler_id), flush=True)
 print(f"STEP:Detected platform: {handler_config['name']}", flush=True)
 time.sleep(1)
 
