@@ -544,6 +544,13 @@ if not export_mode:
         discard_log()
     sys.exit(0)
 
+# Export: the output is the device's own file format, never the BioBot language used as input.
+fmt = handler_config.get("output_format") or ""
+consolidated_query += (f"\n\nWrite the output in the {handler_config['name']}'s own documented protocol file format"
+                       + (f" ({fmt}, {handler_config.get('file_extension')})" if fmt and fmt != "text" else "")
+                       + ", exactly as the device's software imports it, as described in the documentation. The BioBot protocol "
+                       "above is input only: never output it, and never answer in its JSON.")
+
 # Export: the code, read back into the BioBot language, should make the same liquid movements.
 # A validated script is kept even if the read-back still differs; the difference is reported as a warning.
 source_protocol = protocol_lang.parse(user_query)
