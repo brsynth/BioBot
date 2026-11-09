@@ -437,6 +437,9 @@
     if (!box) return;
     let users;
     try { users = await json("/admin/requests"); } catch (_) { return; }
+    for (const badge of document.querySelectorAll("[data-admin-count]")) {
+      badge.hidden = !users.length; badge.textContent = users.length > 9 ? "9+" : String(users.length);
+    }
     box.replaceChildren();
     for (const user of users) {
       const row = document.createElement("div"); row.className = "admin-request";
@@ -453,6 +456,11 @@
     }
   }
   refreshAdminRequests();
+  if (document.getElementById("admin-requests")) setInterval(refreshAdminRequests, 60000);
+  document.getElementById("admin-btn")?.addEventListener("click", () => {
+    document.getElementById("settings-btn")?.click();
+    setTimeout(() => document.getElementById("admin-requests")?.scrollIntoView({block:"center"}), 50);
+  });
   if (debugExport) {
     try { debugExport.checked = localStorage.getItem("biobot-debug-export") === "1"; } catch (_) {}
     debugExport.addEventListener("change", () => {
