@@ -4,13 +4,16 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const source = fs.readFileSync(`${__dirname}/../biobot/static/theme.js`, 'utf8');
 
-function setup(saved = null, dark = false, blocked = false) {
-  const callbacks = {}, control = { addEventListener: (name, fn) => callbacks[name] = fn };
+function setup(saved = null, dark = false, blocked = false, defaultAppearance = 'auto') {
+  const callbacks = {};
+  const inputs = ['daylight','dark','auto'].map(value=>({value,checked:false,addEventListener:(name,fn)=>callbacks[value]=fn}));
+  const control = {get value() {return inputs.find(input=>input.checked)?.value;}, set value(value) {inputs.forEach(input=>input.checked=input.value===value);}};
+  callbacks.change = () => callbacks[control.value]();
   const root = { dataset: {} }, system = { matches: dark, addEventListener: (name, fn) => callbacks.system = fn };
   const store = { value: saved };
   const context = vm.createContext({
     window: { matchMedia: () => system, addEventListener: (name, fn) => callbacks[name] = fn },
-    document: { documentElement: root, getElementById: () => control, addEventListener: (name, fn) => callbacks[name] = fn },
+    document: { currentScript: {dataset: {defaultAppearance}}, documentElement: root, querySelectorAll: () => inputs, addEventListener: (name, fn) => callbacks[name] = fn },
     localStorage: { getItem() { if (blocked) throw new Error('blocked'); return store.value; },
       setItem(key, value) { if (blocked) throw new Error('blocked'); store.value = value; } },
   });
@@ -26,6 +29,11 @@ test('Auto follows the system at startup and when the system changes', () => {
   w.system.matches = true;
   w.callbacks.system();
   assert.equal(w.root.dataset.theme, 'dark');
+});
+
+test('the new workspace defaults to daylight and preserves an explicit Auto preference', () => {
+  assert.equal(setup(null, true, false, 'daylight').root.dataset.theme, 'daylight');
+  assert.equal(setup('auto', true, false, 'daylight').root.dataset.theme, 'dark');
 });
 
 test('manual selection persists across visits and overrides the system', () => {

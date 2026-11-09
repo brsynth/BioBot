@@ -84,7 +84,7 @@ import psycopg2.extras
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from biobot.config import get_db_connection, get_api_key, init_db, wait_for_postgres
-from biobot.engine import process_user_query, RAG_STATUS_PREFIX, FAILED_CODE_MARKER
+from biobot.engine import process_user_query, RAG_STATUS_PREFIX, FAILED_CODE_MARKER, FORMAT_MARKER
 
 try:
     from crypt import generate_salt, derive_key, encrypt, decrypt
@@ -189,7 +189,7 @@ SYSTEM_PROMPT = (
     "You are BioBot 🤖, an expert assistant specialized in lab automation, "
     "particularly with liquid handling robots.\nYour tasks:\n"
     "- Focus on the **latest user message**. Use history only for reference.\n"
-    "- Generate clean, error-free Python code for operating lab robots.\n"
+    "- Generate clean, error-free protocols in the requested or documented device format.\n"
     "- Ask for more info if needed.\n"
     "- Decline unrelated requests kindly."
 )
@@ -454,8 +454,8 @@ def _clear_status():
         sys.stdout.write("\r\033[K")
         sys.stdout.flush()
 
-def _print_code(code):
-    print(_c("  ┌─ python ─────────────────────────────────", C.DIM))
+def _print_code(code, format="text"):
+    print(_c(f"  ┌─ {format} ─────────────────────────────────", C.DIM))
     for line in code.split("\n"):
         print(_c("  │ ", C.DIM) + _c(line, C.GREEN))
     print(_c("  └────────────────────────────────────────────", C.DIM))
@@ -619,7 +619,7 @@ def interactive(session: Session, chat_id: str, initial_files=None):
 
             elif cmd[0] == "/save":
                 if last_code:
-                    fname = cmd[1] if len(cmd) > 1 else "biobot_protocol.py"
+                    fname = cmd[1] if len(cmd) > 1 else "biobot_protocol.txt"
                     # Save to the directory where the user ran biobot from
                     save_dir = os.environ.get("BIOBOT_SAVE_DIR", str(PROJECT_DIR))
                     save_path = os.path.join(save_dir, fname)
@@ -705,6 +705,7 @@ def interactive(session: Session, chat_id: str, initial_files=None):
         messages = get_chat_history(session, chat_id)
 
         full_reply = ""
+        detected_format = "text"
         had_status = False
         is_rag = False
 
@@ -716,6 +717,10 @@ def interactive(session: Session, chat_id: str, initial_files=None):
                     is_rag = True
                     _print_status(chunk[len(RAG_STATUS_PREFIX):])
                     continue
+
+                if chunk.startswith(FORMAT_MARKER):
+                    detected_format, _, chunk = chunk[len(FORMAT_MARKER):].partition("\n")
+                    detected_format = detected_format or "text"
 
                 if chunk.startswith(FAILED_CODE_MARKER):
                     if had_status:
@@ -732,7 +737,7 @@ def interactive(session: Session, chat_id: str, initial_files=None):
                         _print_code(code)
                         last_code = code
 
-                    save_content = message + ("\n\n```python\n" + code + "\n```" if code else "")
+                    save_content = message + (f"\n\n```{detected_format}\n" + code + "\n```" if code else "")
                     save_message(session, chat_id, "assistant", save_content)
                     full_reply = save_content
                     continue
@@ -758,13 +763,13 @@ def interactive(session: Session, chat_id: str, initial_files=None):
             continue
 
         if full_reply:
-            if is_rag and _looks_like_code(full_reply) and "```" not in full_reply:
+            if is_rag and (detected_format != "text" or _looks_like_code(full_reply)) and "```" not in full_reply:
                 _clear_status()
                 if had_status:
                     print(f"\n  {_c('🤖 BioBot:', C.GREEN + C.BOLD)}")
-                _print_code(full_reply)
+                _print_code(full_reply, detected_format)
                 last_code = full_reply
-                save_message(session, chat_id, "assistant", "```python\n" + full_reply + "\n```")
+                save_message(session, chat_id, "assistant", f"```{detected_format}\n" + full_reply + "\n```")
             elif not full_reply.startswith(FAILED_CODE_MARKER):
                 print()
                 save_message(session, chat_id, "assistant", full_reply)
@@ -903,6 +908,7 @@ def cmd_ask(args):
     print()
 
     full_reply = ""
+    detected_format = "text"
     had_status = False
 
     try:
@@ -912,6 +918,10 @@ def cmd_ask(args):
                 had_status = True
                 _print_status(chunk[len(RAG_STATUS_PREFIX):])
                 continue
+
+            if chunk.startswith(FORMAT_MARKER):
+                detected_format, _, chunk = chunk[len(FORMAT_MARKER):].partition("\n")
+                detected_format = detected_format or "text"
 
             if chunk.startswith(FAILED_CODE_MARKER):
                 if had_status:
@@ -925,7 +935,7 @@ def cmd_ask(args):
                     print(f"  {line}")
                 if code:
                     _print_code(code)
-                full_reply = message + ("\n\n```python\n" + code + "\n```" if code else "")
+                full_reply = message + (f"\n\n```{detected_format}\n" + code + "\n```" if code else "")
                 continue
 
             if had_status and not full_reply:
@@ -979,8 +989,8 @@ def cmd_web(args):
 # System prompt used specifically for one-shot queries (no clarification)
 ONE_SHOT_SYSTEM_PROMPT = (
     "You are BioBot 🤖, an expert assistant specialized in lab automation, "
-    "particularly with liquid handling robots. Generate clean, error-free Python "
-    "code for operating lab robots when asked. Do your best with whatever info "
+    "particularly with liquid handling robots. Generate clean, error-free protocols "
+    "in the requested or documented device format when asked. Do your best with whatever info "
     "the user provides — make reasonable assumptions if details are missing, "
     "and state them clearly. Never ask the user for more information — always "
     "provide a complete answer based on what was given. Decline requests "

@@ -86,6 +86,18 @@ def init_db():
             );
         """)
         cur.execute("ALTER TABLE chat_names ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ")
+        cur.execute("ALTER TABLE chat_names ADD COLUMN IF NOT EXISTS device_name TEXT")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS saved_protocols (
+                id UUID PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                device_name TEXT NOT NULL DEFAULT '',
+                code TEXT NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+        """)
+        cur.execute("ALTER TABLE saved_protocols ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS chat_history (
                 id SERIAL PRIMARY KEY,
@@ -94,6 +106,18 @@ def init_db():
                 role TEXT NOT NULL,
                 content TEXT NOT NULL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS chat_runs (
+                chat_id TEXT PRIMARY KEY REFERENCES chat_names(chat_id) ON DELETE CASCADE,
+                id UUID NOT NULL,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                message_id INTEGER,
+                status TEXT NOT NULL DEFAULT 'running',
+                output TEXT NOT NULL DEFAULT '',
+                seen BOOLEAN NOT NULL DEFAULT FALSE,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
         """)
         cur.execute("""

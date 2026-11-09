@@ -12,3 +12,4 @@ __pycache__/
 
 .venv/
 biobot/data/
+biobot/generated_script.py

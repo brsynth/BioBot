@@ -8,17 +8,18 @@ const send = source.slice(source.indexOf('async function* readChatReply('), sour
 function request(failure = false, packets = null, pauseAfterStatus = false) {
   const progress = { removed: false, remove() { this.removed = true; } };
   const summary = { querySelector: () => progress.removed ? null : progress };
-  const statuses = [], blocks = [], displayed = [];
+  const statuses = [], blocks = [], displayed = [], jobs = new Map();
   let finishRefresh;
   let resumeStream, reads = 0;
   const chunks = (packets || ['__STATUS__:Generating protocol...\n', 'pass\n']).map(text => new TextEncoder().encode(text));
   const context = vm.createContext({
     document: { getElementById: id => id === 'user-input' ? { value: '', style: {} } : null,
       createTextNode: text => ({ textContent: text }),
-      createElement: () => ({ children: [], replaceChildren() { this.children = []; }, append(...children) { this.children.push(...children); }, remove() { this.removed = true; } }) },
+      createElement: () => ({ children: [], querySelector:()=>null, appendChild(node) {if (node.className === "rag-status") statuses.push(node);}, replaceChildren() { this.children = []; }, append(...children) { this.children.push(...children); }, remove() { this.removed = true; } }) },
+    chatJobs:jobs, syncChatActivity() {context.isTyping = jobs.get(context.currentChatId)?.status === 'running'; context.sendBtn.disabled = context.isTyping;},
     currentChatId: 'chat', isTyping: false, sendBtn: {}, window: {}, console: { error() {} },
     TextDecoder, AbortController, setTimeout() {}, clearInterval() {},
-    chatHistoryElem: { appendChild: node => statuses.push(node) },
+    chatHistoryElem: {childNodes:[], appendChild() {}},
     addMessage: () => ({ appendChild: node => displayed.push(node), querySelectorAll: () => displayed }),
     buildDeckLink: code => { blocks.push(code); return {}; }, detectFormat: () => 'python', renderUserMessage() {}, addThinkingMessage: () => 1,
     scrollToBottom() {}, appendChunkToBotMessage() {}, selectChatListItem() {},

@@ -71,6 +71,30 @@ class DeckLibraryDatabaseTests(unittest.TestCase):
         for name in ("identify_device", "generate_device_layout", "bind_protocol"):
             self.assertEqual(self.mocks[name].call_count, 1)
 
+    def test_old_protocol_binding_upgrades_playback_once_without_regenerating_shared_geometry(self):
+        self.get()
+        conn = self.connection()
+        with conn, conn.cursor() as cursor:
+            cursor.execute("UPDATE deck_protocols SET binding = jsonb_set(binding, '{_version}', '3')")
+        conn.close()
+        self.binding["parameters"] = [{"id": "amount", "label": "Amount", "value": "10 µL"}]
+        self.binding["steps"] = [
+            {"action": action, "code_lines": [2, 3],
+             "source" if action == "aspirate" else "destination": {"slot": "source" if action == "aspirate" else "destination", "wells": [f"A{column}"]}}
+            for column in range(1, 4) for action in ("aspirate", "dispense")]
+        cached = self.get()
+        self.assertTrue(cached["_parameters_pending"])
+        self.assertFalse(cached["_playback_pending"])
+        self.assertEqual(self.mocks["bind_protocol"].call_count, 1)
+        upgraded = self.library.get_deck("protocol A", 1, "test-key", refresh_parameters=True)
+        self.assertEqual(upgraded["parameters"], self.binding["parameters"])
+        self.assertEqual(upgraded["steps"], self.binding["steps"])
+        self.assertFalse(upgraded["_playback_pending"])
+        self.assertNotIn("parameters", upgraded["_library"]["layout"])
+        self.get()
+        self.assertEqual(self.mocks["bind_protocol"].call_count, 2)
+        self.assertEqual(self.mocks["generate_device_layout"].call_count, 1)
+
     def test_file_line_endings_and_trailing_newlines_do_not_regenerate_deck(self):
         self.get("line one\nline two")
         self.get("line one\r\nline two\r\n")

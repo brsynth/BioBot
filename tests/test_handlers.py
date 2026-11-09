@@ -38,6 +38,15 @@ class HandlerDiscoveryTests(unittest.TestCase):
         self.assertEqual(handlers.load_handlers_config(), {})
         self.assertFalse(self.registry.exists())
 
+    def test_existing_profile_learns_an_arbitrary_protocol_format_once(self):
+        cfg = {"name": "Device XYZ", "output_type": "custom command file"}
+        self.outputs(json.dumps({"output_format": "custom_commands", "file_extension": ".cmdx"}))
+        self.assertTrue(handlers._discover_protocol_format(cfg, self.client))
+        self.assertEqual(cfg["output_format"], "custom_commands")
+        self.assertEqual(cfg["file_extension"], ".cmdx")
+        self.assertFalse(handlers._discover_protocol_format(cfg, self.client))
+        self.assertEqual(self.client.responses.create.call_count, 1)
+
     def test_discovered_platform_is_persisted_and_reused(self):
         self.outputs("robot_xyz", "Robot XYZ")
         platform, registry = handlers.detect_handler("Use Robot XYZ", [], "test-key")

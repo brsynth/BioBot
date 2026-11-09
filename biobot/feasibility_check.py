@@ -5,7 +5,7 @@ Validates whether a protocol described by the user is physically and logically
 possible BEFORE code generation begins.  Runs after consolidation, before
 handler detection / indexing / generation.
 
-Uses gpt-4o-mini for speed and cost efficiency.
+Uses the configured review model.
 """
 
 import json
@@ -95,7 +95,7 @@ If the protocol is **NOT feasible**:
       "severity": "error",
       "category": "volume",
       "description": "The requested transfer volume exceeds the instrument's stated maximum capacity.",
-      "suggestion": "Use a P1000 pipette or reduce the transfer volume."
+      "suggestion": "Use a compatible instrument with sufficient capacity or reduce the transfer volume."
     }
   ],
   "summary": "The protocol cannot be executed as described."

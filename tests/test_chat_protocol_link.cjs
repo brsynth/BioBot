@@ -14,16 +14,15 @@ function setup() {
   return context;
 }
 
-test('chat displays only an Open deck link, and reopening uses the updated file', () => {
+test('chat keeps a hidden protocol reference without an Open deck link', () => {
   const w = setup();
-  let opened;
-  w.window.toggleProtocolDeck = (...args) => opened = args;
   const link = w.buildDeckLink('original code');
-  assert.equal(link.textContent, 'Open deck');
+  assert.equal(link.hidden, true);
+  assert.equal(link.textContent, undefined);
   assert.equal(link.innerHTML, undefined);
   link._protocolCode = 'updated code';
-  link.events.click({ preventDefault() {} });
-  assert.deepEqual(opened, ['updated code', link]);
+  assert.equal(link._protocolCode, 'updated code');
+  assert.equal(link.events.click, undefined);
 });
 
 test('streamed code never appears in chat, even when fences split across reads', () => {
@@ -37,6 +36,6 @@ test('streamed code never appears in chat, even when fences split across reads',
     assert.equal(links.length, 1, split);
     assert.equal(links[0]._protocolCode, 'print("secret protocol")\n');
     const visible = message.children.map(node => node.textContent).join('');
-    assert.equal(visible, 'Before\nOpen deck\nAfter');
+    assert.equal(visible, 'Before\n\nAfter');
   }
 });

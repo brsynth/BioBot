@@ -13,7 +13,9 @@
 ---
 
 BioBot is a robot-agnostic web assistant that generates, validates, and iterates on automation protocols for liquid handling robots. A fresh install contains no robot documentation, preset platform registry, or robot SDKs; documentation is discovered on demand. It combines a conversational chat interface with a RAG (Retrieval-Augmented Generation) pipeline, an interactive deck visualizer, and a code validation loop to produce working scripts from natural language descriptions.
-It helps users interact with an AI assistant to get guidance, protocols, and Python code for automating lab workflows.
+It helps users interact with an AI assistant to get guidance, protocols, and device-compatible files for automating lab workflows.
+
+Device brands and models are runtime knowledge, never application rules. BioBot discovers documentation, physical layouts, instruments, mounting identifiers, protocol formats and validation tools when users select a device, then stores and reuses them. New device support must come from these data and capabilities; do not add device-specific branches, SDK keywords, model names, mount names or well-layout defaults to the application source.
 
 ---
 

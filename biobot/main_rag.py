@@ -2,16 +2,13 @@ import os
 import re
 import subprocess
 import numpy as np
-import faiss
-from datetime import datetime
 import time
 import json
+import tempfile
 from openai import OpenAI
 import sys
-import pickle
 from config import get_api_key, biobot_model, light_functions_model
-from doc_loader import load_and_chunk_docs, get_supported_extensions
-from doc_fetcher import fetch_documentation
+from documentation_index import load_or_build_index, get_text_embedding_with_retry as _embed
 from feasibility_check import check_feasibility, format_feasibility_response
 from handlers import detect_handler
 from questionnaire import check_sufficient_info
@@ -62,7 +59,7 @@ def consolidate_request(query, history, api_key):
                 "content": """You are an expert in lab automation. 
 Given a conversation between a user and an assistant about a protocol request, 
 write a structered, complete, self-contained protocol description that consolidates 
-ALL the information provided across the entire conversation. If the user mentioned the type of the output file he wants, mention it (example : txt, csv, python script, HSL etc..)
+ALL the information provided across the entire conversation. Preserve the requested output language or file format; otherwise use the format documented for the selected device.
 Preserve "Don't know" answers as delegated choices, not supplied facts. Distinguish justified defaults from unresolved essential facts, retain actual values and units, and require adopted defaults to be stated explicitly in the output.
 
 Note that the request will be sent to an LLM. Restructure it and write it in natural langage in 3th person (the user wants to...) describing what the user wants to do, as if he had provided everything upfront.
@@ -79,22 +76,7 @@ Return ONLY the consolidated request. No preamble, no explanation."""
 
 # ----------- EMBEDDINGS -------------
 def get_text_embedding_with_retry(text, retries=5, delay=2):
-    client = get_openai_client(user_api_key)
-    for i in range(retries):
-        try:
-            response = client.embeddings.create(
-                model="text-embedding-3-small",
-                input=text
-    )
-            return response.data[0].embedding
-        except Exception as e:
-            if "rate limit" in str(e).lower():
-                print(f"Rate limit hit. Retry {i+1}/{retries} in {delay} sec...", file=sys.stderr)
-                time.sleep(delay)
-                delay *= 2
-            else:
-                raise
-    raise RuntimeError("Failed to get embedding after retries.")
+    return _embed(text, user_api_key, retries, delay)
 
 
 # ----------- COMPLETION -------------
@@ -119,7 +101,7 @@ def run_gpt(user_message, model=biobot_model):
 
 # ----------- VALIDATION STRATEGIES -------------
 
-def validate_simulation(code, handler_config, save_path="generated_script.py"):
+def validate_simulation(code, handler_config, save_path=None):
     """
     Strategy: SIMULATION
     Run the handler's simulator tool against the generated code.
@@ -129,17 +111,17 @@ def validate_simulation(code, handler_config, save_path="generated_script.py"):
     if not simulate_cmd:
         return True, ""
 
-    with open(save_path, "w") as f:
-        f.write(code)
-
-    full_cmd = simulate_cmd + [save_path]
-    print(f"STEP:Running simulation: {' '.join(full_cmd)}", flush=True)
-
     try:
-        result = subprocess.run(
-            full_cmd,
-            capture_output=True, text=True, timeout=120
-        )
+        with tempfile.TemporaryDirectory(prefix="biobot-validation-") as directory:
+            extension = handler_config.get("file_extension", ".txt")
+            if not isinstance(extension, str) or not re.fullmatch(r"\.[a-zA-Z0-9]{1,16}", extension):
+                extension = ".txt"
+            path = save_path or os.path.join(directory, "protocol" + extension)
+            with open(path, "w") as f:
+                f.write(code)
+            full_cmd = simulate_cmd + [path]
+            print(f"STEP:Running simulation: {' '.join(simulate_cmd)}", flush=True)
+            result = subprocess.run(full_cmd, capture_output=True, text=True, timeout=120)
     except subprocess.TimeoutExpired:
         return False, "Simulation timed out after 120 seconds."
 
@@ -168,7 +150,7 @@ def validate_llm_review(code, handler_config, context_chunks, question):
     output_type = handler_config.get("output_type", "script")
 
 
-    client = get_openai_client(user_api_key)
+    client = get_openai_client(user_api_key).with_options(timeout=120, max_retries=0)
     response = client.responses.create(
         model=biobot_model,
         tools=[{"type": "web_search"}],
@@ -207,7 +189,7 @@ Don't be strict and accurate. Minor issues are not failures. Focus on big issues
         return False, feedback
 
 
-def validate_code(code, handler_config, context_chunks, question, save_path="generated_script.py"):
+def validate_code(code, handler_config, context_chunks, question, save_path=None):
     """
     Unified validation dispatcher.
     Routes to the correct strategy based on handler_config["validation_strategy"].
@@ -248,80 +230,6 @@ def reverse_check(user_query, generated_code, handler_name):
     return verdict
 
 
-# ----------- INDEX MANAGEMENT -------------
-# Resolve all paths relative to this script's directory
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-
-def load_or_build_index(handler_id, handler_config, chunk_size=3000):
-    """
-    Load the FAISS index for a handler from its pickle store,
-    or build it from the docs folder if it doesn't exist.
-    """
-    docs_path = os.path.join(SCRIPT_DIR, handler_config["docs_path"])
-    store_path = os.path.join(docs_path, handler_config["store_path"])
-
-    if os.path.exists(store_path):
-        print(f"STEP:Loading {handler_config['name']} documentation index...", flush=True)
-        time.sleep(1)
-        with open(store_path, "rb") as f:
-            store = pickle.load(f)
-        chunks = store["chunks"]
-        chunk_sources = store["chunk_sources"]
-        text_embeddings = store["embeddings"]
-    else:
-        # Check if docs folder exists and has content (including subfolders)
-        has_local_docs = False
-        if os.path.exists(docs_path):
-            for root, dirs, files in os.walk(docs_path):
-                for f in files:
-                    if os.path.splitext(f)[1].lower() in get_supported_extensions():
-                        has_local_docs = True
-                        break
-                if has_local_docs:
-                    break
-
-        if not has_local_docs:
-            # No local docs — try to fetch from the web
-            handler_name = handler_config["name"]
-            handler_keywords = handler_config.get("keywords", [])
-            fetched = fetch_documentation(handler_name, handler_keywords, docs_path, user_api_key)
-
-            if not fetched:
-                print(f"STEP:Could not obtain documentation for {handler_name}", flush=True)
-                time.sleep(2)
-                return [], [], None
-
-        print(f"STEP:Building {handler_config['name']} documentation index...", flush=True)
-        chunks, chunk_sources = load_and_chunk_docs(docs_path, chunk_size)
-
-        if not chunks:
-            print(f"STEP:No parseable documents found in {docs_path}", flush=True)
-            time.sleep(2)
-            return [], [], None
-
-        text_embeddings = np.array([get_text_embedding_with_retry(chunk) for chunk in chunks])
-
-        # Save the index for future use
-        os.makedirs(os.path.dirname(store_path), exist_ok=True)
-        try:
-            with open(store_path, "wb") as f:
-                pickle.dump({
-                    "chunks": chunks,
-                    "chunk_sources": chunk_sources,
-                    "embeddings": text_embeddings
-                }, f)
-            print(f"STEP:Index saved to {store_path}", flush=True)
-        except Exception as e:
-            print(f"WARNING: Could not save index: {e}", flush=True)
-
-    d = text_embeddings.shape[1]
-    index = faiss.IndexFlatL2(d)
-    index.add(text_embeddings)
-
-    return chunks, chunk_sources, index
-
-
-# ----------- MAIN PIPELINE -------------
 def run_query_and_fix(question, chunks, chunk_sources, index, handler_config, max_attempts=5):
     print("STEP:Analyzing your request...", flush=True)
     question_embedding = np.array([get_text_embedding_with_retry(question)])
@@ -456,7 +364,7 @@ print(f"STEP:Detected platform: {handler_config['name']}", flush=True)
 time.sleep(1)
 
 # 4. Load or build the index for this handler
-chunks, chunk_sources, index = load_or_build_index(handler_id, handler_config)
+chunks, chunk_sources, index = load_or_build_index(handler_id, handler_config, api_key=user_api_key)
 
 if index is None or not chunks:
     print(f"STEP:No documentation available for {handler_config['name']}. "
@@ -486,7 +394,7 @@ if final_code:
     else:
         # Priority 2: Detect from content itself
         first_line = content.split("\n")[0]
-        if first_line.startswith(("import ", "from ", "#!/", "def ", "class ")):
+        if first_line.startswith(("import ", "from ", "def ", "class ")) or re.match(r"^#!.*\bpython[\d.]*\b", first_line):
             fmt = "python"
         elif "," in first_line and not first_line.startswith(("#", "import", "from", "def")):
             fmt = "csv"
@@ -495,7 +403,7 @@ if final_code:
         elif content.startswith("<?xml") or (content.startswith("<") and not content.startswith("#")):
             fmt = "xml"
         else:
-            fmt = "text"
+            fmt = handler_config.get("output_format", "text")
 
     print(f"FORMAT:{fmt}", flush=True)
     print(content)

@@ -12,13 +12,18 @@ let _currentState = null;
 let _originalState = null;  // saved on first load for discard
 let _deckAbort = null;
 let _selectedSlot = null;
+let _selectedWell = null;
 let _pendingChanges = [];
+const _plateSlotRoles = new Map();
+const WELL_LIQUID_COLORS = ["#83b6d5", "#b2a0d7", "#83bfa9", "#e2bf79", "#d899b5"];
 let _sourceCodeBlock = null;  // the specific code block element the deck was opened from
 let _libraryEditing = false;
 let _libraryDraftName = "";
 let _libraryBeforeEdit = null;
 let _deckFitObserver = null;
 let _draggedDeckArea = null;
+let _applyingChanges = false;
+let _parameterAbort = null;
 
 // Animation state
 let _animSteps = [];
@@ -27,7 +32,6 @@ let _animPlaying = false;
 let _animTimer = null;
 let _animSpeed = 1500;
 let _animBusy = false;
-let _wellUsageMap = {};  // slotId → Set of well IDs used by the protocol
 
 const ACTION_COLORS = {
   aspirate:   { fill: "#00ff99", glow: "rgba(0,255,153,0.4)", label: "Aspirate" },
@@ -43,12 +47,16 @@ const ACTION_COLORS = {
 // ============================================================
 
 async function parseDeckFromCode(code, sourceBlock, templateId = null) {
+  _parameterAbort?.abort();
   const chatId = typeof currentChatId !== "undefined" ? currentChatId : null;
   if (_deckAbort) { _deckAbort.abort(); _deckAbort = null; }
 
   _currentCode = code;
   _originalCode = code;
-  _currentState = null;
+  const previousState = _currentState;
+  _renderProtocolParameters({});
+  const parametersError = document.getElementById("protocol-parameters-error");
+  if (parametersError) parametersError.textContent = "";
   _originalState = null;
   _selectedSlot = null;
   _pendingChanges = [];
@@ -57,13 +65,19 @@ async function parseDeckFromCode(code, sourceBlock, templateId = null) {
   _libraryBeforeEdit = null;
   _clearCodeBlockHighlights();
   _stopDeckAnimation();
-  document.getElementById("deck-apply-bar")?.remove();
+  _renderApplyBar();
   _openDeckPanel();
-  _showLoading();
+  _showLoading(!!previousState);
   _renderDeckCode();
 
   const controller = new AbortController();
   _deckAbort = controller;
+  let timedOut = false;
+  const timeout = setTimeout(() => {timedOut = true; controller.abort();}, 90000);
+  const retry = () => parseDeckFromCode(code, sourceBlock, templateId);
+  const container = document.getElementById("deck-svg-container");
+  if (container) container.inert = true;
+  window.workspace?.syncActions();
   const parseForChat = chatId;
 
   try {
@@ -84,24 +98,104 @@ async function parseDeckFromCode(code, sourceBlock, templateId = null) {
       } catch (_) { /* response wasn't JSON */ }
       if (_deckAbort !== controller) return;
       console.error("Deck server error:", res.status, errMsg);
-      _showError(errMsg);
+      _currentState = null; _showError(errMsg, retry);
       return;
     }
 
     const state = await res.json();
-    if (state.error) { console.error("Deck state error:", state.error); _showError(state.error); return; }
     if (_deckAbort !== controller || parseForChat && currentChatId !== parseForChat) return;
+    if (state.error) { console.error("Deck state error:", state.error); _currentState = null; _showError(state.error, retry); return; }
 
     _currentState = state;
     _originalState = JSON.parse(JSON.stringify(state));  // deep copy for discard
     _renderDeck(state);
+    if (state._parameters_pending) _loadProtocolParameters(code, state, chatId);
   } catch (e) {
-    if (e.name === "AbortError") return;
-    if (_deckAbort !== controller) return;
+    if (_deckAbort !== controller || e.name === "AbortError" && !timedOut) return;
     console.error("Deck fetch error:", e);
-    _showError("Error generating deck: " + e.message);
+    _currentState = null;
+    _showError(timedOut ? "Loading the deck timed out. Please try again." : "Could not load the deck: " + e.message, retry);
   } finally {
-    if (_deckAbort === controller) _deckAbort = null;
+    clearTimeout(timeout);
+    if (_deckAbort === controller) {
+      _deckAbort = null;
+      if (container) container.inert = false;
+      window.workspace?.syncActions();
+    }
+  }
+}
+
+async function _loadProtocolParameters(code, state, chatId) {
+  const controller = new AbortController();
+  _parameterAbort = controller;
+  const timeout = setTimeout(() => controller.abort(), 120000);
+  try {
+    const response = await fetch("/deck/visualize", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({code, chat_id: chatId, refresh_parameters: true}),
+      signal: controller.signal,
+    });
+    const updated = await response.json();
+    if (!response.ok) throw new Error(updated.error || "Could not load protocol parameters.");
+    if (_currentState !== state) return;
+    if (controller.signal.aborted) throw new Error("Protocol details update timed out.");
+    state.parameters = updated.parameters || [];
+    state.parameter_constraints = updated.parameter_constraints || [];
+    state._parameters_pending = false;
+    state.steps = updated.steps || [];
+    state.initial_wells = updated.initial_wells || [];
+    state._playback_pending = false;
+    // Upgrade learned geometry without overwriting hardware the user has edited.
+    for (const target of [state, _originalState].filter(Boolean)) {
+      for (const position of target.positions || []) {
+        const fresh = (updated.positions || []).find(item => String(item.id) === String(position.id) && item.labware === position.labware);
+        if (!fresh) continue;
+        for (const key of ["well_count", "well_rows", "well_columns", "aspect_ratio"]) {
+          if (fresh[key] != null) position[key] = fresh[key];
+        }
+      }
+      if (target === _originalState || _pendingChanges.every(change => change.type === "set_parameter")) {
+        target.plates = JSON.parse(JSON.stringify(updated.plates || target.plates || {}));
+      }
+    }
+    if (_originalState) {
+      _originalState.parameters = JSON.parse(JSON.stringify(state.parameters));
+      _originalState.parameter_constraints = JSON.parse(JSON.stringify(state.parameter_constraints));
+      _originalState.steps = JSON.parse(JSON.stringify(state.steps));
+      _originalState.initial_wells = JSON.parse(JSON.stringify(state.initial_wells));
+      _originalState._playback_pending = false;
+      _originalState._parameters_pending = false;
+    }
+    for (const change of _pendingChanges.filter(item => item.type === "set_parameter")) {
+      const parameter = state.parameters.find(item => item.id === change.parameter_id || item.label === change.label);
+      if (parameter) {
+        change.parameter_id = parameter.id;
+        change.old_value = parameter.value;
+        parameter.value = change.new_value;
+      }
+    }
+    const playbackIndex = _animStepIndex, wasPlaying = _animPlaying;
+    _renderDeck(state);
+    if (playbackIndex >= 0) _animGoTo(playbackIndex);
+    if (wasPlaying) _animTogglePlay();
+  } catch (error) {
+    if (_currentState !== state) return;
+    state._parameters_pending = false;
+    if (state.steps?.length) state._playback_pending = false;
+    _renderProtocolParameters(state);
+    const message = document.getElementById("protocol-parameters-error");
+    const panel = document.getElementById("protocol-parameters");
+    if (message && panel) {panel.hidden = false; message.textContent = "Protocol details could not be updated. Reopen the protocol to retry.";}
+    const playback = document.getElementById("anim-playback-bar");
+    if (playback && state._playback_pending) {
+      const desc = document.getElementById("anim-step-desc");
+      if (desc) desc.textContent = "Playback could not be updated.";
+      const retry = _libraryButton("Retry", () => parseDeckFromCode(_currentCode, _sourceCodeBlock));
+      playback.appendChild(retry);
+    }
+  } finally {
+    clearTimeout(timeout);
+    if (_parameterAbort === controller) _parameterAbort = null;
   }
 }
 
@@ -135,6 +229,7 @@ function _libraryNotice(message) {
 }
 
 function _renderLibraryControls(wrapper, state) {
+  if (window.workspace?.readOnly) return;
   const library = state._library;
   if (!library) return;
   const controls = document.createElement("div");
@@ -155,13 +250,13 @@ function _renderLibraryControls(wrapper, state) {
       _renderDeck(_currentState);
     }));
     const hint = document.createElement("p");
-    hint.textContent = "Editing a private copy. Adjust the physical layout below; double-click hardware to change defaults. Protocol contents stay tied to their code.";
+    hint.textContent = "Editing a private copy. Adjust the physical layout below; double-click hardware to change defaults.";
     controls.appendChild(hint);
     _renderLayoutEditor(controls, state);
     return;
   }
   const label = document.createElement("label");
-  label.textContent = "Deck library";
+  label.textContent = "Device layout library";
   const select = document.createElement("select");
   select.setAttribute("aria-label", "Choose a device deck from the library");
   for (const item of library.alternatives) {
@@ -172,7 +267,9 @@ function _renderLibraryControls(wrapper, state) {
     select.appendChild(option);
   }
   select.disabled = _pendingChanges.length > 0;
-  select.addEventListener("change", () => parseDeckFromCode(_currentCode, _sourceCodeBlock, select.value));
+  select.addEventListener("change", () => _currentCode
+    ? parseDeckFromCode(_currentCode, _sourceCodeBlock, select.value)
+    : window.workspace?.chooseDevice(state.platform, select.value));
   label.appendChild(select);
   const edit = _libraryButton("Edit a copy", () => {
     _stopDeckAnimation();
@@ -278,9 +375,12 @@ async function _publishLibraryDeck() {
 // ============================================================
 
 function _renderDeck(state) {
+  _closeWellDetails();
+  _plateSlotRoles.clear();
   _hideDeckTooltip();
   const container = document.getElementById("deck-svg-container");
   if (!container) return;
+  _renderProtocolParameters(state);
   container.innerHTML = "";
 
   const wrapper = document.createElement("div");
@@ -292,56 +392,51 @@ function _renderDeck(state) {
   title.textContent = state.platform || "Deck Layout";
   if (state.title) title.textContent += " — " + state.title;
   wrapper.appendChild(title);
-  _renderLibraryControls(wrapper, state);
-
-  // Instruments bar — always show (even if empty, shows both empty mounts)
-  wrapper.appendChild(_renderInstruments(state.instruments || []));
-
-  // Build well-usage map from steps: slotId → Set of well IDs
-  // This lets us show filled wells on the initial deck render
-  _wellUsageMap = {};
-  if (state.steps && state.steps.length > 0) {
-    for (const step of state.steps) {
-      if (step.source?.slot && step.source.wells) {
-        if (!_wellUsageMap[step.source.slot]) _wellUsageMap[step.source.slot] = new Set();
-        for (const w of step.source.wells) _wellUsageMap[step.source.slot].add(w);
-      }
-      if (step.destination?.slot && step.destination.wells) {
-        if (!_wellUsageMap[step.destination.slot]) _wellUsageMap[step.destination.slot] = new Set();
-        for (const w of step.destination.wells) _wellUsageMap[step.destination.slot].add(w);
-      }
-    }
+  const libraryPanel = document.getElementById("deck-library-panel");
+  libraryPanel?.replaceChildren();
+  _renderLibraryControls(libraryPanel || wrapper, state);
+  // Instrument editing belongs with device settings, not above the deck.
+  if (libraryPanel) {
+    const instruments = document.createElement("details");
+    const summary = document.createElement("summary");
+    summary.textContent = "Instruments";
+    instruments.append(summary, _renderInstruments(state.instruments || []));
+    libraryPanel.appendChild(instruments);
   }
 
   // Layout
   const layoutType = state.layout_type || "grid";
+  const frame = document.createElement("div");
+  frame.className = "deck-device-frame";
+  frame.dataset.layout = layoutType;
+  wrapper.appendChild(frame);
 
   if (layoutType === "grid") {
-    wrapper.appendChild(_renderGrid(state));
+    frame.appendChild(_renderGrid(state));
   } else if (layoutType === "linear") {
-    wrapper.appendChild(_renderLinear(state));
+    frame.appendChild(_renderLinear(state));
   } else if (layoutType === "plates") {
-    wrapper.appendChild(_renderPlates(state));
+    frame.appendChild(_renderPlates(state));
   } else {
-    wrapper.appendChild(_renderGrid(state)); // fallback
+    frame.appendChild(_renderGrid(state)); // fallback
   }
 
   // Info panel
   const info = document.createElement("div");
   info.id = "deck-info";
   info.className = "deck-info-panel";
-  info.innerHTML = '<span class="deck-info-hint">Hover for details · Drag hardware to an empty position · Click Empty to add</span>';
-  wrapper.appendChild(info);
+  info.innerHTML = '<span class="deck-info-hint">Drag hardware to rearrange · Select an empty position to add</span>';
+  frame.appendChild(info);
 
   container.appendChild(wrapper);
 
   // Animation system — init when steps exist
-  if (state.steps && state.steps.length > 0) {
-    _initAnimation(state);
-    _applyStepVisuals(-1, false);  // Bug 2 fix: show clean initial state immediately
-  }
+  _initAnimation(state);
+  _paintProtocolWells(state, -1);
   _watchDeckFit();
   preloadHardwareCatalog(state.platform);
+  window.workspace?.deckChanged(state);
+  _renderApplyBar();
 }
 
 // ============================================================
@@ -380,8 +475,8 @@ function _renderGrid(state) {
 
   const deck = document.createElement("div");
   deck.className = "deck-grid";
-  deck.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
-  deck.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+  deck.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+  deck.style.gridTemplateRows = `repeat(${rows}, auto)`;
 
   // Build lookup maps by id AND by row,col
   const posById = {};
@@ -418,7 +513,12 @@ function _renderGrid(state) {
       if (pos.col == null) pos.col = c;
 
       const slot = _createSlot(pos);
-      deck.appendChild(slot);
+      // Let a padding-free cell size the row; the hardware fits inside it.
+      const cell = document.createElement("div");
+      cell.className = "deck-grid-cell";
+      cell.style.aspectRatio = slot.style.aspectRatio;
+      cell.appendChild(slot);
+      deck.appendChild(cell);
     }
   }
 
@@ -461,7 +561,7 @@ function _renderLinear(state) {
 }
 
 // ============================================================
-// Plates Layout (Echo, picklists, source→dest transfers)
+// Plates Layout (source→destination transfers)
 // ============================================================
 
 function _renderPlates(state) {
@@ -493,12 +593,15 @@ function _renderPlates(state) {
     const srcPos = _findPlatePos("source") || platePosns[0];
     const slotId = srcPos?.id || "source";
     if (srcPos) usedIds.add(srcPos.id);
+    _plateSlotRoles.set(String(slotId), new Set(["source"]));
     container.appendChild(_renderPlateMap(plates.source, "source", slotId, srcPos));
   }
   if (plates.destination) {
     const dstPos = _findPlatePos("dest") || platePosns.find(p => !usedIds.has(p.id)) || platePosns[1];
     const slotId = dstPos?.id || "destination";
     if (dstPos) usedIds.add(dstPos.id);
+    if (!_plateSlotRoles.has(String(slotId))) _plateSlotRoles.set(String(slotId), new Set());
+    _plateSlotRoles.get(String(slotId)).add("destination");
     container.appendChild(_renderPlateMap(plates.destination, "dest", slotId, dstPos));
   }
 
@@ -530,10 +633,11 @@ function _renderPlates(state) {
 
 function _renderPlateMap(plate, role, slotId, posData) {
   const format = Number.isInteger(plate.format) && plate.format > 0 ? plate.format : null;
-  // Standard rectangular aspect ratio, derived from the declared well count.
-  const rows = format ? Math.max(1, Math.round(Math.sqrt(format * 2 / 3))) : 0;
-  const cols = rows ? Math.ceil(format / rows) : 0;
-  const usedWells = new Set(plate.wells_used || []);
+  const geometry = {...posData, ...plate};
+  const declared = Number.isInteger(geometry.well_rows) && geometry.well_rows > 0
+    && Number.isInteger(geometry.well_columns) && geometry.well_columns > 0 && geometry.well_rows * geometry.well_columns === format;
+  const rows = declared ? geometry.well_rows : 0;
+  const cols = declared ? geometry.well_columns : 0;
 
   // The section acts as a "slot" for the animation system
   const section = document.createElement("div");
@@ -549,7 +653,19 @@ function _renderPlateMap(plate, role, slotId, posData) {
     <span class="deck-plate-name">${plateName}</span>
     ${format ? `<span class="deck-plate-format">${format}-well</span>` : ""}
   `;
+  const roleLabel = document.createElement("span");
+  roleLabel.className = "slot-role";
+  roleLabel.textContent = role === "source" ? "Source" : "Destination";
+  section.appendChild(roleLabel);
   section.appendChild(header);
+  const count = document.createElement("span");
+  count.className = "slot-well-count";
+  section.appendChild(count);
+  if (!declared) {
+    count.textContent = `${format ? `${format} wells · ` : ""}Well layout unspecified`;
+    _bindDeckArea(section, slotId, posData || {fixed:true,labware:plate.type || plateName,type:"plate"});
+    return section;
+  }
 
   // Row labels + well grid wrapper
   const gridWrapper = document.createElement("div");
@@ -599,13 +715,6 @@ function _renderPlateMap(plate, role, slotId, posData) {
       well.className = "deck-well";
       well.dataset.well = wellId;
 
-      if (usedWells.has(wellId)) {
-        well.classList.add(role === "source" ? "well-source" : "well-dest");
-      }
-
-      _bindDeckTooltip(well, [`Well: ${wellId}`, `Plate: ${plateName}`,
-        `Status: ${usedWells.has(wellId) ? "Used" : "Empty"}`]);
-
       grid.appendChild(well);
     }
   }
@@ -614,12 +723,7 @@ function _renderPlateMap(plate, role, slotId, posData) {
   gridWrapper.appendChild(gridCol);
   section.appendChild(gridWrapper);
 
-  _bindDeckArea(section, slotId, posData || { fixed: true, labware: plate.type || plateName, type: "plate" }, [
-    `Plate: ${plateName}`,
-    plate.type && `Labware: ${plate.type}`,
-    `Format: ${format ? `${format}-well (${rows}×${cols})` : "Not specified"}`,
-    format && `Wells used: ${usedWells.size} of ${format}`,
-  ]);
+  _bindDeckArea(section, slotId, posData || { fixed: true, labware: plate.type || plateName, type: "plate" });
 
   return section;
 }
@@ -636,12 +740,27 @@ function _deckAreaType(type, labware) {
   return key;
 }
 
+function _deckRole(pos) {
+  if (pos.role) return String(pos.role);
+  const type = _deckAreaType(pos.type, pos.labware);
+  if (type === "tiprack") return "Tips";
+  const roles = new Set();
+  for (const step of _currentState?.steps || []) {
+    const action = String(step.action || "transfer").toLowerCase();
+    if (["aspirate", "transfer"].includes(action) && String(step.source?.slot) === String(pos.id)) roles.add("Source");
+    if (["dispense", "transfer"].includes(action) && String(step.destination?.slot) === String(pos.id)) roles.add("Destination");
+  }
+  return [...roles].join(" / ") || type.charAt(0).toUpperCase() + type.slice(1);
+}
+
 function _createSlot(pos) {
   const slot = document.createElement("div");
   const filled = !!pos.labware;
   const slotType = _deckAreaType(pos.type, pos.labware);
   slot.className = `deck-slot ${filled ? "filled" : "empty"} ${slotType}`;
   slot.dataset.id = pos.id;
+  const ratio = Number(pos.aspect_ratio);
+  slot.style.aspectRatio = Number.isFinite(ratio) && ratio >= 0.1 && ratio <= 10 ? String(ratio) : "1.5";
   if (_selectedSlot === pos.id) slot.classList.add("selected");
 
   // Slot number badge
@@ -653,9 +772,16 @@ function _createSlot(pos) {
       slot.innerHTML += `<span class="slot-module-badge">${pos.module}</span>`;
     }
 
-    // One muted label above the hardware; implementation details live in the tooltip.
-    slot.innerHTML += `<span class="slot-labware-name ${slotType === "trash" ? "trash-label" : ""} ${slotType === "module" ? "module-label" : ""}">${pos.labware_display || _shorten(pos.labware)}</span>`;
+    const role = document.createElement("span");
+    role.className = "slot-role";
+    role.textContent = _deckRole(pos);
+    slot.appendChild(role);
+    const name = document.createElement("span");
+    name.className = "slot-labware-name";
+    name.textContent = pos.labware_display || _shorten(pos.labware);
+    slot.appendChild(name);
     slot.innerHTML += _renderSlotInterior(slotType, pos);
+    if (["plate", "tiprack", "tuberack"].includes(slotType)) slot.innerHTML += '<span class="slot-well-count"></span>';
   } else {
     slot.innerHTML += `<span class="slot-icon">${slotType === "trash" ? "🗑" : "+"}</span>`;
     slot.innerHTML += `<span class="slot-empty-label">${slotType === "trash" ? "Trash" : "Empty"}</span>`;
@@ -668,11 +794,13 @@ function _createSlot(pos) {
 
 function _renderSlotInterior(type, pos) {
   type = _deckAreaType(type, pos.labware);
+  const visual = _renderHardwareVisual(pos.visual);
+  if (visual && !["plate", "tiprack", "tuberack"].includes(type)) return visual;
   if (type === "plate") {
-    return _renderMiniPlate(pos, 8, 12, "mini-well");
+    return _renderMiniPlate(pos, "mini-well");
   }
   if (type === "tiprack") {
-    return _renderMiniPlate(pos, 8, 12, "mini-tip");
+    return _renderMiniPlate(pos, "mini-tip");
   }
   if (type === "reservoir") {
     return `<div class="slot-reservoir-visual">
@@ -680,7 +808,7 @@ function _renderSlotInterior(type, pos) {
     </div>`;
   }
   if (type === "tuberack") {
-    return _renderMiniPlate(pos, 4, 6, "mini-tube");
+    return _renderMiniPlate(pos, "mini-tube");
   }
   if (type === "trash") {
     return `<div class="slot-trash-visual">🗑</div>`;
@@ -689,18 +817,34 @@ function _renderSlotInterior(type, pos) {
   return `<div class="slot-icon">⬡</div>`;
 }
 
-function _renderMiniPlate(pos, rows, cols, wellClass) {
-  // Determine grid from labware name heuristics
-  const lw = (pos.labware || "").toLowerCase();
-  if (lw.includes("384")) { rows = 16; cols = 24; }
-  else if (lw.includes("24")) { rows = 4; cols = 6; }
-  else if (lw.includes("12")) { rows = 3; cols = 4; }
-  else if (lw.includes("6") && !lw.includes("96") && !lw.includes("16")) { rows = 2; cols = 3; }
+function _renderHardwareVisual(visual) {
+  if (!Array.isArray(visual?.parts)) return "";
+  const shapes = visual.parts.slice(0, 24).map(part => {
+    if (!part || !["rect", "ellipse"].includes(part.shape)) return "";
+    const {x, y, width, height} = part;
+    if (![x, y, width, height].every(Number.isFinite) || x < 0 || y < 0
+        || width <= 0 || height <= 0 || x + width > 100 || y + height > 100) return "";
+    const tone = ["body", "inset", "accent"].includes(part.tone) ? part.tone : "body";
+    const attrs = `class="hardware-${tone}" vector-effect="non-scaling-stroke"`;
+    if (part.shape === "ellipse") return `<ellipse ${attrs} cx="${x + width / 2}" cy="${y + height / 2}" rx="${width / 2}" ry="${height / 2}"/>`;
+    const radius = Number.isFinite(part.radius) ? Math.max(0, Math.min(part.radius, width / 2, height / 2)) : 0;
+    return `<rect ${attrs} x="${x}" y="${y}" width="${width}" height="${height}" rx="${radius}"/>`;
+  }).join("");
+  return shapes ? `<svg class="slot-hardware-visual" viewBox="0 0 100 100" role="img" aria-label="Hardware schematic">${shapes}</svg>` : "";
+}
 
-  // Get wells used by the protocol for this slot
-  const usedWells = _wellUsageMap[pos.id] || new Set();
+function _renderMiniPlate(pos, wellClass) {
+  // Prefer declared geometry; older bindings can still identify a named well count.
+  const namedCount = String(pos.labware || "").match(/(?:^|[_ -])(\d+)[_ -]?(?:well|tip|tube)/i);
+  const count = Number(pos.well_count || pos.format || namedCount?.[1]);
+  if (!Number.isInteger(count) || count <= 0 || count > 4096) return _renderHardwareVisual(pos.visual) || '<span class="slot-well-count">Well layout unspecified</span>';
+  const declared = Number.isInteger(pos.well_rows) && pos.well_rows > 0
+    && Number.isInteger(pos.well_columns) && pos.well_columns > 0 && pos.well_rows * pos.well_columns === count;
+  if (!declared) return _renderHardwareVisual(pos.visual) || `<span class="slot-well-count">${count} wells · Well layout unspecified</span>`;
+  const rows = pos.well_rows;
+  const cols = pos.well_columns;
 
-  let html = `<div class="slot-mini-grid" style="grid-template-columns:repeat(${cols},1fr);grid-template-rows:repeat(${rows},1fr)">`;
+  let html = `<svg class="slot-mini-grid" viewBox="0 0 ${cols} ${rows}" preserveAspectRatio="xMidYMid meet" role="group" aria-label="${count} wells">`;
   const rowLabels = Array.from({ length: rows }, (_, index) => {
     let label = "", number = index + 1;
     while (number > 0) { number--; label = String.fromCharCode(65 + number % 26) + label; number = Math.floor(number / 26); }
@@ -708,12 +852,12 @@ function _renderMiniPlate(pos, rows, cols, wellClass) {
   });
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
+      if (count > 0 && r * cols + c >= count) continue;
       const wellId = `${rowLabels[r]}${c + 1}`;
-      const usedClass = usedWells.has(wellId) ? " well-used" : "";
-      html += `<div class="${wellClass} deck-well${usedClass}" data-well="${wellId}"></div>`;
+      html += `<circle class="${wellClass} deck-well" data-well="${wellId}" cx="${c + 0.5}" cy="${r + 0.5}" r="0.36" vector-effect="non-scaling-stroke"></circle>`;
     }
   }
-  html += `</div>`;
+  html += `</svg>`;
   return html;
 }
 
@@ -727,11 +871,14 @@ function _renderInstruments(instruments) {
 
     chip.innerHTML = `<span class="inst-name">${inst.name}</span>` +
       (inst.mount ? `<span class="inst-mount">${inst.mount}</span>` : "") +
-      (inst.tipracks?.length ? `<span class="inst-tips">Tips: ${inst.tipracks.join(", ")}</span>` : "");
+      (inst.tipracks?.length ? `<span class="inst-tips">Tip rack positions: ${inst.tipracks.join(", ")}</span>` : "");
 
     chip.tabIndex = 0;
-    _bindDeckTooltip(chip, [inst.name, inst.model, inst.mount && `Mount: ${inst.mount}`,
-      inst.tipracks?.length && `Tip racks: ${inst.tipracks.join(", ")}`, "Double-click to change"]);
+    chip.setAttribute("role", "button");
+    chip.setAttribute("aria-label", `Change ${inst.name}${inst.mount ? ` on ${inst.mount}` : ""}`);
+    chip.addEventListener("keydown", event => {
+      if (["Enter", " "].includes(event.key)) { event.preventDefault(); _showInstrumentSelector(inst); }
+    });
 
     // Double-click to open instrument selector
     chip.addEventListener("dblclick", () => {
@@ -755,6 +902,7 @@ function _renderInstruments(instruments) {
 // ============================================================
 
 async function _showInstrumentSelector(inst, isNew) {
+  if (window.workspace?.readOnly) return;
   const existing = document.getElementById("deck-selector-modal");
   if (existing) existing.remove();
 
@@ -801,6 +949,15 @@ async function _showInstrumentSelector(inst, isNew) {
   }
 }
 
+function _instrumentMounts(catalog, instrument) {
+  return [...new Set([
+    ...(Array.isArray(catalog.mounts) ? catalog.mounts : []),
+    ...(_currentState?.mounts || []),
+    ...(_currentState?.instruments || []).map(item => item.mount),
+    instrument.mount,
+  ].filter(value => typeof value === "string" && value.trim()))];
+}
+
 function _renderInstrumentCatalog(modal, catalog, inst) {
   const content = modal.querySelector(".deck-selector-content");
   content.querySelector(".deck-selector-loading").remove();
@@ -813,29 +970,27 @@ function _renderInstrumentCatalog(modal, catalog, inst) {
   search.addEventListener("input", () => _filterCatalog(content, search.value));
   content.querySelector(".deck-selector-header").after(search);
 
-  // Mount selector
-  const mountDiv = document.createElement("div");
-  mountDiv.className = "instrument-mount-selector";
-  mountDiv.innerHTML = `
-    <span class="deck-selector-category">Mount</span>
-    <div class="mount-options">
-      <label class="mount-option ${inst.mount === "left" ? "active" : ""}">
-        <input type="radio" name="inst_mount" value="left" ${inst.mount === "left" ? "checked" : ""} /> Left
-      </label>
-      <label class="mount-option ${inst.mount === "right" ? "active" : ""}">
-        <input type="radio" name="inst_mount" value="right" ${inst.mount === "right" ? "checked" : ""} /> Right
-      </label>
-    </div>
-  `;
-  content.appendChild(mountDiv);
-
-  // Handle mount toggle styling
-  mountDiv.querySelectorAll("input[name='inst_mount']").forEach(radio => {
-    radio.addEventListener("change", () => {
-      mountDiv.querySelectorAll(".mount-option").forEach(l => l.classList.remove("active"));
-      radio.closest(".mount-option").classList.add("active");
-    });
-  });
+  // Mount identifiers come from the device/catalog, never a built-in robot layout.
+  const mounts = _instrumentMounts(catalog, inst);
+  const mountLabel = document.createElement("label");
+  mountLabel.className = "instrument-mount-selector";
+  mountLabel.textContent = "Mount";
+  const mountInput = document.createElement(mounts.length ? "select" : "input");
+  mountInput.name = "inst_mount";
+  mountInput.setAttribute("aria-label", "Instrument mount");
+  if (mounts.length) {
+    for (const mount of mounts) {
+      const option = document.createElement("option");
+      option.value = option.textContent = mount;
+      mountInput.appendChild(option);
+    }
+  } else {
+    mountInput.type = "text";
+    mountInput.placeholder = "Mount identifier, if required";
+  }
+  mountInput.value = inst.mount || mounts[0] || "";
+  mountLabel.appendChild(mountInput);
+  content.appendChild(mountLabel);
 
   // Remove option if instrument exists
   if (inst.model) {
@@ -869,7 +1024,7 @@ function _renderInstrumentCatalog(modal, catalog, inst) {
         <span class="selector-id">${item.id}</span>
       `;
       itemDiv.addEventListener("click", () => {
-        const selectedMount = content.querySelector("input[name='inst_mount']:checked")?.value || inst.mount;
+        const selectedMount = content.querySelector("[name='inst_mount']")?.value.trim() || inst.mount;
         modal.remove();
         _applyInstrumentChange(inst, item.id, selectedMount);
       });
@@ -895,7 +1050,7 @@ function _renderInstrumentCatalog(modal, catalog, inst) {
   document.getElementById("custom-inst-btn").addEventListener("click", () => {
     const val = document.getElementById("custom-inst-input").value.trim();
     if (val) {
-      const selectedMount = content.querySelector("input[name='inst_mount']:checked")?.value || inst.mount;
+      const selectedMount = content.querySelector("[name='inst_mount']")?.value.trim() || inst.mount;
       modal.remove();
       _applyInstrumentChange(inst, val, selectedMount);
     }
@@ -905,6 +1060,7 @@ function _renderInstrumentCatalog(modal, catalog, inst) {
 }
 
 function _applyInstrumentChange(oldInst, newModel, newMount) {
+  if (window.workspace?.readOnly) return;
   if (!_currentState) return;
   if (!_currentState.instruments) _currentState.instruments = [];
 
@@ -919,17 +1075,13 @@ function _applyInstrumentChange(oldInst, newModel, newMount) {
       new_mount: targetMount,
     });
 
-    // Remove any existing instrument on the target mount first
-    _currentState.instruments = _currentState.instruments.filter(i => i.mount !== targetMount);
-
-    // If changing mount (e.g. left → right), also remove from old mount
-    if (oldInst.mount && oldInst.mount !== targetMount) {
-      _currentState.instruments = _currentState.instruments.filter(i => i.mount !== oldInst.mount);
-    }
+    // An unspecified mount is not a shared physical location.
+    _currentState.instruments = _currentState.instruments.filter(i =>
+      i !== oldInst && (targetMount == null || i.mount !== targetMount));
 
     // Add the new instrument
     _currentState.instruments.push({
-      name: newModel.replace(/_/g, " "),
+      name: oldInst.name || newModel.replace(/_/g, " "),
       model: newModel,
       mount: targetMount,
       tipracks: oldInst.tipracks || [],
@@ -942,7 +1094,7 @@ function _applyInstrumentChange(oldInst, newModel, newMount) {
     });
 
     // Remove from local state
-    _currentState.instruments = _currentState.instruments.filter(i => i.mount !== oldInst.mount);
+    _currentState.instruments = _currentState.instruments.filter(i => i !== oldInst);
   }
 
   _selectedSlot = null;
@@ -954,28 +1106,6 @@ function _hideDeckTooltip() {
   document.getElementById("deck-area-tooltip")?.remove();
 }
 
-function _bindDeckTooltip(area, lines) {
-  let suppressed = false;
-  function show(event) {
-    if (suppressed || _draggedDeckArea !== null) return;
-    _hideDeckTooltip();
-    const tip = document.createElement("div");
-    tip.id = "deck-area-tooltip";
-    tip.setAttribute("role", "tooltip");
-    tip.textContent = lines.filter(Boolean).join("\n");
-    document.body.appendChild(tip);
-    const rect = area.getBoundingClientRect();
-    const x = event.clientX ?? rect.left, y = event.clientY ?? rect.bottom;
-    tip.style.left = `${Math.max(8, Math.min(x + 12, window.innerWidth - tip.offsetWidth - 8))}px`;
-    tip.style.top = `${Math.max(8, Math.min(y + 12, window.innerHeight - tip.offsetHeight - 8))}px`;
-  }
-  area.addEventListener("pointerenter", show);
-  area.addEventListener("focus", show);
-  area.addEventListener("pointerleave", () => { suppressed = false; _hideDeckTooltip(); });
-  area.addEventListener("blur", _hideDeckTooltip);
-  area.addEventListener("pointerdown", () => { suppressed = true; _hideDeckTooltip(); });
-}
-
 function _fixedDeckArea(pos) {
   return pos.fixed || pos.module || ["trash", "module"].includes(_deckAreaType(pos.type, pos.labware))
     || /^fixed(?:[\s_-]|$)/i.test(pos.type || "");
@@ -985,21 +1115,27 @@ function _movableDeckArea(pos) {
   return !!pos.labware && !_fixedDeckArea(pos);
 }
 
-function _bindDeckArea(area, id, pos, details = []) {
+function _bindDeckArea(area, id, pos) {
+  if (window.workspace?.readOnly) return;
   const empty = !pos.labware && !_fixedDeckArea(pos);
   const movable = _movableDeckArea(pos);
+  if (movable) {
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "deck-slot-remove";
+    remove.title = "Remove item";
+    remove.setAttribute("aria-label", `Remove ${pos.labware_display || pos.labware} from position ${id}`);
+    remove.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M19 6v14H5V6m4 0V3h6v3"/></svg>';
+    remove.addEventListener("click", event => {
+      event.stopPropagation(); _stopDeckAnimation(); _applyChange(id, null, pos.labware);
+    });
+    area.appendChild(remove);
+  }
   area.tabIndex = 0;
   if (empty || movable) {
-    area.setAttribute("role", "button");
+    area.setAttribute("role", empty ? "button" : "group");
     area.setAttribute("aria-label", `${empty ? "Add hardware" : pos.labware_display || pos.labware} at position ${id}`);
   }
-  if (!empty) _bindDeckTooltip(area, [
-    `Position: ${id}`, pos.labware_display || pos.labware,
-    pos.labware_display && pos.labware !== pos.labware_display && `Labware: ${pos.labware}`,
-    pos.variable && `Variable: ${pos.variable}`, pos.module && `Module: ${pos.module}`,
-    pos.type && `Type: ${pos.type}`, ...details,
-    movable ? "Drag to an empty position · Double-click to change" : null,
-  ]);
   function activate() {
     _hideDeckTooltip();
     if (empty) _showSelector(id, null);
@@ -1015,8 +1151,13 @@ function _bindDeckArea(area, id, pos, details = []) {
     if (movable) { _hideDeckTooltip(); _showSelector(id, pos.labware); }
   });
   area.draggable = movable;
+  let dragFromContents = false;
+  area.addEventListener("pointerdown", event => {
+    dragFromContents = !!event.target.closest(".slot-mini-grid, .deck-plate-grid-wrapper, button");
+    if (dragFromContents && !event.target.closest("button")) event.preventDefault();
+  });
   area.addEventListener("dragstart", event => {
-    if (!movable) { event.preventDefault(); return; }
+    if (!movable || dragFromContents) { event.preventDefault(); return; }
     _hideDeckTooltip();
     _draggedDeckArea = String(id);
     event.dataTransfer.setData("text/plain", String(id));
@@ -1044,6 +1185,7 @@ function _bindDeckArea(area, id, pos, details = []) {
 }
 
 function _moveDeckArea(from, to) {
+  if (window.workspace?.readOnly) return;
   if (!_currentState || from === to) return;
   const entries = (_currentState.positions || []).map(pos => [String(pos.id), pos]);
   for (const carrier of _currentState.carriers?.items || []) {
@@ -1055,13 +1197,20 @@ function _moveDeckArea(from, to) {
   _stopDeckAnimation();
   const change = { type: "move_labware", from_slot: from, to_slot: to,
     labware: source.labware, variable: source.variable || null };
-  for (const key of ["labware", "labware_display", "variable", "type"]) {
+  for (const key of ["labware", "labware_display", "variable", "type", "role", "well_count", "well_rows", "well_columns", "aspect_ratio", "visual"]) {
     target[key] = source[key];
-    source[key] = key === "type" ? "empty" : null;
+    delete source[key];
+  }
+  source.type = "empty";
+  for (const well of _currentState.initial_wells || []) {
+    if (String(well.slot) === from) well.slot = to;
   }
   for (const step of _currentState.steps || []) {
     for (const role of ["source", "destination"]) {
       if (String(step[role]?.slot) === from) step[role].slot = to;
+    }
+    for (const item of [...(step.well_updates || []), ...(step.volume_changes || [])]) {
+      if (String(item.slot) === from) item.slot = to;
     }
   }
   for (const instrument of _currentState.instruments || []) {
@@ -1114,6 +1263,7 @@ function _closeDeckSelector(modal) {
 }
 
 async function _showSelector(slotId, currentLabware) {
+  if (window.workspace?.readOnly) return;
   const existing = document.getElementById("deck-selector-modal");
   if (existing) _closeDeckSelector(existing);
 
@@ -1231,7 +1381,7 @@ function _renderCatalogItems(list, catalog, modal, slotId, currentLabware) {
         <span class="selector-detail">${item.detail || ""}</span>
         <span class="selector-id">${item.id}</span>
       `;
-      itemDiv.addEventListener("click", () => { _closeDeckSelector(modal); _applyChange(slotId, item.id, currentLabware); });
+      itemDiv.addEventListener("click", () => { _closeDeckSelector(modal); _applyChange(slotId, item.id, currentLabware, item); });
       list.appendChild(itemDiv);
     }
   }
@@ -1255,8 +1405,17 @@ function _filterCatalog(content, query) {
   });
 }
 
-function _applyChange(slotId, newLabware, oldLabware) {
-  if (!_currentCode || !_currentState) return;
+function _applyChange(slotId, newLabware, oldLabware, hardware = {}) {
+  if (window.workspace?.readOnly) return;
+  if (!_currentState) return;
+
+  for (const role of _plateSlotRoles.get(String(slotId)) || []) {
+    const plate = _currentState.plates?.[role];
+    if (!plate) continue;
+    if (!newLabware) delete _currentState.plates[role];
+    else Object.assign(plate, {type:newLabware, format:hardware.well_count || null,
+      well_rows:hardware.well_rows || null, well_columns:hardware.well_columns || null});
+  }
 
   // Track the change
   if (newLabware && oldLabware) {
@@ -1269,17 +1428,29 @@ function _applyChange(slotId, newLabware, oldLabware) {
 
   // Update local state visually (instant)
   const positions = _currentState.positions || [];
+  function geometry(pos) {
+    delete pos.visual;
+    if (hardware.visual && typeof hardware.visual === "object") pos.visual = hardware.visual;
+    for (const key of ["well_count", "well_rows", "well_columns", "aspect_ratio"]) {
+      delete pos[key];
+      if (Number.isFinite(hardware[key]) && hardware[key] > 0) pos[key] = hardware[key];
+    }
+    const type = _deckAreaType(hardware.type, hardware.name || newLabware);
+    pos.type = ["plate", "tiprack", "tuberack", "reservoir", "module", "trash"].includes(type)
+      ? type : _guessType(hardware.name || newLabware);
+  }
   for (const pos of positions) {
     if (pos.id === slotId) {
       if (newLabware) {
         pos.labware = newLabware;
-        pos.labware_display = _shorten(newLabware);
-        pos.type = _guessType(newLabware);
+        pos.labware_display = hardware.name || _shorten(newLabware);
+        geometry(pos);
       } else {
         pos.labware = null;
         pos.labware_display = null;
         pos.variable = null;
         pos.type = "empty";
+        for (const key of ["well_count", "well_rows", "well_columns", "aspect_ratio", "visual"]) delete pos[key];
       }
       break;
     }
@@ -1291,6 +1462,7 @@ function _applyChange(slotId, newLabware, oldLabware) {
       for (const cpos of (carrier.positions || [])) {
         if (`${carrier.type}_${cpos.index}` === slotId) {
           cpos.labware = newLabware || null;
+          geometry(cpos);
           if (!newLabware) cpos.variable = null;
           break;
         }
@@ -1307,55 +1479,147 @@ function _applyChange(slotId, newLabware, oldLabware) {
 // Apply Changes Bar
 // ============================================================
 
+function _parameterNumberSpec(parameter) {
+  if (parameter.type === "text") return null;
+  if (parameter.type === "number") return parameter;
+  const original = _originalState?.parameters?.find(item => item.id === parameter.id) || parameter;
+  const quantity = String(original.value).match(/^[+-]?(?:\d+(?:[.,]\d*)?|[.,]\d+)(?:e[+-]?\d+)?\s*([a-zµμ%][a-zµμ%/0-9^ .-]*)?$/i);
+  if (!quantity) return null;
+  const unit = (quantity[1] || "").trim();
+  return {unit, units: {[unit]: 1}};
+}
+
+function _validateProtocolParameters(state, fields) {
+  const values = new Map(), inputs = new Map();
+  let error = "";
+  for (const input of fields.querySelectorAll("input")) {
+    const parameter = state.parameters.find(item => item.id === input.dataset.parameterId);
+    if (!parameter) continue;
+    inputs.set(parameter.id, input);
+    let message = input.value.trim() ? "" : "Enter a value.";
+    const spec = _parameterNumberSpec(parameter);
+    if (spec && !message) {
+      const value = parseQuestionQuantity(input.value, spec);
+      if (!Number.isFinite(value)) message = `Enter a number${spec.unit ? ` with a compatible unit (${Object.keys(spec.units || {}).join(", ")})` : " without units"}.`;
+      else if (spec.integer && !Number.isInteger(value)) message = "Enter a whole number.";
+      else values.set(parameter.id, value);
+    }
+    input.setCustomValidity?.(message);
+    input.setAttribute("aria-invalid", String(!!message));
+    if (message && !error) error = `${parameter.label}: ${message}`;
+  }
+  const compare = {lt:(a,b)=>a<b, lte:(a,b)=>a<=b, gt:(a,b)=>a>b, gte:(a,b)=>a>=b, eq:(a,b)=>a===b};
+  for (const constraint of state.parameter_constraints || []) {
+    const left = values.get(constraint.left);
+    const right = typeof constraint.right === "number" ? constraint.right : values.get(constraint.right);
+    if (left === undefined || right === undefined || !compare[constraint.operator]) continue;
+    if (!compare[constraint.operator](left, right)) {
+      const message = constraint.message || "These parameter values conflict.";
+      inputs.get(constraint.left)?.setCustomValidity?.(message);
+      inputs.get(constraint.left)?.setAttribute("aria-invalid", "true");
+      if (!error) error = message;
+    }
+  }
+  const notice = document.getElementById("protocol-parameters-error");
+  if (notice) notice.textContent = error;
+  return !error;
+}
+
+function _renderProtocolParameters(state) {
+  const panel = document.getElementById("protocol-parameters");
+  const fields = document.getElementById("protocol-parameter-fields");
+  if (!panel || !fields) return;
+  const parameters = !_libraryEditing && _currentCode ? state.parameters || [] : [];
+  const instruments = !_libraryEditing ? (state.instruments || []).filter(item => item.model) : [];
+  panel.hidden = parameters.length === 0 && instruments.length === 0 && !state._parameters_pending;
+  fields.replaceChildren();
+  if (state._parameters_pending && parameters.length === 0 && instruments.length === 0) fields.textContent = "Loading protocol parameters…";
+  for (const instrument of instruments) {
+    const label = document.createElement("label");
+    const text = document.createElement("span");
+    const name = instrument.name || "Instrument";
+    text.textContent = `${name.charAt(0).toUpperCase() + name.slice(1)} type${instrument.mount ? ` (${instrument.mount})` : ""}`;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "workspace-button protocol-instrument-parameter";
+    button.textContent = instrument.model.replace(/_/g, " ");
+    button.setAttribute("aria-label", `Change ${text.textContent}`);
+    button.setAttribute("aria-haspopup", "dialog");
+    button.disabled = _applyingChanges || !!window.workspace?.readOnly;
+    button.addEventListener("click", () => _showInstrumentSelector(instrument));
+    label.append(text, button);
+    fields.appendChild(label);
+  }
+  for (const parameter of parameters) {
+    const label = document.createElement("label");
+    const text = document.createElement("span");
+    text.textContent = parameter.label;
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = parameter.value;
+    input.required = true;
+    input.maxLength = 1000;
+    input.disabled = _applyingChanges;
+    input.readOnly = !!window.workspace?.readOnly;
+    input.dataset.parameterId = parameter.id;
+    function updateParameter() {
+      const value = input.value.trim();
+      _validateProtocolParameters(state, fields);
+      const original = _originalState?.parameters?.find(item => item.id === parameter.id) || parameter;
+      _pendingChanges = _pendingChanges.filter(change => change.type !== "set_parameter" || change.parameter_id !== parameter.id);
+      if (value !== original.value) _pendingChanges.push({type: "set_parameter", parameter_id: parameter.id,
+        label: parameter.label, old_value: original.value, new_value: value});
+      parameter.value = value;
+      _renderApplyBar();
+    }
+    input.addEventListener("input", updateParameter);
+    input.addEventListener("change", () => { input.value = input.value.trim(); updateParameter(); });
+    label.append(text, input);
+    fields.appendChild(label);
+  }
+  if (parameters.length) _validateProtocolParameters(state, fields);
+}
+
 function _renderApplyBar() {
-  let bar = document.getElementById("deck-apply-bar");
-
-  if (_libraryEditing || _pendingChanges.length === 0) {
-    if (bar) bar.remove();
-    return;
+  window.workspace?.syncActions();
+  const discard = document.getElementById("deck-discard-btn");
+  const apply = document.getElementById("deck-apply-btn");
+  const disabled = !!window.workspace?.readOnly || _libraryEditing || _applyingChanges || _pendingChanges.length === 0;
+  if (discard) discard.disabled = disabled;
+  if (apply) {
+    apply.disabled = disabled || !!document.getElementById("protocol-parameter-fields")?.querySelector("input:invalid");
+    apply.textContent = _applyingChanges ? "Applying…" : "Apply";
   }
-
-  if (!bar) {
-    bar = document.createElement("div");
-    bar.id = "deck-apply-bar";
-    bar.className = "deck-apply-bar";
-    const container = document.getElementById("deck-svg-container");
-    if (container) container.parentElement.appendChild(bar);
-  }
-
-  const count = _pendingChanges.length;
-  bar.innerHTML = `
-    <div class="apply-bar-info">
-      <span class="apply-bar-count">${count} change${count > 1 ? "s" : ""}</span>
-      <span class="apply-bar-hint">pending</span>
-    </div>
-    <div class="apply-bar-actions">
-      <button class="apply-bar-discard" id="deck-discard-btn">Discard</button>
-      <button class="apply-bar-apply" id="deck-apply-btn">Apply Changes</button>
-    </div>
-  `;
-
-  document.getElementById("deck-discard-btn").addEventListener("click", _discardChanges);
-  document.getElementById("deck-apply-btn").addEventListener("click", _commitChanges);
 }
 
 function _discardChanges() {
   _pendingChanges = [];
+  const parametersError = document.getElementById("protocol-parameters-error");
+  if (parametersError) parametersError.textContent = "";
   // Restore from the saved original state — no LLM call needed
   if (_originalState) {
     _currentState = JSON.parse(JSON.stringify(_originalState));
   }
   _selectedSlot = null;
   _renderDeck(_currentState);
-  const bar = document.getElementById("deck-apply-bar");
-  if (bar) bar.remove();
+  _renderApplyBar();
 }
 
 async function _commitChanges() {
-  if (_libraryEditing || _pendingChanges.length === 0) return;
+  if (window.workspace?.readOnly) return;
+  if (_libraryEditing || _applyingChanges || _pendingChanges.length === 0) return;
+  const invalidParameter = document.getElementById("protocol-parameter-fields")?.querySelector("input:invalid");
+  if (invalidParameter) { invalidParameter.reportValidity(); return; }
+  if (!_currentCode) {
+    window.workspace?.confirmLayout();
+    return;
+  }
   const state = _currentState;
-  const applyBtn = document.getElementById("deck-apply-btn");
-  if (applyBtn) { applyBtn.textContent = "Applying..."; applyBtn.disabled = true; }
+  _applyingChanges = true;
+  _renderProtocolParameters(state);
+  window.workspace?.syncActions();
+  _renderApplyBar();
+  let updateError = null;
   try {
     const response = await fetch("/deck/update", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -1374,17 +1638,30 @@ async function _commitChanges() {
     _pendingChanges = [];
     _selectedSlot = null;
     _renderDeck(_currentState);
-    document.getElementById("deck-apply-bar")?.remove();
+    _renderApplyBar();
   } catch (error) {
-    if (_currentState === state) _libraryNotice(error.message);
+    updateError = error.message;
+    if (_currentState === state) {
+      _libraryNotice(error.message);
+      const parametersError = document.getElementById("protocol-parameters-error");
+      if (parametersError) parametersError.textContent = error.message;
+    }
   } finally {
-    if (applyBtn) { applyBtn.textContent = "Apply Changes"; applyBtn.disabled = false; }
+    _applyingChanges = false;
+    if (_currentState) _renderProtocolParameters(_currentState);
+    if (updateError && _currentState === state) {
+      const parametersError = document.getElementById("protocol-parameters-error");
+      if (parametersError) parametersError.textContent = updateError;
+    }
+    window.workspace?.syncActions();
+    _renderApplyBar();
   }
 }
 
 function _guessType(labware) {
   if (!labware) return "empty";
-  const l = labware.toLowerCase();
+  const l = labware.toLowerCase().replace(/[\s-]+/g, "_");
+  if (l.includes("module")) return "module";
   if (l.includes("tiprack") || l.includes("tip_rack") || l.includes("tips")) return "tiprack";
   if (l.includes("reservoir") || l.includes("trough")) return "reservoir";
   if (l.includes("tube") || l.includes("rack")) return "tuberack";
@@ -1415,7 +1692,13 @@ function _fitDeck() {
   const scale = Math.min(1, width / naturalWidth, height / naturalHeight);
   wrapper.style.transform = `scale(${scale})`;
   wrapper.style.left = `${12 + (width - naturalWidth * scale) / 2}px`;
-  wrapper.style.top = `${12 + (height - naturalHeight * scale) / 2}px`;
+  wrapper.style.top = "0px";
+  const layout = wrapper.querySelector?.(".deck-grid, .deck-linear, .deck-plates");
+  const workspace = container.parentElement;
+  if (layout && workspace) {
+    const box = layout.getBoundingClientRect(), bounds = workspace.getBoundingClientRect();
+    workspace.style.setProperty("--deck-center-y", `${box.top - bounds.top + box.height / 2}px`);
+  }
 }
 
 function _watchDeckFit() {
@@ -1519,7 +1802,13 @@ function _openDeckPanel() {
   const btn = document.getElementById("deck-toggle-btn");
   if (panel) panel.classList.remove("hidden");
   if (chat) chat.classList.add("with-deck");
-  if (btn) btn.classList.add("active");
+  window.floatingChat?.attach();
+  if (btn) {
+    btn.classList.add("active");
+    btn.disabled = false;
+    btn.setAttribute("aria-expanded", "true");
+    btn.setAttribute("aria-label", "Hide deck");
+  }
   _ensureResizeHandle();
   _ensureDeckSplitter();
   _renderDeckCode();
@@ -1533,7 +1822,11 @@ function closeDeckPanel() {
   const btn = document.getElementById("deck-toggle-btn");
   if (panel) panel.classList.add("hidden");
   if (chat) chat.classList.remove("with-deck");
-  if (btn) btn.classList.remove("active");
+  if (btn) {
+    btn.classList.remove("active");
+    btn.setAttribute("aria-expanded", "false");
+    btn.setAttribute("aria-label", "Show deck");
+  }
 }
 function toggleDeckPanel() {
   const panel = document.getElementById("deck-panel");
@@ -1543,12 +1836,23 @@ function toggleProtocolDeck(code, sourceLink) {
   if (_currentCode === code && _sourceCodeBlock === sourceLink) toggleDeckPanel();
   else parseDeckFromCode(code, sourceLink);
 }
-function clearDeckPanel() {
+function clearDeckPanel({keepOpen = false} = {}) {
+  _closeWellDetails();
+  document.getElementById("deck-library-panel")?.replaceChildren();
+  _parameterAbort?.abort(); _parameterAbort = null;
   if (_deckAbort) { _deckAbort.abort(); _deckAbort = null; }
   closeDeckPanel();
+  const deckContainer = document.getElementById("deck-svg-container");
+  if (deckContainer) deckContainer.inert = false;
   _currentCode = null; _originalCode = null; _currentState = null; _originalState = null;
+  const deckToggle = document.getElementById("deck-toggle-btn");
+  if (deckToggle) deckToggle.disabled = true;
   _selectedSlot = null; _pendingChanges = []; _sourceCodeBlock = null;
   _libraryEditing = false; _libraryBeforeEdit = null;
+  const parameters = document.getElementById("protocol-parameters");
+  if (parameters) parameters.hidden = true;
+  const parametersError = document.getElementById("protocol-parameters-error");
+  if (parametersError) parametersError.textContent = "";
   // Animation cleanup
   _animSteps = []; _animStepIndex = -1; _animPlaying = false; _animBusy = false;
   if (_animTimer) { clearInterval(_animTimer); _animTimer = null; }
@@ -1558,11 +1862,11 @@ function clearDeckPanel() {
   // Clear any code block highlights in the chat
   _clearCodeBlockHighlights();
   const c = document.getElementById("deck-svg-container");
-  if (c) c.innerHTML = '<p class="deck-empty-message">Generate a protocol to see the deck layout</p>';
-  const bar = document.getElementById("deck-apply-bar");
-  if (bar) bar.remove();
+  if (c) c.innerHTML = '<p class="deck-empty-message">Your deck will take shape as you prepare the protocol.</p>';
+  _renderApplyBar();
   const view = document.getElementById("deck-code-view");
   if (view) { view.replaceChildren(); view._displayedCode = undefined; }
+  if (keepOpen) _openDeckPanel();
 }
 
 // ============================================================
@@ -1610,17 +1914,26 @@ function _updateSourceCodeBlock(newCode) {
   setTimeout(() => replacement.classList.remove("code-updated"), 1500);
 }
 
-function _showLoading() {
-  const c = document.getElementById("deck-svg-container");
-  if (c) c.innerHTML = '<div class="deck-loading"><div class="deck-loading-spinner"></div><span>Loading deck...</span><span class="deck-loading-sub">Saved device layouts are reused automatically</span></div>';
+function _showLoading(keepDeck = false) {
+  const container = document.getElementById("deck-svg-container");
+  if (!container) return;
+  if (keepDeck) {
+    container.querySelector(".deck-loading-inline")?.remove();
+    const notice = document.createElement("div");
+    notice.className = "deck-loading-inline"; notice.textContent = "Updating deck…";
+    container.appendChild(notice);
+    return;
+  }
+  container.innerHTML = '<div class="deck-loading"><div class="deck-loading-spinner"></div><span>Loading deck...</span><span class="deck-loading-sub">Saved device layouts are reused automatically</span></div>';
 }
-function _showError(msg) {
+function _showError(msg, retry) {
   const container = document.getElementById("deck-svg-container");
   if (!container) return;
   const message = document.createElement("p");
   message.className = "deck-empty-message";
   message.textContent = msg;
   container.replaceChildren(message);
+  if (retry) container.appendChild(_libraryButton("Retry loading deck", retry));
 }
 
 // ============================================================
@@ -1681,20 +1994,22 @@ function _revealCodeLine(pre, line) {
 // ============================================================
 
 function _initAnimation(state) {
+  document.getElementById("anim-playback-bar")?.remove();
   _animSteps = state.steps || [];
   _animStepIndex = -1;
   _animPlaying = false;
   if (_animTimer) { clearInterval(_animTimer); _animTimer = null; }
   _animBusy = false;
-  if (_animSteps.length > 0) _renderPlaybackControls();
+  if (_animSteps.length > 0 || state._playback_pending) _renderPlaybackControls(state._playback_pending && !_animSteps.length);
 }
 
-function _renderPlaybackControls() {
+function _renderPlaybackControls(pending = false) {
   let bar = document.getElementById("anim-playback-bar");
   if (bar) bar.remove();
 
   const panel = document.getElementById("deck-panel");
-  if (!panel) return;
+  const frame = panel?.querySelector(".deck-device-frame");
+  if (!frame) return;
 
   bar = document.createElement("div");
   bar.id = "anim-playback-bar";
@@ -1704,7 +2019,8 @@ function _renderPlaybackControls() {
   const desc = document.createElement("div");
   desc.id = "anim-step-desc";
   desc.className = "anim-step-desc";
-  desc.innerHTML = '<span class="anim-step-idle">Press play to animate protocol steps</span>';
+  desc.textContent = pending ? "Updating saved playback…" : "Press play to animate protocol steps";
+  desc.setAttribute("role", "status");
   bar.appendChild(desc);
 
   // Controls row
@@ -1715,7 +2031,7 @@ function _renderPlaybackControls() {
   const transport = document.createElement("div");
   transport.className = "anim-transport";
 
-  const btnFirst = _makeAnimBtn("⏮", "First step", () => _animGoTo(0));
+  const btnFirst = _makeAnimBtn("⏮", "Restart preview", () => { _pauseAnimation(); _animGoTo(-1); });
   const btnPrev  = _makeAnimBtn("◀", "Previous step", () => _animPrev());
   const btnPlay  = _makeAnimBtn("▶", "Play / Pause", () => _animTogglePlay());
   btnPlay.id = "anim-play-btn";
@@ -1734,7 +2050,8 @@ function _renderPlaybackControls() {
   scrubber.min = -1;
   scrubber.max = _animSteps.length - 1;
   scrubber.value = _animStepIndex;
-  scrubber.addEventListener("input", (e) => _animGoTo(parseInt(e.target.value)));
+  scrubber.setAttribute("aria-label", "Protocol playback position");
+  scrubber.addEventListener("input", (e) => { _pauseAnimation(); _animGoTo(parseInt(e.target.value)); });
   controls.appendChild(scrubber);
 
   // Counter
@@ -1744,49 +2061,41 @@ function _renderPlaybackControls() {
   counter.textContent = `— / ${_animSteps.length}`;
   controls.appendChild(counter);
 
-  // Speed selector
-  const speed = document.createElement("select");
+  // Cycle through playback rates with one button.
+  const speed = document.createElement("button");
+  speed.type = "button";
   speed.id = "anim-speed";
-  speed.className = "anim-speed-select";
-  [
-    { label: "0.5×", value: 2500 },
-    { label: "1×",   value: 1500 },
-    { label: "2×",   value: 800  },
-    { label: "4×",   value: 400  },
-  ].forEach(opt => {
-    const o = document.createElement("option");
-    o.value = opt.value;
-    o.textContent = opt.label;
-    if (opt.value === _animSpeed) o.selected = true;
-    speed.appendChild(o);
-  });
-  speed.addEventListener("change", (e) => {
-    _animSpeed = parseInt(e.target.value);
+  speed.className = "anim-speed-button";
+  const rates = [0.5, 1, 2, 4];
+  let rateIndex = Math.max(0, rates.indexOf(1500 / _animSpeed));
+  function speedLabel() {
+    speed.textContent = `${rates[rateIndex]}×`;
+    speed.setAttribute("aria-label", `Playback speed ${rates[rateIndex]}×; next ${rates[(rateIndex + 1) % rates.length]}×`);
+  }
+  speedLabel();
+  speed.addEventListener("click", () => {
+    rateIndex = (rateIndex + 1) % rates.length;
+    _animSpeed = 1500 / rates[rateIndex];
+    speedLabel();
     if (_animPlaying) {
       clearInterval(_animTimer);
       _animTimer = setInterval(_animAutoStep, _animSpeed);
     }
   });
   controls.appendChild(speed);
+  if (pending) {
+    for (const control of [...transport.children, scrubber, speed]) control.disabled = true;
+  }
   bar.appendChild(controls);
 
-  // Insert into the deck container, before the info panel
-  const container = document.getElementById("deck-svg-container");
-  const wrapper = container ? container.querySelector(".deck-wrapper") : null;
-  const info = wrapper ? wrapper.querySelector("#deck-info") : null;
-  if (info && wrapper) {
-    wrapper.insertBefore(bar, info);
-  } else if (container) {
-    container.appendChild(bar);
-  } else {
-    panel.appendChild(bar);
-  }
+  frame.appendChild(bar);
 }
 
 function _makeAnimBtn(icon, title, onClick) {
   const btn = document.createElement("button");
   btn.className = "anim-btn";
   btn.title = title;
+  btn.setAttribute("aria-label", title);
   btn.innerHTML = `<span>${icon}</span>`;
   btn.addEventListener("click", onClick);
   return btn;
@@ -1794,9 +2103,243 @@ function _makeAnimBtn(icon, title, onClick) {
 
 // ---- Step visuals ----
 
+// Rebuild from the beginning so seeking and replay never leave stale well colors.
+// Explicit protocol updates handle emptying; unknown source volumes stay unknown.
+function _protocolWellState(state, stepIndex) {
+  const slots = new Map();
+  const get = slot => {const id=String(slot); if (!slots.has(id)) slots.set(id,new Map()); return slots.get(id);};
+  const steps = state.steps || [];
+  for (const step of steps) {
+    for (const [role, endpoint] of [["source",step.source],["destination",step.destination]]) {
+      if (endpoint?.slot == null) continue;
+      const wells=get(endpoint.slot);
+      for (const well of endpoint.wells || []) if (!wells.has(well)) wells.set(well,{occupied:role==="source",role});
+    }
+  }
+  for (const item of state.initial_wells || []) {
+    if (item.slot == null || typeof item.well !== "string") continue;
+    get(item.slot).set(item.well,{...item,occupied:item.occupied ?? item.volume_ul>0,role:item.role || "source"});
+  }
+  let channels = null;
+  for (const step of steps.slice(0,Math.max(0,stepIndex+1))) {
+    const action=String(step.action || "transfer").toLowerCase().replace(/[\s-]+/g,"_");
+    if (action === "pickup_tip" && step.source?.wells?.length) channels = step.source.wells.length;
+    if (action === "drop_tip") channels = null;
+    const changes = new Map();
+    for (const item of step.volume_changes || []) {
+      if (item.slot != null && typeof item.well === "string" && Number.isFinite(item.delta_ul)) {
+        changes.set(JSON.stringify([String(item.slot), item.well]), item.delta_ul);
+      }
+    }
+    // Older saved playback stores per-channel quantities as unit-bearing labels.
+    const volume = Number.isFinite(step.volume_ul) ? step.volume_ul
+      : typeof step.volume === "string" && /[a-zµμ]+\s*$/i.test(step.volume)
+        ? parseQuestionQuantity(step.volume, {unit:"µL", units:{nL:0.001, mL:1000, L:1000000}}) : NaN;
+    if (Number.isFinite(volume) && volume >= 0) {
+      const count = channels || Math.max(step.source?.wells?.length || 0, step.destination?.wells?.length || 0);
+      for (const [role, actions, sign] of [["source", ["aspirate", "transfer"], -1], ["destination", ["dispense", "transfer"], 1]]) {
+        const endpoint = step[role], wells = endpoint?.wells || [];
+        if (!actions.includes(action) || endpoint?.slot == null || !wells.length || count % wells.length !== 0) continue;
+        for (const well of wells) {
+          const key = JSON.stringify([String(endpoint.slot), well]);
+          if (!changes.has(key)) changes.set(key, sign * volume * count / wells.length);
+        }
+      }
+    }
+    // Carry known totals through resolved liquid movements; never invent unknown starting volumes.
+    for (const [role, actions] of [["source", ["aspirate", "transfer"]], ["destination", ["dispense", "transfer"]]]) {
+      const endpoint = step[role];
+      if (!actions.includes(action) || endpoint?.slot == null) continue;
+      for (const well of endpoint.wells || []) {
+        const value = get(endpoint.slot).get(well);
+        if (value) {
+          const before = Number.isFinite(value.volume_ul) ? value.volume_ul : value.occupied === false ? 0 : NaN;
+          const delta = changes.get(JSON.stringify([String(endpoint.slot), well]));
+          delete value.volume_ul; delete value.liquids;
+          const after = before + delta;
+          if (Number.isFinite(after) && after >= -1e-9) {
+            value.volume_ul = Math.max(0, after);
+            value.occupied = value.volume_ul > 0;
+          }
+        }
+      }
+    }
+    if (action === "pickup_tip" && step.source?.slot != null) {
+      for (const well of step.source.wells || []) get(step.source.slot).set(well,{occupied:false,role:"tip"});
+    }
+    if (["transfer","dispense"].includes(action) && step.destination?.slot != null) {
+      for (const well of step.destination.wells || []) {
+        const wells = get(step.destination.slot), previous = wells.get(well) || {};
+        wells.set(well,{...previous,occupied:Number.isFinite(previous.volume_ul) ? previous.volume_ul > 0 : true,role:"destination"});
+      }
+    }
+    for (const item of step.well_updates || []) {
+      if (item.slot == null || typeof item.well !== "string") continue;
+      const wells=get(item.slot), previous=wells.get(item.well) || {};
+      wells.set(item.well,{...previous,...item,occupied:item.occupied ?? (Number.isFinite(item.volume_ul)?item.volume_ul>0:previous.occupied)});
+    }
+  }
+  return slots;
+}
+
+function _paintProtocolWells(state, stepIndex) {
+  const container=document.getElementById("deck-svg-container");
+  if (!container) return;
+  const contents=_protocolWellState(state,stepIndex);
+  container.querySelectorAll(".deck-slot[data-id]").forEach(slot=>{
+    const wells=slot.querySelectorAll(".deck-well"), values=contents.get(String(slot.dataset.id));
+    let occupied=0;
+    const tips=slot.classList.contains("tiprack");
+    wells.forEach(well=>{
+      const value=values?.get(well.dataset.well), present=value?.occupied ?? tips;
+      well.classList.toggle("well-occupied",present);
+      well.classList.toggle("well-source",present&&!tips&&value?.role!=="destination");
+      well.classList.toggle("well-dest",present&&!tips&&value?.role==="destination");
+      well.setAttribute("aria-label",`${well.dataset.well}: ${tips?(present?"tip present":"tip removed"):(present?"liquid present":"empty")}${Number.isFinite(value?.volume_ul)?` · ${_formatWellVolume(value.volume_ul)}`:""}`);
+      well.setAttribute("role", "button");
+      well.setAttribute("tabindex", "0");
+      const selected = _selectedWell?.slot === String(slot.dataset.id) && _selectedWell?.well === well.dataset.well;
+      well.setAttribute("aria-pressed", String(selected));
+      well.classList.toggle("well-selected", selected);
+      if (!well._detailsBound) {
+        const inspect = event => {
+          if (event.type === "keydown" && !["Enter", " "].includes(event.key)) return;
+          event.preventDefault(); event.stopPropagation();
+          _selectedWell = {slot:String(slot.dataset.id), well:well.dataset.well};
+          _paintProtocolWells(_currentState || state, _animStepIndex);
+        };
+        well.addEventListener("click", inspect);
+        well.addEventListener("keydown", inspect);
+        well.addEventListener("dblclick", event => event.stopPropagation());
+        well._detailsBound = true;
+      }
+      if (present) occupied++;
+    });
+    const count=slot.querySelector(".slot-well-count");
+    if (count && wells.length) {
+      count.textContent=`${occupied} / ${wells.length} ${tips?"tips present":"with liquid"}`;
+      slot.setAttribute("aria-description",count.textContent);
+    }
+  });
+  if (_selectedWell) _renderWellDetails(state, contents);
+}
+
+function _closeWellDetails() {
+  _selectedWell = null;
+  const panel = document.getElementById("well-details");
+  if (panel) { panel.hidden = true; panel.replaceChildren(); }
+  document.getElementById("deck-svg-container")?.querySelectorAll(".well-selected").forEach(well => {
+    well.classList.remove("well-selected"); well.setAttribute("aria-pressed", "false");
+  });
+}
+
+function _renderWellDetails(state, contents) {
+  const panel = document.getElementById("well-details");
+  if (!panel || !_selectedWell) return;
+  const {slot, well} = _selectedWell;
+  const positions = [...(state.positions || [])];
+  for (const carrier of state.carriers?.items || []) {
+    for (const pos of carrier.positions || []) positions.push({...pos, id:`${carrier.type}_${pos.index}`});
+  }
+  const pos = positions.find(pos => String(pos.id) === slot);
+  const value = contents.get(slot)?.get(well);
+  const tips = _deckAreaType(pos?.type, pos?.labware) === "tiprack";
+  const present = value?.occupied ?? tips;
+  panel.replaceChildren(); panel.hidden = false;
+  const header = document.createElement("div"); header.className = "well-details-header";
+  _bindWellCardDrag(header, panel);
+  const title = document.createElement("h3"); title.textContent = `Well ${well}`;
+  const close = document.createElement("button"); close.type = "button"; close.textContent = "×";
+  close.setAttribute("aria-label", "Close well contents"); close.addEventListener("click", _closeWellDetails);
+  header.append(title, close); panel.appendChild(header);
+  function line(text) { const p = document.createElement("p"); p.textContent = text; panel.appendChild(p); }
+  line(`${pos?.labware_display || pos?.labware || "Plate"} · Position ${slot}`);
+  const coordinates = /^([A-Za-z]+)(\d+)$/.exec(well);
+  if (coordinates) line(`Row ${coordinates[1].toUpperCase()} · Column ${coordinates[2]}`);
+  const drawing = document.createElement("div"); drawing.className = "well-detail-drawing";
+  drawing.innerHTML = _wellDetailDrawing(value, tips, present); panel.appendChild(drawing);
+  if (present && !tips) {
+    const legend = document.createElement("div"); legend.className = "well-liquid-legend";
+    for (const [index, liquid] of _wellLiquidParts(value).entries()) {
+      const row = document.createElement("div"); row.className = "well-liquid-label";
+      const swatch = document.createElement("span"); swatch.className = "well-liquid-swatch";
+      swatch.style.background = WELL_LIQUID_COLORS[index % WELL_LIQUID_COLORS.length];
+      const label = document.createElement("span"); label.textContent = `${liquid.name}: ${_formatWellVolume(liquid.volume_ul)}`;
+      row.append(swatch, label); legend.appendChild(row);
+    }
+    drawing.appendChild(legend);
+  }
+  if (tips) { line(present ? "Tip present" : "No tip"); return; }
+  if (present) line("Liquid composition · schematic");
+  line(present ? "Liquid present" : "Empty");
+  if (Number.isFinite(value?.volume_ul)) line(`Total volume: ${_formatWellVolume(value.volume_ul)}`);
+  else if (present) line("Total volume unknown");
+  if (present && !value?.liquids?.length) line("Liquid composition not specified in the protocol.");
+}
+
+function _formatWellVolume(volume) {
+  return Number.isFinite(volume) ? `${Number(volume.toPrecision(4)).toLocaleString("en", {maximumSignificantDigits:4, useGrouping:false})} µL` : "volume unknown";
+}
+
+function _wellLiquidParts(value) {
+  const liquids = Array.isArray(value?.liquids) ? value.liquids.filter(item => typeof item?.name === "string") : [];
+  return liquids.length ? liquids : [{name:"Liquid", volume_ul:value?.volume_ul}];
+}
+
+function _wellDetailDrawing(value, tips, present) {
+  const outline = 'fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"';
+  if (tips) return `<svg viewBox="0 0 180 130" role="img" aria-label="${present ? "Tip present" : "Empty tip position"}">${present
+    ? `<path d="M65 10h50l-9 55-12 52h-8L74 65Z" fill="#d6b578" stroke="currentColor" stroke-width="2"/><path d="M65 22h50" ${outline}/>`
+    : `<ellipse cx="90" cy="65" rx="30" ry="18" ${outline}/>`}</svg>`;
+  const liquids = _wellLiquidParts(value);
+  const known = liquids.length > 0 && liquids.every(item => Number.isFinite(item.volume_ul) && item.volume_ul >= 0);
+  const total = known ? liquids.reduce((sum, item) => sum + item.volume_ul, 0) : 0;
+  let bands = "", bottom = 114;
+  if (present) {
+    for (const [index, liquid] of (liquids.length ? liquids : [{}]).entries()) {
+      const height = known && total > 0 ? 100 * liquid.volume_ul / total : 100 / liquids.length;
+      bottom -= height;
+      bands += `<rect x="50" y="${bottom}" width="80" height="${height}" fill="${WELL_LIQUID_COLORS[index % WELL_LIQUID_COLORS.length]}"/>`;
+    }
+  }
+  return `<svg viewBox="36 4 108 124" role="img" aria-label="${present ? "Well liquid composition, schematic bands" : "Empty well"}"><defs><clipPath id="well-detail-interior"><path d="M50 14h80v88q0 12-12 12H62q-12 0-12-12Z"/></clipPath></defs><g clip-path="url(#well-detail-interior)">${bands}</g><path d="M50 14v88q0 12 12 12h56q12 0 12-12V14M44 14h12m68 0h12" ${outline}/></svg>`;
+}
+
+function _bindWellCardDrag(handle, panel) {
+  let drag = null;
+  handle.tabIndex = 0;
+  handle.setAttribute("aria-label", "Move well information · Arrow keys to reposition");
+  function place(x, y) {
+    const bounds = panel.parentElement.getBoundingClientRect(), size = panel.getBoundingClientRect();
+    Object.assign(panel.style, {left:`${Math.max(8, Math.min(x, bounds.width - size.width - 8))}px`,
+      top:`${Math.max(8, Math.min(y, bounds.height - size.height - 8))}px`, right:"auto", transform:"none"});
+  }
+  handle.addEventListener("pointerdown", event => {
+    if (event.button !== 0 || event.target.closest("button")) return;
+    event.preventDefault();
+    _pauseAnimation();
+    const box = panel.getBoundingClientRect(), bounds = panel.parentElement.getBoundingClientRect();
+    drag = {x:event.clientX, y:event.clientY, left:box.left - bounds.left, top:box.top - bounds.top};
+    handle.setPointerCapture(event.pointerId);
+  });
+  handle.addEventListener("pointermove", event => {
+    if (drag) place(drag.left + event.clientX - drag.x, drag.top + event.clientY - drag.y);
+  });
+  for (const name of ["pointerup", "pointercancel"]) handle.addEventListener(name, () => {drag = null;});
+  handle.addEventListener("keydown", event => {
+    if (event.target !== handle) return;
+    const move = {ArrowLeft:[-16,0], ArrowRight:[16,0], ArrowUp:[0,-16], ArrowDown:[0,16]}[event.key];
+    if (!move) return;
+    event.preventDefault();
+    const box = panel.getBoundingClientRect(), bounds = panel.parentElement.getBoundingClientRect();
+    place(box.left - bounds.left + move[0], box.top - bounds.top + move[1]);
+  });
+}
+
 function _applyStepVisuals(stepIndex, animate) {
   const container = document.getElementById("deck-svg-container");
   if (!container) return;
+  _paintProtocolWells(_currentState || {steps:_animSteps},stepIndex);
 
   // Clear previous highlights
   container.querySelectorAll(".slot-anim-highlight").forEach(el => {
@@ -1840,26 +2383,18 @@ function _applyStepVisuals(stepIndex, animate) {
 }
 
 function _highlightSlot(container, slotId, colors, wells) {
-  // Find slot by data-id
   const slot = container.querySelector(`.deck-slot[data-id="${slotId}"]`);
-  if (slot) {
-    slot.classList.add("slot-anim-highlight");
-    slot.style.setProperty("--anim-color", colors.fill);
-    slot.style.setProperty("--anim-glow", colors.glow);
-  }
+  if (!slot) return;
+  slot.classList.add("slot-anim-highlight");
+  slot.style.setProperty("--anim-color", colors.fill);
+  slot.style.setProperty("--anim-glow", colors.glow);
 
-  // Highlight individual wells — both in plates layout AND mini-grids inside slots
-  // Falls back to container-wide search if no slot found (e.g. mismatched IDs)
-  if (wells && wells.length > 0) {
-    const searchRoot = slot || container;
-    for (const wellId of wells) {
-      const well = searchRoot.querySelector(`.deck-well[data-well="${wellId}"]`)
-                || container.querySelector(`.deck-well[data-well="${wellId}"]`)
-                || container.querySelector(`.deck-well[title="${wellId}"]`);
-      if (well) {
-        well.classList.add("well-anim-active");
-        well.style.setProperty("--anim-color", colors.fill);
-      }
+  // Well identifiers repeat across hardware: never search outside this slot.
+  for (const wellId of wells || []) {
+    const well = slot.querySelector(`.deck-well[data-well="${wellId}"]`);
+    if (well) {
+      well.classList.add("well-anim-active");
+      well.style.setProperty("--anim-color", colors.fill);
     }
   }
 }
@@ -1996,10 +2531,16 @@ function _animPrev() {
 }
 
 function _animGoTo(idx) {
-  if (_animBusy) return;
   idx = Math.max(-1, Math.min(idx, _animSteps.length - 1));
   _animStepIndex = idx;
   _applyStepVisuals(_animStepIndex, _animStepIndex >= 0);
+  _updatePlaybackUI();
+}
+
+function _pauseAnimation() {
+  _animPlaying = false;
+  if (_animTimer) clearInterval(_animTimer);
+  _animTimer = null;
   _updatePlaybackUI();
 }
 
@@ -2031,6 +2572,7 @@ function _updatePlaybackUI() {
   if (playBtn) {
     playBtn.querySelector("span").textContent = _animPlaying ? "⏸" : "▶";
     playBtn.title = _animPlaying ? "Pause" : "Play";
+    playBtn.setAttribute("aria-label", playBtn.title);
   }
 
   const scrubber = document.getElementById("anim-scrubber");
@@ -2086,6 +2628,9 @@ function _ensureResizeHandle() {
 
 // Init
 document.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("deck-discard-btn")?.addEventListener("click", _discardChanges);
+  document.getElementById("deck-apply-btn")?.addEventListener("click", _commitChanges);
+  _renderApplyBar();
   const t = document.getElementById("deck-toggle-btn");
   const c = document.getElementById("deck-close-btn");
   const f = document.getElementById("deck-fullscreen-btn");
@@ -2103,6 +2648,24 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 window.parseDeckFromCode = parseDeckFromCode;
+window.getWorkspaceProtocol = () => ({code: _currentCode, pending: !!_deckAbort || _pendingChanges.length > 0 || _libraryEditing || _applyingChanges
+  || !!document.getElementById("protocol-parameter-fields")?.querySelector("input:invalid"),
+  layout: _currentState ? JSON.parse(JSON.stringify(_currentState)) : null});
+window.openDeviceWorkspace = () => { _openDeckPanel(); _showLoading(); };
+window.ensureDeckWorkspace = () => { _openDeckPanel(); };
+window.showDeckLoadError = (message, retry) => _showError(message, retry);
+window.showDeviceDeck = state => {
+  clearDeckPanel();
+  _currentState = state;
+  _originalState = JSON.parse(JSON.stringify(state));
+  _openDeckPanel();
+  _renderDeck(state);
+};
+window.confirmDeviceLayout = () => {
+  _pendingChanges = [];
+  _originalState = JSON.parse(JSON.stringify(_currentState));
+  _renderApplyBar();
+};
 window.preloadHardwareCatalog = preloadHardwareCatalog;
 window.clearDeckPanel = clearDeckPanel;
 window.toggleDeckPanel = toggleDeckPanel;

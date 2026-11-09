@@ -52,7 +52,7 @@ test('restore returns to conversations and opens the restored chat', async () =>
   await w.context.restoreChat('restored');
   assert.deepEqual(w.calls, [{ url: '/chat/restored/restore', method: 'POST' }]);
   assert.equal(w.context.showingTrash, false);
-  assert.equal(w.header.textContent, 'Conversations');
+  assert.equal(w.header.textContent, 'Recent chats');
   assert.deepEqual(w.loaded, ['restored']);
 });
 

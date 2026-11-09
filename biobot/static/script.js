@@ -13,7 +13,29 @@ let isTyping = false;
 let showingTrash = false;
 let chatRequestController = null;
 let chatRequestDone = Promise.resolve();
+const chatJobs = new Map();
+let chatLoadVersion = 0;
 let autoScrollEnabled = true;
+
+function syncChatActivity() {
+  const job = chatJobs.get(currentChatId);
+  isTyping = job?.status === "running";
+  chatRequestController = isTyping ? job.controller : null;
+  chatRequestDone = isTyping ? job.done : Promise.resolve();
+  sendBtn.disabled = isTyping;
+  window.workspace?.syncActions();
+  for (const row of chatListElem.children) {
+    row.querySelector(".chat-status")?.remove();
+    const activity = chatJobs.get(row.dataset.chatId) || {status:row.dataset.runStatus};
+    if (!activity?.status || activity.status === "read") continue;
+    const dot = document.createElement("span");
+    dot.className = `chat-status ${activity.status}`;
+    const label = {running:"In progress", done:"Finished", error:"An issue occurred"}[activity.status];
+    dot.title = label; dot.setAttribute("role", "img"); dot.setAttribute("aria-label", label);
+    row.prepend(dot);
+  }
+}
+
 
 // --- Auto-scroll detection ---
 // Instead of trying to distinguish programmatic vs user scroll events
@@ -103,15 +125,17 @@ const sidebarToggle = document.getElementById("sidebar-toggle");
 function openSidebar() {
   sidebar.classList.add("open");
   sidebarOverlay.classList.add("active");
+  sidebarToggle?.setAttribute("aria-expanded", "true");
 }
 
 function closeSidebar() {
   sidebar.classList.remove("open");
   sidebarOverlay.classList.remove("active");
+  sidebarToggle?.setAttribute("aria-expanded", "false");
 }
 
 if (sidebarToggle) {
-  sidebarToggle.addEventListener("click", openSidebar);
+  sidebarToggle.addEventListener("click", () => sidebar.classList.contains("open") ? closeSidebar() : openSidebar());
 }
 if (sidebarOverlay) {
   sidebarOverlay.addEventListener("click", closeSidebar);
@@ -171,7 +195,7 @@ function detectFormat(content) {
 
   // Priority 2: shebang
   const firstLine = trimmed.split("\n")[0];
-  if (firstLine.startsWith("#!/")) return "python";
+  if (/^#!.*\bpython[\d.]*\b/.test(firstLine)) return "python";
 
   // Priority 3: non-Python structured formats
   if (trimmed.startsWith("{") || trimmed.startsWith("[")) return "json";
@@ -191,11 +215,8 @@ function detectFormat(content) {
     if (/^(import |from \S+ import )/.test(line)) { score += 3; continue; }
     if (/^(def |class )\w/.test(line)) { score += 3; continue; }
 
-    // Domain-specific Opentrons keywords (+4)
-    if (/\b(opentrons|protocol_api|ProtocolContext|load_labware|load_instrument|pick_up_tip|drop_tip|aspirate|dispense|load_liquid|define_liquid)\b/.test(line)) { score += 4; continue; }
-
-    // Metadata / requirements dict (+2)
-    if (/^(metadata|requirements)\s*=\s*\{/.test(line)) { score += 2; continue; }
+    // Dictionary assignment (+2), independent of application/API identifiers.
+    if (/^[A-Za-z_]\w*\s*=\s*\{/.test(line)) { score += 2; continue; }
 
     // Control flow (+1)
     if (/^(if |elif |else:|for |while |try:|except |with |return |raise )/.test(line)) { score += 1; continue; }
@@ -227,20 +248,15 @@ function detectFormat(content) {
 
 // Chat keeps a reference to the file; its contents are shown only below the deck.
 function buildDeckLink(code) {
-  const link = document.createElement("a");
+  const link = document.createElement("span");
   link.className = "protocol-deck-link";
-  link.href = "#deck-panel";
-  link.textContent = "Open deck";
+  link.hidden = true;
   link._protocolCode = code;
-  link.addEventListener("click", event => {
-    event.preventDefault();
-    window.toggleProtocolDeck?.(link._protocolCode, link);
-  });
   return link;
 }
 
 // --- Build a styled code block with copy + download buttons ---
-function buildCodeBlock(code, format = "python") {
+function buildCodeBlock(code, format = "text") {
   const config = FORMAT_CONFIG[format] || FORMAT_CONFIG.text;
 
   const wrapper = document.createElement("div");
@@ -394,11 +410,11 @@ function buildCodeBlock(code, format = "python") {
 }
 
 // --- Create a message element ---
-function addMessage(text, sender, messageId = null) {
+function addMessage(text, sender, messageId = null, target = chatHistoryElem) {
   const div = document.createElement("div");
   div.className = `chat-message ${sender === "user" ? "chat-user" : "chat-bot"}`;
-  chatHistoryElem.appendChild(div);
-  scrollToBottom();
+  target.appendChild(div);
+  if (target.isConnected) scrollToBottom();
 
   if (sender === "user") {
     renderUserMessage(div, text, messageId);
@@ -525,52 +541,31 @@ function appendChunkToBotMessage(div, chunk) {
     div._buffer = div._buffer.slice(end + 3);
   }
 
-  scrollToBottom();
+  if (div.isConnected) scrollToBottom();
 }
 
-// --- Load chat history ---
-async function loadChatHistory(chatId) {
-  if (!chatId || isTyping) return;
-  currentChatId = chatId;
-  localStorage.setItem("lastChatId", chatId);
-  chatHistoryElem.innerHTML = "";
-  selectChatListItem(chatId);
-  closeSidebar();
-
-  // Clear and hide deck panel when switching chats
-  if (window.clearDeckPanel) window.clearDeckPanel();
-
-  try {
-    const res = await fetch(`/chat/${chatId}`);
-    if (res.status === 404) {
-      console.warn("No conversation found for this chat.");
-      return;
-    }
-    if (!res.ok) {
-      alert("Unexpected error loading chat.");
-      return;
-    }
-
-    const messages = await res.json();
+function renderChatMessages(messages, target = chatHistoryElem) {
+  const renderMessage = (text, sender, id) => addMessage(text, sender, id, target);
     for (let msgIdx = 0; msgIdx < messages.length; msgIdx++) {
       const msg = messages[msgIdx];
       if (msg.role === "user") {
         // Internal questionnaire submissions stay hidden; their summary is displayed on the left.
-        addMessage(msg.content || "", "user", msg.id);
+        renderMessage(msg.content || "", "user", msg.id);
       } else if (msg.role === "assistant") {
         const content = msg.content || "";
 
         // Skip null/empty messages
         if (!content || content === "null" || content === "None") continue;
+        if (content.startsWith("Hello, I'm Biobot 🤖")) continue;
 
         // Skip encrypted-but-unreadable messages
         if (content.startsWith("gAAAAAB") || content === "[Message encrypted with a previous password]") {
-          const botDiv = addMessage("", "bot");
+          const botDiv = renderMessage("", "bot");
           botDiv.innerHTML = `<span style="color:#888;font-style:italic">${content.startsWith("gAAAAAB") ? "[Message from a previous session]" : content}</span>`;
           continue;
         }
 
-        const botDiv = addMessage("", "bot");
+        const botDiv = renderMessage("", "bot");
 
         // Check for structured questions (with or without markers/fences)
         if (content.includes("__QUESTIONS__:") || content.includes('"questions"')) {
@@ -654,6 +649,77 @@ async function loadChatHistory(chatId) {
         }
       }
     }
+}
+
+async function resumeChatRun(chat) {
+  if (chatJobs.has(chat.chat_id)) return;
+  const view = document.createElement("div"); view.className = "chat-session-view";
+  const job = {view, status:"running", done:Promise.resolve(), device:chat.device};
+  chatJobs.set(chat.chat_id, job);
+  syncChatActivity();
+  try {
+    const response = await fetch(`/chat/${chat.chat_id}`);
+    if (!response.ok) throw new Error("Could not reconnect to this chat.");
+    const messages = await response.json();
+    renderChatMessages(messages.filter(message => message.id <= chat.run.message_id), view);
+    await sendMessage({resume:chat.run, chatId:chat.chat_id});
+  } catch (error) {
+    job.status = "error";
+    addMessage(error.message, "bot", null, view);
+    syncChatActivity();
+  }
+}
+
+// --- Load chat history ---
+async function loadChatHistory(chatId) {
+  if (!chatId) return;
+  const loadVersion = ++chatLoadVersion;
+  currentChatId = chatId;
+  window.workspace?.switchChat();
+  localStorage.setItem("lastChatId", chatId);
+  chatHistoryElem.innerHTML = "";
+  selectChatListItem(chatId);
+  closeSidebar();
+
+  if (window.workspace?.needsDevice?.(chatId)) {
+    window.clearDeckPanel?.();
+    window.workspace.landing();
+    syncChatActivity();
+    return;
+  }
+
+  // Keep the deck frame visible while the selected chat's layout loads.
+  if (window.clearDeckPanel) window.clearDeckPanel({keepOpen:true});
+  window.workspace?.enterChat();
+  const job = chatJobs.get(chatId);
+  if (job && job.status !== "running") job.status = "read";
+  if (!job || job.status !== "running") {
+    fetch(`/chat/${chatId}/read`, {method:"POST"}).catch(console.error);
+    const row = Array.from(chatListElem.children).find(row=>row.dataset.chatId === chatId);
+    if (row) row.dataset.runStatus = "read";
+  }
+  syncChatActivity();
+  if (job) {
+    chatHistoryElem.appendChild(job.view);
+    window.workspace?.restoreChat(chatId, job.device);
+    return;
+  }
+
+  try {
+    const res = await fetch(`/chat/${chatId}`);
+    if (res.status === 404) {
+      console.warn("No conversation found for this chat.");
+      return;
+    }
+    if (!res.ok) {
+      alert("Unexpected error loading chat.");
+      return;
+    }
+
+    const messages = await res.json();
+    if (currentChatId !== chatId || loadVersion !== chatLoadVersion) return;
+    renderChatMessages(messages);
+    window.workspace?.restoreChat(chatId);
   } catch (e) {
     alert(e.message);
   }
@@ -662,11 +728,11 @@ async function loadChatHistory(chatId) {
 // --- Conversation Trash ---
 function setTrashView(show) {
   showingTrash = show;
-  document.querySelector(".chat-list-label").textContent = show ? "Trash" : "Conversations";
+  document.querySelector(".chat-list-label").textContent = show ? "Trash" : "Recent chats";
   const button = document.getElementById("trash-btn");
-  button.classList.toggle("active", show);
-  button.setAttribute("aria-pressed", String(show));
-  button.title = show ? "Show conversations" : "Open Trash";
+  button?.classList.toggle("active", show);
+  button?.setAttribute("aria-pressed", String(show));
+  if (button) button.title = show ? "Show conversations" : "Open Trash";
 }
 
 async function trashChat(chatId, row) {
@@ -721,13 +787,29 @@ async function refreshChatList() {
   chatListElem.innerHTML = "";
 
   for (const chat of chatList) {
+    window.workspace?.rememberChat(chat);
+    if (!trashView && chat.run?.status === "running") resumeChatRun(chat);
     const li = document.createElement("li");
     li.dataset.chatId = chat.chat_id;
+    li.dataset.runStatus = chat.run && !chat.run.seen ? chat.run.status : "read";
 
     const nameSpan = document.createElement("span");
     nameSpan.className = "chat-name";
     nameSpan.textContent = chat.name;
-    li.appendChild(nameSpan);
+    const info = document.createElement("div");
+    info.className = "chat-list-info";
+    const titleRow = document.createElement("div");
+    titleRow.className = "chat-title-row";
+    titleRow.appendChild(nameSpan);
+    info.appendChild(titleRow);
+    const chatDevice = chat.device || chatJobs.get(chat.chat_id)?.device;
+    if (chatDevice) {
+      const device = document.createElement("small");
+      device.className = "chat-device";
+      device.textContent = chatDevice;
+      info.appendChild(device);
+    }
+    li.appendChild(info);
 
     const menu = document.createElement("div");
     menu.className = "chat-options";
@@ -790,6 +872,7 @@ async function refreshChatList() {
           }
         }
         nameSpan.textContent = displayedName;
+        window.workspace?.rememberChat({...chat, name:displayedName});
       };
 
       input.addEventListener("blur", finishRename);
@@ -814,6 +897,9 @@ async function refreshChatList() {
     empty.textContent = "Trash is empty";
     chatListElem.appendChild(empty);
   }
+  syncChatActivity();
+  selectChatListItem(currentChatId);
+  window.workspace?.refreshTrash();
   return chatList;
 }
 
@@ -825,35 +911,25 @@ function selectChatListItem(chatId) {
 }
 
 // --- Create new chat ---
-async function createNewChat() {
-  if (isTyping) return;
+async function createNewChat({persist = true} = {}) {
+  chatLoadVersion++;
   setTrashView(false);
-  try {
-    const res = await fetch("/chat", { method: "POST" });
-    if (!res.ok) throw new Error("Error creating chat");
-
-    const data = await res.json();
-    currentChatId = data.chat_id;
-    localStorage.setItem("lastChatId", currentChatId);
-
-    chatHistoryElem.innerHTML = "";
-
-    const botDiv = addMessage("", "bot");
-    appendChunkToBotMessage(
-      botDiv,
-      "Hello, I'm Biobot 🤖 — your assistant specialized in lab automation."
-    );
-
-    await refreshChatList();
-    selectChatListItem(currentChatId);
-    closeSidebar();
-  } catch (e) {
-    alert(e.message);
+  currentChatId = null;
+  localStorage.removeItem("lastChatId");
+  chatHistoryElem.replaceChildren();
+  window.clearDeckPanel?.();
+  window.workspace?.landing();
+  syncChatActivity();
+  selectChatListItem(null);
+  closeSidebar();
+  if (persist) {
+    try {await window.workspace?.ensureChat();}
+    catch (error) {if (error.name !== "AbortError") alert(error.message);}
   }
 }
 
 // --- Thinking indicator ---
-function addThinkingMessage() {
+function addThinkingMessage(target = chatHistoryElem) {
   const div = document.createElement("div");
   div.id = "thinking-message";
 
@@ -862,18 +938,11 @@ function addThinkingMessage() {
   label.textContent = "Analyzing";
   div.appendChild(label);
 
-  const dotsContainer = document.createElement("span");
-  dotsContainer.className = "thinking-dots";
-  for (let i = 0; i < 3; i++) {
-    const dot = document.createElement("span");
-    dot.className = "thinking-dot";
-    dot.style.animationDelay = `${i * 0.15}s`;
-    dotsContainer.appendChild(dot);
-  }
-  div.appendChild(dotsContainer);
+  const indicator = window.workspace?.analyzingIcon();
+  if (indicator) div.prepend(indicator);
 
-  chatHistoryElem.appendChild(div);
-  scrollToBottom();
+  target.appendChild(div);
+  if (target.isConnected) scrollToBottom();
 
   // Return a dummy interval ID for compatibility (animation is pure CSS now)
   return setInterval(() => {}, 60000);
@@ -915,20 +984,39 @@ async function* readChatReply(body) {
 async function sendMessage(edit = {}) {
   const input = document.getElementById("user-input");
   const message = edit.message || input.value.trim();
-  if (!message || !currentChatId || isTyping) return;
-  const chatId = currentChatId;
+  if (!edit.resume && (!message || isTyping || window.workspace?.busy)) return;
+  if (!edit.resume && await window.workspace?.startDevice(message)) return;
+  if (!edit.resume && !currentChatId) {
+    try { await window.workspace?.ensureChat(); }
+    catch (error) { if (error.name !== "AbortError") alert(error.message); return; }
+  }
+  if (!edit.resume && (!currentChatId || isTyping)) return;
+  if (!edit.resume) window.workspace?.enterChat();
+  const chatId = edit.chatId || currentChatId;
   const requestController = new AbortController();
-  chatRequestController = requestController;
   let finishChatRequest;
-  chatRequestDone = new Promise(resolve => finishChatRequest = resolve);
-  isTyping = true;
-  sendBtn.disabled = true;
+  const view = chatJobs.get(chatId)?.view || document.createElement("div");
+  view.className = "chat-session-view";
+  if (!chatJobs.has(chatId)) {
+    view.append(...chatHistoryElem.childNodes);
+    chatHistoryElem.appendChild(view);
+  }
+  const resumedDevice = chatJobs.get(chatId)?.device;
+  const job = {view, controller:requestController, status:"running", done:new Promise(resolve => finishChatRequest = resolve)};
+  chatJobs.set(chatId, job);
+  syncChatActivity();
+  const addReply = (text, sender, id) => addMessage(text, sender, id, view);
+  const deckLayout = edit.resume ? undefined : window.workspace?.generationLayout();
+  const device = edit.resume ? resumedDevice : window.workspace?.deviceContext;
+  job.device = device;
+
 
   // User just sent a message — re-enable auto-scroll
   autoScrollEnabled = true;
 
-  const userDiv = edit.messageId ? edit.div : addMessage(message, "user");
-  if (!edit.messageId) {
+  const userDiv = edit.resume ? null : edit.messageId ? edit.div : addReply(message, "user");
+  if (edit.resume) { /* The saved prompt is already in this view. */ }
+  else if (!edit.messageId) {
     input.value = "";
     input.style.height = "auto";
   } else {
@@ -938,10 +1026,10 @@ async function sendMessage(edit = {}) {
       next.remove();
       next = following;
     }
-    if (window.clearDeckPanel) window.clearDeckPanel();
+    if (window.clearDeckPanel) window.clearDeckPanel({keepOpen:true});
   }
 
-  const thinkingInterval = addThinkingMessage();
+  const thinkingInterval = addThinkingMessage(view);
 
   let botDiv = null;
   let firstChunkReceived = false;
@@ -952,21 +1040,22 @@ async function sendMessage(edit = {}) {
   let replyMode = null;
 
   try {
-    const res = await fetch(`/chat/${chatId}/stream`, {
+    const res = await fetch(`/chat/${chatId}/stream`, edit.resume ? {signal:requestController.signal} : {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, message_id: edit.messageId }),
+      body: JSON.stringify({ message, message_id: edit.messageId, deck_layout: deckLayout, device }),
       signal: requestController.signal,
     });
 
     // Handle session expiration — show message, then redirect to login
     if (res.status === 401) {
       clearInterval(thinkingInterval);
-      const thinkingElem = document.getElementById("thinking-message");
+      const thinkingElem = view.querySelector("#thinking-message");
       if (thinkingElem) thinkingElem.remove();
 
+      job.status = "error";
       const errorData = await res.json().catch(() => ({ error: "Session expired" }));
-      const botDiv = addMessage("", "bot");
+      const botDiv = addReply("", "bot");
       appendChunkToBotMessage(botDiv, errorData.error || "Your session has expired. Redirecting to login...");
 
       setTimeout(() => {
@@ -980,27 +1069,31 @@ async function sendMessage(edit = {}) {
       throw new Error(error.error || "Unable to send your prompt.");
     }
     const messageId = Number(res.headers.get("X-User-Message-Id"));
-    renderUserMessage(userDiv, message, messageId || edit.messageId);
+    job.runId = res.headers.get("X-Chat-Run-Id");
+    if (userDiv) renderUserMessage(userDiv, message, messageId || edit.messageId);
     if (!res.body) throw new Error("No response body");
 
     for await (const part of readChatReply(res.body)) {
       if (part.type === "status") {
         if (part.content.startsWith("__DEVICE__:")) {
-          window.preloadHardwareCatalog?.(part.content.slice("__DEVICE__:".length));
+          const device = part.content.slice("__DEVICE__:".length);
+          window.preloadHardwareCatalog?.(device);
+          job.device = device;
+          if (currentChatId === chatId) window.workspace?.deviceDetected(device);
           continue;
         }
         edit.questionnaireSummary?.querySelector(".summary-generating")?.remove();
         isRagResponse = true;
         clearInterval(thinkingInterval);
-        document.getElementById("thinking-message")?.remove();
+        view.querySelector("#thinking-message")?.remove();
         if (!statusDiv) {
           statusDiv = document.createElement("div");
           statusDiv.className = "rag-status";
-          chatHistoryElem.appendChild(statusDiv);
+          view.appendChild(statusDiv);
         }
         statusDiv.replaceChildren();
-        const spinner = document.createElement("span");
-        spinner.className = "rag-spinner";
+        const spinner = window.workspace?.analyzingIcon() || document.createElement("span");
+        if (!window.workspace) spinner.className = "rag-spinner";
         statusDiv.append(spinner, document.createTextNode(part.content));
         scrollToBottom();
         continue;
@@ -1009,10 +1102,11 @@ async function sendMessage(edit = {}) {
         edit.questionnaireSummary?.querySelector(".summary-generating")?.remove();
         firstChunkReceived = true;
         clearInterval(thinkingInterval);
-        document.getElementById("thinking-message")?.remove();
+        view.querySelector("#thinking-message")?.remove();
         statusDiv?.remove();
-        botDiv = addMessage("", "bot");
+        botDiv = addReply("", "bot");
       }
+      if (part.content.includes("__FAILED_CODE__:")) job.status = "error";
       replyBuffer += part.content;
       if (!replyMode) {
         const markers = ["__QUESTIONS__:", "__FAILED_CODE__:"];
@@ -1035,6 +1129,7 @@ async function sendMessage(edit = {}) {
       const questions = JSON.parse(fixTrailingCommas(replyBuffer.slice("__QUESTIONS__:".length)));
       window.renderQuestionsForm(botDiv, questions);
     } else if (replyMode === "failed") {
+      job.status = "error";
       const [message, code] = replyBuffer.slice("__FAILED_CODE__:".length).split("___CODE_SEP___");
       const paragraph = document.createElement("p");
       paragraph.textContent = message.trim();
@@ -1048,8 +1143,12 @@ async function sendMessage(edit = {}) {
     }
     edit.questionnaireSummary?.querySelector(".summary-generating")?.remove();
     statusDiv?.remove();
+    if (!finalRagCode) {
+      const links = botDiv.querySelectorAll(".protocol-deck-link");
+      finalRagCode = links.length ? links[links.length - 1]._protocolCode : null;
+    }
     // Open the completed file immediately, before waiting for the chat-list refresh.
-    if (finalRagCode && window.parseDeckFromCode) {
+    if (currentChatId === chatId && finalRagCode && window.parseDeckFromCode) {
       const links = botDiv.querySelectorAll(".protocol-deck-link");
       const link = links.length ? links[links.length - 1] : null;
       window.parseDeckFromCode(finalRagCode, link);
@@ -1059,23 +1158,23 @@ async function sendMessage(edit = {}) {
     selectChatListItem(currentChatId);
 
   } catch (err) {
+    job.status = "error";
     if (err.name === "AbortError") return;
     clearInterval(thinkingInterval);
-    const thinkingElem = document.getElementById("thinking-message");
+    const thinkingElem = view.querySelector("#thinking-message");
     if (thinkingElem) thinkingElem.remove();
 
-    const errorDiv = addMessage("", "bot");
+    const errorDiv = addReply("", "bot");
     appendChunkToBotMessage(errorDiv, "Error: " + err.message);
     console.error(err);
   } finally {
     edit.questionnaireSummary?.querySelector(".summary-generating")?.remove();
     statusDiv?.remove();
     clearInterval(thinkingInterval);
-    document.getElementById("thinking-message")?.remove();
-    isTyping = false;
-    sendBtn.disabled = false;
-    if (chatRequestController === requestController) chatRequestController = null;
+    view.querySelector("#thinking-message")?.remove();
+    if (job.status === "running") job.status = "done";
     finishChatRequest();
+    syncChatActivity();
   }
 }
 
@@ -1089,7 +1188,7 @@ userInputElem.addEventListener("keydown", (e) => {
 });
 
 newChatBtn.addEventListener("click", createNewChat);
-document.getElementById("trash-btn").addEventListener("click", async () => {
+document.getElementById("trash-btn")?.addEventListener("click", async () => {
   setTrashView(!showingTrash);
   await refreshChatList();
   selectChatListItem(currentChatId);
@@ -1170,17 +1269,10 @@ function showRejectModal(code, rejectBtn) {
 // --- Init ---
 (async function init() {
   const chats = await refreshChatList();
-
-  let lastChatId = localStorage.getItem("lastChatId");
-  if (!lastChatId || !chats.find(c => c.chat_id === lastChatId)) {
-    lastChatId = chats.length ? chats[chats.length - 1].chat_id : null;
-  }
-
-  if (lastChatId) {
-    await loadChatHistory(lastChatId);
-  } else {
-    await createNewChat();
-  }
+  const lastChatId = localStorage.getItem("lastChatId");
+  if (await window.workspace?.restoreProtocol()) { /* Reopen the fixed library snapshot. */ }
+  else if (lastChatId && chats.some(chat=>chat.chat_id === lastChatId)) await loadChatHistory(lastChatId);
+  else await createNewChat({persist:false});
 
   // --- Settings Modal ---
   const settingsBtn = document.getElementById("settings-btn");

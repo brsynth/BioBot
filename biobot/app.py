@@ -11,7 +11,7 @@ import psycopg2
 import psycopg2.extras
 import psycopg2.errors
 
-from engine import process_user_query
+from engine import process_user_query, dispatch_device
 from config import get_api_key, get_db_connection, biobot_model, get_flask_secret_key
 from crypt import generate_salt, derive_key, encrypt, decrypt
 from handlers import detect_handler, load_handlers_config
@@ -438,13 +438,29 @@ def create_chat():
 
     chat_id = str(uuid.uuid4())
     title = "New chat"
+    data = request.get_json(silent=True) or {}
+    device = data.get("device", "")
+    if not isinstance(device, str) or len(device) > 200:
+        return jsonify({"error": "Invalid device."}), 400
+    device = device.strip()
 
     conn = None
     try:
         conn = get_db_connection()
+        source = None
+        protocol_id = data.get("protocol_id")
+        if protocol_id:
+            try:
+                protocol_id = str(uuid.UUID(str(protocol_id)))
+            except ValueError:
+                return jsonify({"error": "Protocol not found"}), 404
+            source = fetchone_dict(conn, "SELECT name, code, device_name FROM saved_protocols WHERE id = %s AND user_id = %s AND deleted_at IS NULL", (protocol_id, user_id))
+            if not source:
+                return jsonify({"error": "Protocol not found"}), 404
+            title = decrypt_message(source["name"])
         execute(conn,
-            "INSERT INTO chat_names (chat_id, user_id, name) VALUES (%s, %s, %s)",
-            (chat_id, user_id, encrypt_message(title)),
+            "INSERT INTO chat_names (chat_id, user_id, name, device_name) VALUES (%s, %s, %s, %s)",
+            (chat_id, user_id, encrypt_message(title), device or None),
             commit=True
         )
 
@@ -456,6 +472,11 @@ def create_chat():
         )
 
         intro_message = "Hello, I'm Biobot 🤖 — your assistant specialized in lab automation."
+        if device:
+            intro_message += f"\nSelected device: {device}. Use it as context unless the user specifies another device."
+        if source:
+            execute(conn, "UPDATE chat_names SET device_name = %s WHERE chat_id = %s", (source["device_name"], chat_id))
+            intro_message = f"Saved protocol for {source['device_name']}:\n```\n{decrypt_message(source['code'])}\n```"
         execute(conn,
             "INSERT INTO chat_history (user_id, chat_id, role, content) VALUES (%s, %s, %s, %s)",
             (user_id, chat_id, "assistant", encrypt_message(intro_message)),
@@ -552,6 +573,59 @@ def chat(chat_id):
 
     return jsonify({"reply": bot_reply})
 
+def chat_run_response(chat_id, user_id, run_id, message_id):
+    def replay():
+        offset = 0
+        while True:
+            conn = get_db_connection()
+            try:
+                run = fetchone_dict(conn, "SELECT output, status FROM chat_runs WHERE chat_id = %s AND user_id = %s AND id = %s", (chat_id, user_id, run_id))
+            finally:
+                conn.close()
+            if not run:
+                return
+            output = decrypt_message(run["output"]) or ""
+            if len(output) > offset:
+                yield output[offset:]
+                offset = len(output)
+            if run["status"] != "running":
+                return
+            time.sleep(0.15)
+    return Response(stream_with_context(replay()), mimetype="text/plain", headers={
+        "X-User-Message-Id": str(message_id), "X-Chat-Run-Id": str(run_id),
+        "Cache-Control": "no-cache", "X-Accel-Buffering": "no",
+    })
+
+
+@app.route("/chat/<chat_id>/stream", methods=["GET"])
+def reconnect_chat_stream(chat_id):
+    user_id = session.get("user")
+    if not user_id:
+        return jsonify({"error": "Not logged in"}), 403
+    conn = get_db_connection()
+    try:
+        run = fetchone_dict(conn, """SELECT r.id::text, r.message_id FROM chat_runs r JOIN chat_names c USING (chat_id)
+            WHERE r.chat_id = %s AND r.user_id = %s AND c.deleted_at IS NULL""", (chat_id, user_id))
+    finally:
+        conn.close()
+    if not run:
+        return jsonify({"error": "No saved response for this chat."}), 404
+    return chat_run_response(chat_id, user_id, run["id"], run["message_id"])
+
+
+@app.route("/chat/<chat_id>/read", methods=["POST"])
+def mark_chat_read(chat_id):
+    user_id = session.get("user")
+    if not user_id:
+        return jsonify({"error": "Not logged in"}), 403
+    conn = get_db_connection()
+    try:
+        execute(conn, "UPDATE chat_runs SET seen = TRUE WHERE chat_id = %s AND user_id = %s AND status <> 'running'", (chat_id, user_id), commit=True)
+    finally:
+        conn.close()
+    return jsonify({"success": True})
+
+
 #For streaming :
 @app.route("/chat/<chat_id>/stream", methods=["POST"])
 def chat_stream(chat_id):
@@ -564,6 +638,17 @@ def chat_stream(chat_id):
     if not isinstance(user_message, str) or not user_message.strip():
         return jsonify({"error": "Message required"}), 400
     user_message = user_message.strip()
+    deck_layout = data.get("deck_layout")
+    if deck_layout is not None:
+        from deck_library import clean_layout
+        try:
+            deck_layout = clean_layout(deck_layout)
+        except (ValueError, TypeError):
+            return jsonify({"error": "Invalid deck layout"}), 400
+    device = data.get("device", "")
+    if not isinstance(device, str) or len(device) > 200:
+        return jsonify({"error": "Invalid device."}), 400
+    device = device.strip()
     edit_id = data.get("message_id")
     if edit_id is not None and (type(edit_id) is not int or edit_id <= 0):
         return jsonify({"error": "Invalid message ID"}), 400
@@ -588,6 +673,16 @@ def chat_stream(chat_id):
         user_api_key = decrypt_text(user["api_key"]) if user and user.get("api_key") else None
         if not user_api_key or not user_api_key.startswith("sk-"):
             return jsonify({"error": "Please add a valid OpenAI API key in Settings."}), 400
+
+        previous = fetchone_dict(conn, "SELECT status FROM chat_runs WHERE chat_id = %s AND user_id = %s", (chat_id, user_id))
+        if previous and previous["status"] == "running":
+            return jsonify({"error": "This chat is already working. Open it to follow its progress."}), 409
+        run_id = str(uuid.uuid4())
+        execute(conn, """INSERT INTO chat_runs (chat_id, id, user_id) VALUES (%s, %s, %s)
+            ON CONFLICT (chat_id) DO UPDATE SET id = EXCLUDED.id, message_id = NULL, status = 'running', output = '', seen = FALSE, updated_at = NOW()""", (chat_id, run_id, user_id))
+
+        if device:
+            execute(conn, "UPDATE chat_names SET device_name = %s WHERE chat_id = %s AND user_id = %s", (device, chat_id, user_id))
 
         encrypted_prompt = encrypt_message(user_message)
         if edit_id is not None:
@@ -627,6 +722,8 @@ def chat_stream(chat_id):
                 commit=True
             )
 
+        execute(conn, "UPDATE chat_runs SET message_id = %s WHERE chat_id = %s AND id = %s", (message_id, chat_id, run_id), commit=True)
+
         # fetch full chat history for streaming
         rows = fetchall_dict(conn,
             """
@@ -643,6 +740,11 @@ def chat_stream(chat_id):
             conn.close()
 
     messages = [{"role": r["role"], "content": decrypt_message(r["content"])} for r in rows]
+    if device:
+        messages.insert(max(0, len(messages) - 1), {"role": "assistant", "content": f"Selected device context: {device}. Use it unless the user's prompt specifies another device."})
+    if deck_layout is not None:
+        import json
+        messages.insert(max(0, len(messages) - 1), {"role": "assistant", "content": "The user selected this physical deck configuration. Preserve its hardware and positions when generating the protocol: " + json.dumps(deck_layout)})
 
     # ---- STREAM RESPONSE ----
     def generate():
@@ -714,7 +816,7 @@ def chat_stream(chat_id):
                     message = sep_parts[0].strip() if sep_parts else ""
                     code = sep_parts[1].strip() if len(sep_parts) > 1 else ""
                     if code:
-                        fmt = detected_format if detected_format != "text" else "python"
+                        fmt = detected_format
                         save_content = message + f"\n\n```{fmt}\n" + code + "\n```"
                     else:
                         save_content = message
@@ -725,7 +827,7 @@ def chat_stream(chat_id):
 
                 elif is_rag:
                     # RAG output without fences — always wrap as code
-                    fmt = detected_format if detected_format != "text" else "python"
+                    fmt = detected_format
                     save_content = f"```{fmt}\n" + full_reply + "\n```"
 
                 elif detected_format != "text":
@@ -782,18 +884,36 @@ def chat_stream(chat_id):
         except Exception as e:
             import sys
             print(f"Save error (response was delivered): {e}", file=sys.stderr, flush=True)
-            # Don't yield anything here — the response already streamed successfully
+            raise RuntimeError("The completed response could not be saved.") from e
 
-    return Response(
-        stream_with_context(generate()),
-        mimetype="text/plain",
-        headers={
-            "X-User-Message-Id": str(message_id),
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",        # Disable nginx buffering
-            "Transfer-Encoding": "chunked",
-        }
-    )
+    # Generation belongs to the server task; disconnecting a browser only stops replay.
+    def run_task():
+        output, status, last_write = "", "done", 0
+        def save(state):
+            conn = get_db_connection()
+            try:
+                execute(conn, "UPDATE chat_runs SET output = %s, status = %s, updated_at = NOW() WHERE chat_id = %s AND id = %s",
+                        (encrypt_message(output), state, chat_id, run_id), commit=True)
+            finally:
+                conn.close()
+        with app.app_context():
+            try:
+                for chunk in generate():
+                    output += chunk
+                    if "__FAILED_CODE__:" in chunk:
+                        status = "error"
+                    if time.monotonic() - last_write >= 0.1:
+                        save("running")
+                        last_write = time.monotonic()
+            except Exception as error:
+                status = "error"
+                output += "__FAILED_CODE__:The response could not be saved. Please retry."
+                app.logger.exception("Chat task failed: %s", error)
+            finally:
+                save(status)
+    from threading import Thread
+    Thread(target=run_task, name=f"chat-{chat_id}", daemon=False).start()
+    return chat_run_response(chat_id, user_id, run_id, message_id)
 
 
 @app.route("/chat/<chat_id>", methods=["GET"])
@@ -862,10 +982,16 @@ def list_chats():
     predicate = "IS NOT NULL" if request.args.get("trashed") == "1" else "IS NULL"
     conn = get_db_connection()
     try:
-        rows = fetchall_dict(conn, f"SELECT chat_id, name FROM chat_names WHERE user_id = %s AND deleted_at {predicate}", (user_id,))
+        rows = fetchall_dict(conn, f"""SELECT chat_id, name, device_name, deleted_at,
+            EXISTS (SELECT 1 FROM chat_history h WHERE h.chat_id = chat_names.chat_id AND h.role = 'user') AS has_messages
+            FROM chat_names WHERE user_id = %s AND deleted_at {predicate}
+            ORDER BY (SELECT MAX(id) FROM chat_history WHERE chat_id = chat_names.chat_id) DESC NULLS LAST""", (user_id,))
+        runs = {row["chat_id"]: row for row in fetchall_dict(conn,
+            "SELECT chat_id, id::text, message_id, status, seen FROM chat_runs WHERE user_id = %s", (user_id,))}
     finally:
         conn.close()
-    return jsonify([{"chat_id": row["chat_id"], "name": decrypt_message(row["name"])} for row in rows])
+    return jsonify([{"chat_id": row["chat_id"], "name": decrypt_message(row["name"]), "device": row["device_name"], "run": runs.get(row["chat_id"]),
+                     "has_messages": row["has_messages"], "deleted_at": row["deleted_at"].isoformat() if row["deleted_at"] else None} for row in rows])
 
 
 @app.route("/chat/<chat_id>/rename", methods=["POST"])
@@ -965,6 +1091,155 @@ def update_user_profile():
 # ---------------------
 # Deck visualizer route
 # ---------------------
+@app.route("/protocols", methods=["GET", "POST"])
+def saved_protocols():
+    user_id = session.get("user")
+    if not user_id:
+        return jsonify({"error": "Not logged in"}), 403
+    data = request.get_json(silent=True) or {}
+    if request.method == "POST":
+        name, code, device = data.get("name"), data.get("code"), data.get("device", "")
+        if not isinstance(name, str) or not 1 <= len(name.strip()) <= 120:
+            return jsonify({"error": "Give the protocol a name of up to 120 characters."}), 400
+        if not isinstance(code, str) or not code.strip() or len(code) > 2_000_000:
+            return jsonify({"error": "A completed protocol is required."}), 400
+        if not isinstance(device, str) or len(device) > 200:
+            return jsonify({"error": "Invalid device."}), 400
+    conn = get_db_connection()
+    try:
+        if request.method == "GET":
+            predicate = "IS NOT NULL" if request.args.get("trashed") == "1" else "IS NULL"
+            rows = fetchall_dict(conn, f"SELECT id::text, name, device_name, deleted_at FROM saved_protocols WHERE user_id = %s AND deleted_at {predicate} ORDER BY created_at DESC", (user_id,))
+            return jsonify([dict(row, name=decrypt_message(row["name"]), deleted_at=row["deleted_at"].isoformat() if row["deleted_at"] else None) for row in rows])
+        protocol_id = str(uuid.uuid4())
+        execute(conn, "INSERT INTO saved_protocols (id, user_id, name, device_name, code) VALUES (%s, %s, %s, %s, %s)",
+                (protocol_id, user_id, encrypt_message(name.strip()), device.strip(), encrypt_message(code)), commit=True)
+        return jsonify({"id": protocol_id, "name": name.strip()}), 201
+    finally:
+        conn.close()
+
+
+@app.route("/protocols/<uuid:protocol_id>", methods=["GET", "PATCH", "DELETE"])
+def get_saved_protocol(protocol_id):
+    user_id = session.get("user")
+    if not user_id:
+        return jsonify({"error": "Not logged in"}), 403
+    if request.method == "PATCH":
+        name = (request.get_json(silent=True) or {}).get("name")
+        if not isinstance(name, str) or not 1 <= len(name.strip()) <= 120:
+            return jsonify({"error": "Give the protocol a name of up to 120 characters."}), 400
+    conn = get_db_connection()
+    try:
+        row = fetchone_dict(conn, "SELECT id::text, name, device_name, code FROM saved_protocols WHERE id = %s AND user_id = %s AND deleted_at IS NULL", (str(protocol_id), user_id))
+        if not row:
+            return jsonify({"error": "Protocol not found"}), 404
+        if request.method == "DELETE":
+            execute(conn, "UPDATE saved_protocols SET deleted_at = NOW() WHERE id = %s AND user_id = %s", (str(protocol_id), user_id), commit=True)
+            return jsonify({"success": True})
+        if request.method == "PATCH":
+            execute(conn, "UPDATE saved_protocols SET name = %s WHERE id = %s AND user_id = %s",
+                    (encrypt_message(name.strip()), str(protocol_id), user_id), commit=True)
+            return jsonify({"name": name.strip()})
+        return jsonify(dict(row, name=decrypt_message(row["name"]), code=decrypt_message(row["code"])))
+    finally:
+        conn.close()
+
+
+@app.route("/protocols/<uuid:protocol_id>/restore", methods=["POST"])
+def restore_saved_protocol(protocol_id):
+    user_id = session.get("user")
+    if not user_id:
+        return jsonify({"error": "Not logged in"}), 403
+    conn = get_db_connection()
+    try:
+        row = fetchone_dict(conn, "UPDATE saved_protocols SET deleted_at = NULL WHERE id = %s AND user_id = %s RETURNING id", (str(protocol_id), user_id))
+        conn.commit()
+        if not row:
+            return jsonify({"error": "Protocol not found"}), 404
+        return jsonify({"success": True})
+    finally:
+        conn.close()
+
+
+@app.route("/devices", methods=["GET"])
+def used_devices():
+    user_id = session.get("user")
+    if not user_id:
+        return jsonify({"error": "Not logged in"}), 403
+    conn = get_db_connection()
+    try:
+        rows = fetchall_dict(conn, """SELECT device_name FROM chat_names WHERE user_id = %s AND device_name IS NOT NULL
+                                     UNION SELECT device_name FROM saved_protocols WHERE user_id = %s AND device_name <> ''
+                                     UNION SELECT t.device_name FROM deck_protocols p JOIN deck_templates t ON t.id = p.template_id
+                                     WHERE p.user_id = %s ORDER BY device_name""", (user_id, user_id, user_id))
+        return jsonify([row["device_name"] for row in rows])
+    finally:
+        conn.close()
+
+
+@app.route("/devices/validate", methods=["POST"])
+def validate_device():
+    user_id = session.get("user")
+    if not user_id:
+        return jsonify({"error": "Not logged in"}), 403
+    name = (request.get_json(silent=True) or {}).get("device")
+    if not isinstance(name, str) or not 1 <= len(name.strip()) <= 200:
+        return jsonify({"error": "Enter a liquid handler name and model."}), 400
+    try:
+        api_key, _ = _deck_request_context({}, user_id)
+        conn = get_db_connection()
+        try:
+            known = fetchall_dict(conn, "SELECT DISTINCT device_id, device_name AS name FROM deck_templates")
+        finally:
+            conn.close()
+        device = dispatch_device(name.strip(), [dict(row) for row in known], api_key)
+        session["validated_device"] = device
+        return jsonify(device)
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    except Exception:
+        app.logger.exception("Device validation failed")
+        return jsonify({"error": "Could not validate this device. Please try again."}), 502
+
+
+@app.route("/chat/<chat_id>/device", methods=["POST"])
+def select_device(chat_id):
+    user_id = session.get("user")
+    if not user_id:
+        return jsonify({"error": "Not logged in"}), 403
+    data = request.get_json(silent=True) or {}
+    name = data.get("device")
+    if not isinstance(name, str) or not 1 <= len(name.strip()) <= 200:
+        return jsonify({"error": "Enter the device or model name."}), 400
+    from deck_library import get_device_deck
+    try:
+        api_key, _ = _deck_request_context({"chat_id": chat_id}, user_id)
+        validated = session.get("validated_device")
+        if not isinstance(validated, dict) or validated.get("name") != name.strip():
+            validated = None
+        state = get_device_deck(name.strip(), user_id, api_key, data.get("template_id"), identified_device=validated)
+        conn = get_db_connection()
+        try:
+            # Store device context with the chat so future prompts need not repeat it.
+            previous = fetchone_dict(conn, "SELECT device_name FROM chat_names WHERE chat_id = %s AND user_id = %s AND deleted_at IS NULL", (chat_id, user_id))
+            if not previous:
+                return jsonify({"error": "Chat not found"}), 404
+            if previous["device_name"] != state["platform"]:
+                execute(conn, "UPDATE chat_names SET device_name = %s WHERE chat_id = %s AND user_id = %s", (state["platform"], chat_id, user_id))
+                execute(conn, "INSERT INTO chat_history (user_id, chat_id, role, content) VALUES (%s, %s, 'assistant', %s)",
+                        (user_id, chat_id, encrypt_message(f"Your {state['platform']} workspace is ready. What would you like to prepare?")), commit=True)
+        finally:
+            conn.close()
+        from documentation_index import preload_documentation
+        preload_documentation(state["platform"], api_key)
+        return jsonify(state)
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    except Exception:
+        app.logger.exception("Device deck failed")
+        return jsonify({"error": "Could not open this device. Please try again."}), 502
+
+
 def _deck_request_context(data, user_id):
     conn = get_db_connection()
     try:
@@ -994,7 +1269,7 @@ def visualize_deck():
     from deck_library import get_deck
     try:
         api_key, history = _deck_request_context(data, user_id)
-        return jsonify(get_deck(code, user_id, api_key, history, data.get("template_id")))
+        return jsonify(get_deck(code, user_id, api_key, history, data.get("template_id"), refresh_parameters=data.get("refresh_parameters") is True))
     except ValueError as error:
         return jsonify({"error": str(error)}), 400
     except Exception:

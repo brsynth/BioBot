@@ -52,7 +52,7 @@ def _save_handlers(handlers):
 def _find_tool(tool_name):
     """
     Find a CLI tool by name. Checks PATH first, then Python's own bin directory
-    (where pip installs console_scripts like opentrons_simulate).
+    (where pip installs console entry points).
     Returns the full path if found, None otherwise.
     """
     import sys
@@ -93,7 +93,7 @@ def _test_tool(tool_path):
 
 
 def _pip_install(pip_spec, timeout=300):
-    """Run pip install for a given spec (e.g. 'opentrons==9.0.0'). Returns (success, stderr)."""
+    """Run pip install for a discovered package specification. Returns (success, stderr)."""
     try:
         result = subprocess.run(
             [sys.executable, "-m", "pip", "install", pip_spec, "--break-system-packages", "-q"],
@@ -117,8 +117,6 @@ def _ask_llm_pip_info(client, tool_name):
                     "content": "You are an expert in Python packaging and lab automation. "
                                "Given a CLI tool name, return ONLY valid JSON with two fields:\n"
                                '{"pip_package": "exact pip package name", "pip_version": "latest known stable version that works"}\n'
-                               "For example, for 'opentrons_simulate': "
-                               '{"pip_package": "opentrons", "pip_version": "9.0.0"}\n'
                                "Return ONLY the JSON. If you don't know the package, return: "
                                '{"pip_package": "unknown", "pip_version": null}'
                 },
@@ -292,8 +290,7 @@ def _discover_simulate_tool(cfg, client):
                     "role": "system",
                     "content": "You are an expert in lab automation. Given a liquid handling platform name, "
                                "return ONLY the exact CLI command name (single word, no arguments) that can "
-                               "simulate/validate protocols for this platform. For example, Opentrons uses "
-                               "'opentrons_simulate'. If no well-known official simulation tool exists, "
+                               "simulate/validate protocols for this platform. If no well-known official simulation tool exists, "
                                "return exactly: none"
                 },
                 {
@@ -317,6 +314,26 @@ def _discover_simulate_tool(cfg, client):
 
 def get_openai_client(api_key):
     return OpenAI(api_key=api_key)
+
+
+def _discover_protocol_format(cfg, client):
+    """Enrich older learned profiles once, without device-specific migrations."""
+    if cfg.get("output_format") and cfg.get("file_extension"):
+        return False
+    response = client.responses.create(model=light_functions_model, input=[
+        {"role": "system", "content": 'Return ONLY JSON with output_format (a lowercase language/format identifier) and file_extension (including its dot) for the documented protocol files of the specified device. Use text and .txt when unknown. Do not assume a programming language.'},
+        {"role": "user", "content": f"Device: {cfg['name']}\nKnown output type: {cfg.get('output_type', 'unknown')}"},
+    ])
+    try:
+        data = json.loads(_clean_discovery_json(response.output_text))
+    except ValueError:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    format_name, extension = data.get("output_format"), data.get("file_extension")
+    cfg["output_format"] = format_name if isinstance(format_name, str) and re.fullmatch(r"[a-z0-9_+-]{1,32}", format_name) else "text"
+    cfg["file_extension"] = extension if isinstance(extension, str) and re.fullmatch(r"\.[a-zA-Z0-9]{1,16}", extension) else ".txt"
+    return True
 
 
 def detect_handler(query, history, api_key):
@@ -387,7 +404,7 @@ Return ONLY the platform ID. One word, lowercase, no quotes, no explanation."""
              f"simulate_tool={cfg.get('simulate_tool')}, simulate_cmd={cfg.get('simulate_cmd')}")
 
         # One-time migration: if we have no simulate_tool info at all, ask LLM once
-        needs_save = False
+        needs_save = _discover_protocol_format(cfg, client)
         if not cfg.get("simulate_tool") and not cfg.get("simulate_cmd"):
             needs_save = _discover_simulate_tool(cfg, client)
 
@@ -438,14 +455,16 @@ Return ONLY the platform ID. One word, lowercase, no quotes, no explanation."""
   "simulate_tool": "CLI command that can simulate/validate a protocol for this platform, or null if none exists",
   "pip_package": "The pip package name that provides the simulation tool, or null if none",
   "pip_version": "A known stable version of the pip package where the CLI tool works reliably, or null if unsure",
-  "output_type": "The typical file format the platform uses: 'script' for Python, 'csv' for CSV picklists, 'hsl' for Hamilton HSL, 'file' for other",
+  "output_type": "The documented protocol file format or language used by this platform",
+  "output_format": "The corresponding lowercase language/format identifier, or text if unknown",
+  "file_extension": "The documented filename extension including the dot, or .txt if unknown",
   "keywords": ["keyword1", "keyword2"]
 }
 
 RULES:
-- simulate_tool: the EXACT CLI command name (just the binary, no arguments). For example, Opentrons OT-2 and Flex use "opentrons_simulate". Only include well-known, official simulation tools. If unsure or none exists, use null.
-- pip_package: the pip package that installs the simulation tool. For example, "opentrons_simulate" comes from pip package "opentrons". If unsure or none, use null.
-- pip_version: a known stable version where the simulate_tool works. For example, opentrons 9.0.0 is stable. Newer versions may have dependency issues. Use null if unsure.
+- simulate_tool: the EXACT CLI command name (just the binary, no arguments). Derive it from the specified platform's official documentation. If unsure or none exists, use null.
+- pip_package: the documented pip package that installs the simulation tool. If unsure or none, use null.
+- pip_version: a documented stable version where the simulate_tool works. Use null if unsure; never assume one device's version applies to another.
 - keywords: 2-4 search terms useful for finding documentation for this platform.
 - Return ONLY the JSON. No markdown, no explanation."""
             },
@@ -462,9 +481,9 @@ RULES:
         disco = {}
 
     handler_name = disco.get("name") or detected.replace("_", " ").title()
-    simulate_tool = disco.get("simulate_tool")  # e.g. "opentrons_simulate" or None
-    pip_package = disco.get("pip_package")       # e.g. "opentrons" or None
-    pip_version = disco.get("pip_version")       # e.g. "9.0.0" or None
+    simulate_tool = disco.get("simulate_tool")
+    pip_package = disco.get("pip_package")
+    pip_version = disco.get("pip_version")
 
     print(f"STEP:Detected new platform: {handler_name} (not in config — will search for docs)...", flush=True)
     if simulate_tool:
@@ -482,6 +501,8 @@ RULES:
         "simulate_cmd": None,
         "validation_strategy": "llm_review",
         "output_type": disco.get("output_type", "file"),
+        "output_format": disco.get("output_format", "text"),
+        "file_extension": disco.get("file_extension", ".txt"),
         "keywords": disco.get("keywords", [detected])
     }
 

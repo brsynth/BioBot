@@ -9,6 +9,9 @@ from psycopg2.extras import Json, RealDictCursor
 from config import get_db_connection
 from deck_visualizer import identify_device, generate_device_layout, bind_protocol
 
+BINDING_VERSION = 7  # Resolve well volumes from execution-ordered volume changes.
+CATALOG_VERSION = 4  # Broad catalogs with geometry and hardware schematics.
+
 
 def init_deck_tables(cursor):
     cursor.execute("""
@@ -53,27 +56,49 @@ def get_hardware_catalog(platform, position_type="labware", api_key=None):
             cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"catalog:{key}:{position_type}",))
             cursor.execute("SELECT catalog FROM deck_catalogs WHERE platform_key = %s AND position_type = %s", (key, position_type))
             row = cursor.fetchone()
-            if row:
+            if row and row[0].get("_version") == CATALOG_VERSION:
                 return row[0]
             # Store only platform-wide suggestions, never a user's custom hardware.
-            catalog = get_catalog(platform, position_type, api_key=api_key)
+            catalog = get_catalog(platform, position_type, api_key=api_key, existing_catalog=row[0] if row else None)
             if not isinstance(catalog, dict) or not isinstance(catalog.get("categories"), list) or not catalog["categories"]:
                 raise ValueError("No hardware suggestions were returned. Please retry.")
-            cursor.execute("INSERT INTO deck_catalogs (platform_key, position_type, catalog) VALUES (%s, %s, %s)",
+            if row:
+                catalog = merge_catalogs(row[0], catalog)
+            catalog["_version"] = CATALOG_VERSION
+            cursor.execute("INSERT INTO deck_catalogs (platform_key, position_type, catalog) VALUES (%s, %s, %s) ON CONFLICT (platform_key, position_type) DO UPDATE SET catalog = EXCLUDED.catalog",
                            (key, position_type, Json(catalog)))
             return catalog
     finally:
         conn.close()
 
 
+def merge_catalogs(previous, updated):
+    """Enrich a catalog without losing options omitted by a later model reply."""
+    result = copy.deepcopy(updated)
+    categories, items = {}, {}
+    for catalog in (previous, updated):
+        for category in catalog.get("categories", []):
+            key = category["name"].casefold()
+            group = categories.setdefault(key, {"name": category["name"], "items": []})
+            for item in category.get("items", []):
+                identity = item["id"]
+                if identity in items:
+                    items[identity].update(copy.deepcopy(item))
+                else:
+                    items[identity] = copy.deepcopy(item)
+                    group["items"].append(items[identity])
+    result["categories"] = [group for group in categories.values() if group["items"]]
+    return result
+
+
 # Only physical layout/default hardware is shared; protocol data never enters a template.
 FIELDS = {
     "grid": {"rows", "cols", "labels"},
-    "positions": {"id", "labware", "labware_display", "type", "module", "row", "col"},
+    "positions": {"fixed", "id", "labware", "labware_display", "type", "module", "row", "col", "aspect_ratio", "well_count", "well_rows", "well_columns", "visual"},
     "instruments": {"name", "model", "mount", "tipracks"},
-    "plate": {"name", "type", "format"},
+    "plate": {"name", "type", "format", "well_rows", "well_columns", "aspect_ratio"},
     "carrier": {"name", "type", "track", "positions"},
-    "carrier_position": {"index", "labware"},
+    "carrier_position": {"fixed", "index", "labware", "labware_display", "type", "well_count", "well_rows", "well_columns", "aspect_ratio", "visual"},
 }
 
 
@@ -87,6 +112,10 @@ def clean_layout(state):
         return {key: copy.deepcopy(value[key]) for key in fields if key in value}
 
     layout = {"platform": state.get("platform", ""), "layout_type": state["layout_type"]}
+    mounts = state.get("mounts", [])
+    if not isinstance(mounts, list) or any(not isinstance(mount, str) or not mount for mount in mounts):
+        raise ValueError("Instrument mounts must be a list of non-empty physical identifiers.")
+    layout["mounts"] = list(dict.fromkeys(mounts))
     layout["grid"] = take(state.get("grid") or {}, FIELDS["grid"])
     layout["positions"] = [take(item, FIELDS["positions"]) for item in (state.get("positions") or [])]
     layout["instruments"] = [take(item, FIELDS["instruments"]) for item in (state.get("instruments") or [])]
@@ -120,7 +149,12 @@ def clean_layout(state):
 
     text_fields(layout, ("platform",))
     for pos in layout["positions"]:
+        if pos.get("aspect_ratio") is not None and (type(pos["aspect_ratio"]) not in (int, float) or not 0.1 <= pos["aspect_ratio"] <= 10):
+            raise ValueError("Invalid hardware aspect ratio.")
         text_fields(pos, ("labware", "labware_display", "type", "module"))
+        for key in ("well_count", "well_rows", "well_columns"):
+            if pos.get(key) is not None and (type(pos[key]) is not int or not 1 <= pos[key] <= 4096):
+                raise ValueError("Well dimensions must be positive whole numbers up to 4096.")
     for instrument in layout["instruments"]:
         text_fields(instrument, ("name", "model", "mount"))
         if not isinstance(instrument.get("tipracks", []), list) or any(not isinstance(item, str) for item in instrument.get("tipracks", [])):
@@ -169,6 +203,13 @@ def compose_state(layout, binding):
                 raise ValueError(f"This deck has no position {patch.get('id')} required by the protocol.")
             continue
         pos.update({key: patch[key] for key in ("labware", "labware_display", "variable", "type", "module") if key in patch})
+        for key in ("well_count", "well_rows", "well_columns"):
+            value = patch.get(key)
+            if type(value) is int and 0 < value <= 4096:
+                pos[key] = value
+        ratio = patch.get("aspect_ratio")
+        if type(ratio) in (int, float) and 0.1 <= ratio <= 10:
+            pos["aspect_ratio"] = ratio
     if "instruments" in binding:
         state["instruments"] = copy.deepcopy(binding["instruments"])
     for role in ("source", "destination"):
@@ -188,9 +229,12 @@ def compose_state(layout, binding):
                 for pos in carrier.get("positions", []):
                     match = next((p for p in patch.get("positions", []) if p.get("index") == pos.get("index")), None)
                     if match:
-                        pos.update({key: match[key] for key in ("labware", "variable") if key in match})
+                        pos.update({key: match[key] for key in FIELDS["carrier_position"] | {"variable"} if key in match and key != "index"})
     state["title"] = binding.get("title", "")
     state["steps"] = copy.deepcopy(binding.get("steps", []))
+    state["initial_wells"] = copy.deepcopy(binding.get("initial_wells", []))
+    state["parameters"] = copy.deepcopy(binding.get("parameters", []))
+    state["parameter_constraints"] = copy.deepcopy(binding.get("parameter_constraints", []))
     return state
 
 
@@ -216,46 +260,82 @@ def _choices(cursor, user_id, device_id):
     return [dict(row) for row in cursor.fetchall()]
 
 
-def get_deck(code, user_id, api_key=None, history=None, template_id=None):
+def _default_deck(cursor, name, device_id, api_key):
+    cursor.execute("SELECT * FROM deck_templates WHERE device_id = %s AND is_default", (device_id,))
+    cached = cursor.fetchone()
+    if cached is not None:
+        return cached
+    cursor.execute("SET LOCAL lock_timeout = '10s'")
+    cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"deck-device:{device_id}",))
+    cursor.execute("SELECT * FROM deck_templates WHERE device_id = %s AND is_default", (device_id,))
+    default = cursor.fetchone()
+    if default is None:
+        layout = clean_layout(generate_device_layout(name, api_key))
+        layout["platform"] = name
+        cursor.execute("""INSERT INTO deck_templates (id, device_id, device_name, name, is_default, layout)
+                          VALUES (%s, %s, %s, %s, TRUE, %s) RETURNING *""",
+                       (str(uuid.uuid4()), device_id, name, f"{name} default", Json(layout)))
+        default = cursor.fetchone()
+    return default
+
+
+def get_device_deck(name, user_id, api_key=None, template_id=None, identified_device=None):
+    """Open shared physical geometry before a protocol exists."""
+    conn = get_db_connection()
+    try:
+        with conn, conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            cursor.execute("SELECT DISTINCT device_id, device_name FROM deck_templates")
+            known = [dict(row) for row in cursor.fetchall()]
+            match = next((item for item in known if item["device_name"].casefold() == name.casefold()), None)
+            device = {"device_id": match["device_id"], "name": match["device_name"]} if match else identified_device or identify_device(name, [], known, api_key)
+            default = _default_deck(cursor, device["name"], device["device_id"], api_key)
+            selected = _visible(cursor, user_id, template_id) if template_id else default
+            if selected["device_id"] != device["device_id"]:
+                raise ValueError("Choose a deck for the selected device.")
+            state = copy.deepcopy(selected["layout"])
+            choices = _choices(cursor, user_id, device["device_id"])
+            state["_library"] = {"selected": next(item for item in choices if item["id"] == str(selected["id"])),
+                                 "alternatives": choices, "layout": copy.deepcopy(selected["layout"])}
+            state["steps"] = []
+            return state
+    finally:
+        conn.close()
+
+
+def get_deck(code, user_id, api_key=None, history=None, template_id=None, refresh_parameters=False):
     digest = hashlib.sha256(code.replace("\r\n", "\n").rstrip("\n").encode()).hexdigest()
     conn = get_db_connection()
     try:
         with conn, conn.cursor(cursor_factory=RealDictCursor) as cursor:
             requested = _visible(cursor, user_id, template_id) if template_id else None
             # Requests for the same code/device share the first successful generation.
-            cursor.execute("SELECT pg_advisory_lock(hashtextextended(%s, 0))", (f"deck-code:{user_id}:{digest}",))
             cursor.execute("SELECT * FROM deck_protocols WHERE user_id = %s AND code_hash = %s", (user_id, digest))
             protocol = cursor.fetchone()
+            if protocol is None or refresh_parameters:
+                cursor.execute("SET LOCAL lock_timeout = '10s'")
+                cursor.execute("SELECT pg_advisory_lock(hashtextextended(%s, 0))", (f"deck-code:{user_id}:{digest}",))
+                cursor.execute("SELECT * FROM deck_protocols WHERE user_id = %s AND code_hash = %s", (user_id, digest))
+                protocol = cursor.fetchone()
             if protocol is None:
                 cursor.execute("SELECT DISTINCT device_id, device_name FROM deck_templates")
                 device = identify_device(code, history or [], [dict(row) for row in cursor.fetchall()], api_key)
                 device_id, name = device["device_id"], device["name"]
                 if requested and requested["device_id"] != device_id:
                     raise ValueError("Choose a deck for the protocol's device.")
-                cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"deck-device:{device_id}",))
-                cursor.execute("SELECT * FROM deck_templates WHERE device_id = %s AND is_default", (device_id,))
-                default = cursor.fetchone()
-                if default is None:
-                    layout = clean_layout(generate_device_layout(name, api_key))
-                    layout["platform"] = name
-                    default_id = str(uuid.uuid4())
-                    cursor.execute("""INSERT INTO deck_templates (id, device_id, device_name, name, is_default, layout)
-                                      VALUES (%s, %s, %s, %s, TRUE, %s) RETURNING *""",
-                                   (default_id, device_id, name, f"{name} default", Json(layout)))
-                    default = cursor.fetchone()
+                default = _default_deck(cursor, name, device_id, api_key)
                 # Keep a successful device layout even if extracting this protocol fails.
                 # The code's session lock remains held until this connection closes.
                 conn.commit()
                 binding = bind_protocol(code, default["layout"], api_key)
-                binding["_version"] = 1
+                binding["_version"] = BINDING_VERSION
                 protocol = {"device_id": device_id, "template_id": default["id"], "binding": binding}
                 cursor.execute("""INSERT INTO deck_protocols (user_id, code_hash, device_id, template_id, binding)
                                   VALUES (%s, %s, %s, %s, %s)""", (user_id, digest, device_id, default["id"], Json(binding)))
-            elif protocol["binding"].get("_version") != 1:
+            elif refresh_parameters and protocol["binding"].get("_version") != BINDING_VERSION:
                 # Upgrade extraction artifacts without regenerating the shared device layout.
                 cursor.execute("SELECT layout FROM deck_templates WHERE device_id = %s AND is_default", (protocol["device_id"],))
                 binding = bind_protocol(code, cursor.fetchone()["layout"], api_key)
-                binding["_version"] = 1
+                binding["_version"] = BINDING_VERSION
                 protocol["binding"] = binding
                 cursor.execute("UPDATE deck_protocols SET binding = %s WHERE user_id = %s AND code_hash = %s", (Json(binding), user_id, digest))
             selected_id = template_id or protocol["template_id"]
@@ -272,6 +352,8 @@ def get_deck(code, user_id, api_key=None, history=None, template_id=None):
             state["_library"] = {"selected": next(item for item in choices if item["id"] == str(selected["id"])),
                                  "alternatives": choices, "layout": selected["layout"]}
             state["_protocol_code"] = code
+            state["_parameters_pending"] = protocol["binding"].get("_version") != BINDING_VERSION
+            state["_playback_pending"] = state["_parameters_pending"] and not state.get("steps")
             return state
     finally:
         conn.close()

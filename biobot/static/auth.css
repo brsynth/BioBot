@@ -207,6 +207,20 @@ body {
 }
 
 /* Responsive */
+.auth-login {--font-sans:'Quicksand',sans-serif; --brand-teal:#2f7e79; --brand-mint:#edf7f3; --brand-purple:#7159b6; --brand-lilac:#f3f0fc; background-image:none}
+[data-theme="daylight"] .auth-login {--bg-primary:#fff; --bg-elevated:#fff; --bg-input:#fafafd; --accent:#7058bb; --accent-dim:#5e46a6; --accent-glow:#7058bb15; --text-primary:#263349; --text-secondary:#687284; --border-light:#dadfe9; --shadow-lg:0 8px 32px #2633490d}
+[data-theme="dark"] .auth-login {--brand-teal:#8ed5c7; --brand-mint:#263d3b; --brand-purple:#c1b1f6; --brand-lilac:#37314c}
+.login-page {width:100%; max-width:560px; display:flex; flex-direction:column; align-items:center; gap:24px}
+.login-brand {display:flex; align-items:center; gap:12px; color:var(--text-primary)}
+.login-brand h1 {font-size:36px; font-weight:700; letter-spacing:-1px}
+.login-brand .liquid-handler-logo {width:64px; height:52px; color:var(--brand-teal)}
+.login-brand .bench-frame {fill:none; stroke:currentColor; stroke-width:2.5; stroke-linecap:round; stroke-linejoin:round}
+.login-brand .bench-base,.login-brand .bench-head {fill:var(--brand-mint); stroke:currentColor; stroke-width:2}
+.login-brand .bench-plate {fill:var(--brand-lilac); stroke:var(--brand-purple); stroke-width:1.7}
+.login-brand .bench-drop {opacity:0}
+.login-funding {font-size:12px; line-height:1.7; text-align:center; color:var(--text-secondary); text-wrap:pretty}
+.login-funding a {color:var(--accent); text-underline-offset:3px}
+
 @media (max-width: 480px) {
   .auth-container {
     padding: 28px 20px;

@@ -104,6 +104,79 @@ class DispatchTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
+    def test_device_dispatch_rejects_unrelated_names_and_requires_explicit_acceptance(self):
+        client = Mock()
+        client.with_options.return_value = client
+        with patch.object(engine, "get_openai_client", return_value=client):
+            for accepted in (False, "true", None):
+                client.responses.create.return_value.output_text = json.dumps({"is_liquid_handler": accepted, "name": "Invented device", "device_id": "invented", "message": "Enter a liquid handler model."})
+                with self.assertRaisesRegex(ValueError, "liquid handler"):
+                    engine.dispatch_device("unrelated equipment", [], "key")
+
+    def test_device_dispatch_normalizes_a_valid_model_using_the_dispatch_model(self):
+        client = Mock()
+        client.with_options.return_value = client
+        client.responses.create.return_value.output_text = json.dumps({"is_liquid_handler": True, "device_id": "robot_xyz", "name": "Robot XYZ", "manufacturer": "Robot", "model": "XYZ"})
+        known = [{"device_id": "robot_xyz", "name": "Robot XYZ"}]
+        with patch.object(engine, "get_openai_client", return_value=client):
+            self.assertEqual(engine.dispatch_device("robot xyz", known, "key"), known[0])
+        self.assertEqual(client.responses.create.call_args.kwargs["model"], config.light_functions_model)
+
+    def test_incomplete_device_asks_for_model_instead_of_reporting_invalid(self):
+        client = Mock()
+        client.with_options.return_value = client
+        client.responses.create.return_value.output_text = json.dumps({
+            "status": "incomplete", "is_liquid_handler": False,
+            "manufacturer": "Maker", "model": None, "message": "Invalid device.",
+        })
+        with patch.object(engine, "get_openai_client", return_value=client):
+            with self.assertRaisesRegex(ValueError, "incomplete.*specify.*model"):
+                engine.dispatch_device("Maker", [], "key")
+
+    def test_invalid_device_retains_its_correction(self):
+        client = Mock()
+        client.with_options.return_value = client
+        client.responses.create.return_value.output_text = json.dumps({
+            "status": "invalid", "is_liquid_handler": False,
+            "message": "This is not a liquid handler. Please enter a liquid handler model.",
+        })
+        with patch.object(engine, "get_openai_client", return_value=client):
+            with self.assertRaisesRegex(ValueError, "not a liquid handler"):
+                engine.dispatch_device("unrelated equipment", [], "key")
+
+    def test_device_dispatch_rejects_a_known_model_inferred_from_manufacturer_only(self):
+        client = Mock()
+        client.with_options.return_value = client
+        known = [{"device_id": "maker_model7", "name": "Maker Model-7"}]
+        with patch.object(engine, "get_openai_client", return_value=client):
+            for model in ("Model-7", "Maker"):
+                client.responses.create.return_value.output_text = json.dumps({"is_liquid_handler": True, **known[0], "manufacturer": "Maker", "model": model})
+                # Even an erroneous positive agent answer cannot select an unstated model.
+                with self.assertRaisesRegex(ValueError, "specify.*model"):
+                    engine.dispatch_device("Maker", known, "key")
+
+    def test_device_dispatch_accepts_explicit_models_with_case_and_punctuation_variants(self):
+        client = Mock()
+        client.with_options.return_value = client
+        client.responses.create.return_value.output_text = json.dumps({"is_liquid_handler": True, "device_id": "maker_model7", "name": "Maker Model-7", "manufacturer": "Maker", "model": "Model-7"})
+        with patch.object(engine, "get_openai_client", return_value=client):
+            for name in ("Maker Model-7", "maker model7", "MODEL 7"):
+                self.assertEqual(engine.dispatch_device(name, [], "key")["name"], "Maker Model-7")
+            for name in ("Maker Model70", "Maker Model7X"):
+                with self.assertRaisesRegex(ValueError, "specify.*model"):
+                    engine.dispatch_device(name, [], "key")
+
+    def test_empty_or_non_json_device_replies_never_expose_parser_errors(self):
+        client = Mock()
+        client.with_options.return_value = client
+        with patch.object(engine, "get_openai_client", return_value=client):
+            for name in ("toto", "opentrons"):
+                for output in ("", "Please specify the model", "null", "[]", '{"is_liquid_handler": true, "device_id": 42}'):
+                    client.responses.create.return_value.output_text = output
+                    with self.assertRaisesRegex(ValueError, "manufacturer and model"):
+                        engine.dispatch_device(name, [], "key")
+        self.assertEqual(client.responses.create.call_args.kwargs["text"], {"format": {"type": "json_object"}})
+
     def test_missing_details_start_questionnaire_before_chat_or_generation(self):
         data = {"questions": [{"id": "quantity", "question": "What quantity?"}]}
         with patch.object(engine, "check_sufficient_info", return_value=data) as assess, \

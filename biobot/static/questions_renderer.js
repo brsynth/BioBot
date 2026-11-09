@@ -454,6 +454,8 @@ function submitAllAnswers(form, parentDiv) {
     summary.innerHTML += `<div class="summary-item"><span class="summary-q">${a.question}</span><span class="summary-a">${a.answers.join(", ")}</span></div>`;
   }
   summary.innerHTML += `<div class="summary-generating"><span class="rag-spinner"></span> Reviewing your answers...</div>`;
+  const indicator = window.workspace?.analyzingIcon();
+  if (indicator) summary.querySelector(".rag-spinner")?.replaceWith(indicator);
   form.appendChild(summary);
 
   // Build the message from answers; the server rechecks completeness and consistency.

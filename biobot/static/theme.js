@@ -2,14 +2,14 @@
 (() => {
   const key = "biobot-appearance";
   const system = window.matchMedia("(prefers-color-scheme: dark)");
-  const valid = value => ["daylight", "dark", "auto"].includes(value) ? value : "auto";
-  let mode = "auto";
+  const defaultMode = document.currentScript?.dataset.defaultAppearance || "auto";
+  const valid = value => ["daylight", "dark", "auto"].includes(value) ? value : defaultMode;
+  let mode = defaultMode;
   try { mode = valid(localStorage.getItem(key)); } catch (_) {}
 
   function apply() {
     document.documentElement.dataset.theme = mode === "auto" ? (system.matches ? "dark" : "daylight") : mode;
-    const select = document.getElementById("appearance-select");
-    if (select) select.value = mode;
+    for (const input of document.querySelectorAll('input[name="appearance"]')) input.checked = input.value === mode;
   }
   apply();
   system.addEventListener("change", apply);
@@ -17,13 +17,14 @@
     if (event.key === key || event.key === null) { mode = valid(event.newValue); apply(); }
   });
   document.addEventListener("DOMContentLoaded", () => {
-    const select = document.getElementById("appearance-select");
-    if (!select) return;
-    select.value = mode;
-    select.addEventListener("change", () => {
-      mode = valid(select.value);
-      try { localStorage.setItem(key, mode); } catch (_) {}
-      apply();
-    });
+    for (const input of document.querySelectorAll('input[name="appearance"]')) {
+      input.addEventListener("change", () => {
+        if (!input.checked) return;
+        mode = valid(input.value);
+        try { localStorage.setItem(key, mode); } catch (_) {}
+        apply();
+      });
+    }
+    apply();
   });
 })();

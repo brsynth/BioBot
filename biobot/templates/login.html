@@ -1,14 +1,18 @@
+{% from "_brand.html" import liquid_handler, funding_acknowledgement %}
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="/static/theme.js"></script>
+  <script src="/static/theme.js" data-default-appearance="daylight"></script>
   <title>BioBot — Sign in</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='auth.css') }}">
   <link rel="stylesheet" href="/static/theme.css">
+  <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
-<body>
+<body class="auth-login">
+  <main class="login-page">
+    <header class="login-brand">{{ liquid_handler() }}<h1>BioBot</h1></header>
   <div class="auth-container">
     <h2>Sign in</h2>
 
@@ -33,5 +37,7 @@
     <p class="auth-footer">Don't have an account? <a href="{{ url_for('register') }}">Sign up</a></p>
     <p class="auth-footer"><a href="{{ url_for('forgot_password') }}">Forgot your password?</a></p>
   </div>
+    <footer class="login-funding">{{ funding_acknowledgement() }}</footer>
+  </main>
 </body>
 </html>
