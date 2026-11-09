@@ -390,3 +390,21 @@ def movements(protocol):
     """Liquid movements (source position:well, destination position:well, µL) in execution order."""
     return [(f"{s['source']['slot']}:{s['source']['wells'][0]}", f"{s['destination']['slot']}:{s['destination']['wells'][0]}", s["volume_ul"])
             for s in expand(protocol)["steps"] if s["action"] == "transfer"]
+
+
+def movement_difference(got, want):
+    """Describe how two movement lists differ ("" when they match, volumes within rounding)."""
+    same = lambda a, b: a[:2] == b[:2] and abs(a[2] - b[2]) <= max(0.01, 0.001 * abs(b[2]))
+    show = lambda m: f"{m[0]} → {m[1]}, {m[2]} µL"
+    if len(got) == len(want) and all(map(same, got, want)):
+        return ""
+    key = lambda m: (m[0], m[1], round(m[2], 2))
+    pairs = [(i, a, b) for i, (a, b) in enumerate(zip(got, want)) if not same(a, b)]
+    if sorted(map(key, got)) == sorted(map(key, want)):
+        i, a, b = pairs[0]
+        return f"the script makes the same {len(got)} transfers in a different order (first at #{i + 1}: script {show(a)}, protocol {show(b)})"
+    parts = [f"the script makes {len(got)} transfers, the protocol {len(want)}"] if len(got) != len(want) else []
+    if pairs:
+        i, a, b = pairs[0]
+        parts.append(f"{len(pairs)} transfer(s) differ, first at #{i + 1}: script {show(a)}, protocol {show(b)}")
+    return "; ".join(parts)

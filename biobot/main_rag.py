@@ -420,11 +420,7 @@ def read_back_difference(code, handler_config, protocol):
         got, want = protocol_lang.movements(back), protocol_lang.movements(protocol)
     except ValueError as error:
         return f"the script could not be read back: {error}"
-    if got == want:
-        return ""
-    i = next((i for i, (a, b) in enumerate(zip(got, want)) if a != b), min(len(got), len(want)))
-    return (f"the script makes {len(got)} transfers instead of {len(want)}; first difference at transfer {i + 1}: "
-            f"script {got[i] if i < len(got) else 'nothing'}, protocol {want[i] if i < len(want) else 'nothing'}")
+    return protocol_lang.movement_difference(got, want)
 
 
 # ============================================================

@@ -104,6 +104,14 @@ class CheckTests(unittest.TestCase):
                 lang.evaluate(expression, {"volume_ul": 100})
         self.assertEqual(lang.evaluate("2*volume_ul // 3", {"volume_ul": 100}), 66)
 
+    def test_movement_difference(self):
+        a, b = ("1:A1", "1:A2", 10), ("1:A2", "1:A3", 10)
+        self.assertEqual(lang.movement_difference([a, b], [a, ("1:A2", "1:A3", 10.0001)]), "")
+        self.assertIn("different order", lang.movement_difference([b, a], [a, b]))
+        self.assertEqual(lang.movement_difference([a, ("1:A2", "1:A3", 9)], [a, b]),
+                         "1 transfer(s) differ, first at #2: script 1:A2 → 1:A3, 9 µL, protocol 1:A2 → 1:A3, 10 µL")
+        self.assertIn("makes 1 transfers, the protocol 2", lang.movement_difference([a], [a, b]))
+
     def test_end_state_comparison(self):
         self.assertEqual(lang.end_state_mismatches(DILUTION, [{"at": "plate:B1..B5", "volume_ul": 100}]), [])
         self.assertEqual(lang.end_state_mismatches(DILUTION, [{"at": "plate:B6", "volume_ul": 100}]),
