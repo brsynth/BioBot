@@ -396,8 +396,19 @@ if not os.environ.get("BIOBOT_SKIP_SUFFICIENT_CHECK"):
 
 # 2. Consolidate the request
 if export_mode:
-    consolidated_query = ("Implement exactly this structured protocol on its device. Preserve its hardware, "
-                          "positions, liquids, parameters and operation order:\n" + user_query)
+    # A translation, not a redesign: the LLM gets the protocol and its deterministic expansion.
+    try:
+        steps = [s["description"] for s in protocol_lang.expand(user_query)["steps"]]
+    except ValueError:
+        steps = []
+    listed = "\n".join(f"{i}. {s}" for i, s in enumerate(steps[:400], 1))
+    if len(steps) > 400:
+        listed += f"\n… {len(steps) - 400} more steps, following the protocol's program."
+    consolidated_query = (
+        "Translate this BioBot protocol into the device's native protocol language. This is a translation, not a redesign: "
+        "reproduce exactly the expanded steps below, in this order, with the same labware, positions, wells, volumes and tip "
+        "handling. You may express them with the device's loops or transfer functions, but add no step and leave none out.\n\n"
+        f"Protocol:\n{user_query}" + (f"\n\nExpanded steps ({len(steps)}):\n{listed}" if steps else ""))
     feasibility_result = None
 else:
     consolidated_query = consolidate_request(user_query, chat_history, user_api_key)
