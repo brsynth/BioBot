@@ -37,6 +37,8 @@ if not user_api_key:
     raise ValueError("API_KEY environment variable not set")
 # Export implements a saved protocol as device code; otherwise BioBot designs the protocol.
 export_mode = bool(os.environ.get("BIOBOT_EXPORT"))
+# Debug: generate device code from the chat alone (prompts and questionnaire answers), as before the simulator.
+EXPORT_FROM_CHAT = True
 
 
 def get_openai_client(api_key):
@@ -395,7 +397,13 @@ if not os.environ.get("BIOBOT_SKIP_SUFFICIENT_CHECK"):
         sys.exit(0)
 
 # 2. Consolidate the request
-if export_mode:
+if export_mode and EXPORT_FROM_CHAT:
+    chat_only = [m for m in chat_history if not (m.get("role") == "assistant" and '"program"' in m.get("content", ""))]
+    consolidated_query = consolidate_request("Write the device script for this experiment.", chat_only, user_api_key)
+    feasibility_result = None
+    search_query = None
+    print("STEP:Generating from the chat request (debug mode)...", flush=True)
+elif export_mode:
     # Same path as before the simulator: the user's request, consolidated from the chat, drives the
     # documentation search and the generate/validate loop; the checked protocol says exactly what to implement.
     request = consolidate_request("Write the device script for this experiment.", chat_history, user_api_key) if chat_history else ""
