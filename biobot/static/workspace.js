@@ -568,7 +568,7 @@
   });
   const accountMenu = document.getElementById("account-menu");
   document.addEventListener?.("click", event => {
-    if (accountMenu && (!accountMenu.contains(event.target) || event.target.closest("#settings-btn, #logout-btn"))) accountMenu.open = false;
+    if (accountMenu && (!accountMenu.contains(event.target) || event.target.closest("#settings-btn, #logout-btn, #admin-btn"))) accountMenu.open = false;
   });
   document.addEventListener?.("keydown", event => {
     if (event.key === "Escape" && accountMenu) accountMenu.open = false;
