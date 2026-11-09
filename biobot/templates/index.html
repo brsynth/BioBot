@@ -203,6 +203,11 @@
           <label for="profile-country">Country</label>
           <input id="profile-country" type="text" />
         </div>
+        {% if is_admin %}
+        <div class="form-group">
+          <label><input id="debug-export" type="checkbox"> Debug (admin): generate code from the chat request only, as before the simulator</label>
+        </div>
+        {% endif %}
       </div>
       <div class="modal-footer">
         <button id="edit-profile" class="btn btn-primary">

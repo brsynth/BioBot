@@ -60,7 +60,7 @@ def discard_log():
 
 
 # Debug: generate device code from the chat alone (prompts and questionnaire answers), as before the simulator.
-EXPORT_FROM_CHAT = True
+EXPORT_FROM_CHAT = os.environ.get("BIOBOT_EXPORT_FROM_CHAT") == "1"  # set per export, for admins only
 
 
 def get_openai_client(api_key):

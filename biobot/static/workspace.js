@@ -402,6 +402,14 @@
   const exportSpinner = document.getElementById("export-spinner");
   const exportLink = document.getElementById("export-download");
   const exportStep = document.getElementById("export-step");
+  const debugExport = document.getElementById("debug-export");  // admins only
+  if (debugExport) {
+    try { debugExport.checked = localStorage.getItem("biobot-debug-export") === "1"; } catch (_) {}
+    debugExport.addEventListener("change", () => {
+      try { localStorage.setItem("biobot-debug-export", debugExport.checked ? "1" : "0"); } catch (_) {}
+      exportChecked = null; pollExport(false, false);
+    });
+  }
   const exportCopy = document.getElementById("export-copy"), exportSave = document.getElementById("export-save");
   let exportCode = null, revertTo = null;
   const exportRevert = document.getElementById("export-revert");
@@ -438,7 +446,7 @@
     if (exportRevert) exportRevert.hidden = true;
     if (!protocol) return;
     let job;
-    try { job = await json("/protocol/export", post({protocol, chat_id: currentChatId, start})); }
+    try { job = await json("/protocol/export", post({protocol, chat_id: currentChatId, start, debug: debugExport?.checked === true})); }
     catch (error) { if (deliver) showNotice(`Code generation failed: ${error.message}`, true); return; }
     if (window.getWorkspaceProtocol?.()?.code !== protocol) return;  // the user moved on; checked again on return
     showExportProgress(job);

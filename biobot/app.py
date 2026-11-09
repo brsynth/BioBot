@@ -404,6 +404,12 @@ def reset_password(token):
 # ---------------------
 # Main routes
 # ---------------------
+def is_admin(email):
+    """Admins are listed by email in BIOBOT_ADMINS (comma-separated)."""
+    admins = {item.strip().casefold() for item in os.environ.get("BIOBOT_ADMINS", "").split(",") if item.strip()}
+    return isinstance(email, str) and email.strip().casefold() in admins
+
+
 @app.route("/")
 def index():
     user_id = session.get("user")
@@ -428,7 +434,7 @@ def index():
         return redirect("/login")
 
     session.setdefault("answer_session", uuid.uuid4().hex)
-    return render_template("index.html", user=user, version=__version__)
+    return render_template("index.html", user=user, version=__version__, is_admin=is_admin(user.get("email")))
 
 
 @app.route("/chat", methods=["POST"])
@@ -1307,14 +1313,23 @@ def update_deck():
         return jsonify({"error": "Could not update the protocol. Please try again."}), 502
 
 
+def _user_is_admin(user_id):
+    conn = get_db_connection()
+    try:
+        user = fetchone_dict(conn, "SELECT email FROM users WHERE id = %s", (user_id,))
+    finally:
+        conn.close()
+    return bool(user) and is_admin(user["email"])
+
+
 _exports, _exports_lock = {}, __import__("threading").Lock()  # (user, protocol hash) -> export job
 
 
-def _run_export(key, job, protocol, api_key, history):
+def _run_export(key, job, protocol, api_key, history, from_chat=False):
     from engine import RAG_STATUS_PREFIX, FAILED_CODE_MARKER, FORMAT_MARKER
     try:
         chunks = []
-        for chunk in process_user_query(protocol, history, biobot_model, api_key=api_key, export=True):
+        for chunk in process_user_query(protocol, history, biobot_model, api_key=api_key, export=True, from_chat=from_chat):
             if not chunk.startswith(RAG_STATUS_PREFIX):
                 chunks.append(chunk)
             elif chunk[len(RAG_STATUS_PREFIX):].startswith("__WARNING__:"):
@@ -1351,7 +1366,9 @@ def export_protocol():
     protocol = data.get("protocol")
     if not isinstance(protocol, str) or not protocol.strip():
         return jsonify({"error": "No protocol to export"}), 400
-    key = (user_id, hashlib.sha256(protocol.encode()).hexdigest())
+    # Debug (admins only): generate from the chat request alone, as before the simulator.
+    from_chat = data.get("debug") is True and _user_is_admin(user_id)
+    key = (user_id, hashlib.sha256((protocol + ("\0chat" if from_chat else "")).encode()).hexdigest())
     with _exports_lock:
         job = _exports.get(key)
         if data.get("start") is True and (job is None or job["state"] == "error"):
@@ -1360,7 +1377,7 @@ def export_protocol():
             except ValueError as error:
                 return jsonify({"error": str(error)}), 400
             job = _exports[key] = {"state": "running", "step": "Starting…", "chat_id": data.get("chat_id")}
-            Thread(target=_run_export, args=(key, job, protocol, api_key, history), name="export", daemon=True).start()
+            Thread(target=_run_export, args=(key, job, protocol, api_key, history, from_chat), name="export", daemon=True).start()
         reply = {k: v for k, v in (job or {"state": "none"}).items() if k != "protocol"}
         if reply["state"] != "done" and data.get("chat_id"):
             # The chat's last generated code, so the user can go back to its protocol.
