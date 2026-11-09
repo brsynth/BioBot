@@ -440,6 +440,8 @@
     for (const badge of document.querySelectorAll("[data-admin-count]")) {
       badge.hidden = !users.length; badge.textContent = users.length > 9 ? "9+" : String(users.length);
     }
+    clearTimeout(refreshAdminRequests.timer);
+    refreshAdminRequests.timer = setTimeout(refreshAdminRequests, 60000);
     box.replaceChildren();
     for (const user of users) {
       const row = document.createElement("div"); row.className = "admin-request";
@@ -456,7 +458,6 @@
     }
   }
   refreshAdminRequests();
-  if (document.getElementById("admin-requests")) setInterval(refreshAdminRequests, 60000);
   document.getElementById("admin-btn")?.addEventListener("click", () => {
     document.getElementById("settings-btn")?.click();
     setTimeout(() => document.getElementById("admin-requests")?.scrollIntoView({block:"center"}), 50);
