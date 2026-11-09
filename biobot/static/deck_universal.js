@@ -568,6 +568,8 @@ function _renderPlates(state) {
   const positions = state.positions || [];
   const container = document.createElement("div");
   container.className = "deck-plates";
+  // Facing plates (destination held above the source) are drawn as they sit: destination on top.
+  if (state.arrangement === "facing") container.classList.add("facing");
 
   // Match positions to source/dest plates by checking variable/labware names
   // Only match positions whose type is "plate" (not tipracks, trash, etc.)
@@ -593,7 +595,9 @@ function _renderPlates(state) {
     const slotId = srcPos?.id || "source";
     if (srcPos) usedIds.add(srcPos.id);
     _plateSlotRoles.set(String(slotId), new Set(["source"]));
-    container.appendChild(_renderPlateMap(plates.source, "source", slotId, srcPos));
+    const source = _renderPlateMap(plates.source, "source", slotId, srcPos);
+    source.classList?.add("plate-source");
+    container.appendChild(source);
   }
   if (plates.destination) {
     const dstPos = _findPlatePos("dest") || platePosns.find(p => !usedIds.has(p.id)) || platePosns[1];
@@ -601,7 +605,14 @@ function _renderPlates(state) {
     if (dstPos) usedIds.add(dstPos.id);
     if (!_plateSlotRoles.has(String(slotId))) _plateSlotRoles.set(String(slotId), new Set());
     _plateSlotRoles.get(String(slotId)).add("destination");
-    container.appendChild(_renderPlateMap(plates.destination, "dest", slotId, dstPos));
+    const destination = _renderPlateMap(plates.destination, "dest", slotId, dstPos);
+    destination.classList?.add("plate-dest");
+    container.appendChild(destination);
+    if (state.arrangement === "facing") {
+      const gap = document.createElement("div");
+      gap.className = "deck-plates-gap"; gap.textContent = "↑ ↑ ↑"; gap.title = "Transfer from the source plate up to the destination plate";
+      container.appendChild(gap);
+    }
   }
 
   // Render non-plate positions (tipracks, trash, etc.) — NOT the plate positions

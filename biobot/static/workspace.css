@@ -478,3 +478,11 @@ body.workspace-app.floating-chat-workspace:has(.sidebar.collapsed) > .container 
 .device-models {justify-content:center}
 body:not(.landing) .device-bubbles {display:none}
 #send-btn {margin-left:auto}  /* stays right now that the device drop-down is hidden */
+/* Facing plates: destination held above the source, facing down. */
+.deck-plates.facing {flex-direction:column; flex-wrap:nowrap; align-items:center}
+.deck-plates.facing .plate-dest {order:-2}
+.deck-plates.facing .deck-plates-gap {order:-1; color:var(--accent); letter-spacing:18px; font-size:18px; line-height:1}
+.deck-plates.facing .plate-source {order:0}
+.deck-plates.facing .deck-plates-extras {order:1}
+.deck-plates.facing .plate-dest .deck-plate-header::after {content:"held above · facing down"; margin-left:auto; font-size:11px; color:var(--text-muted)}
+.deck-plates.facing .deck-plate-section {width:min(100%, 520px); flex:none}

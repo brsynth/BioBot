@@ -12,6 +12,7 @@ LAYOUT_SCHEMA = """Return ONLY valid JSON matching this structure:
 {
   "platform": "Device model name",
   "layout_type": "grid | linear | plates",
+  "arrangement": "side_by_side | facing",
   "grid": {"rows": 1, "cols": 1, "labels": ["position_id"]},
   "mounts": [],
   "positions": [{"id": "physical position identifier", "labware": null,
@@ -241,6 +242,7 @@ Rules:
 - mounts: actual documented instrument mounting identifiers, or [] when unknown or not applicable. Do not assume a particular number, naming scheme or orientation.
 - When known, provide each position's physical width/height as a numeric aspect_ratio, respecting the device's orientation. Omit it when unknown.
 - For plate-based layouts, define source/destination plate roles without assuming the protocol's plate format.
+- arrangement (plate-based layouts): "facing" when the destination plate is physically held above the source plate, facing it (as in acoustic transfer); "side_by_side" otherwise.
 - Return ONLY the JSON object.
 """
 
@@ -254,6 +256,16 @@ def generate_device_layout(device_name, api_key=None):
         {"role": "user", "content": f"Device model: {device_name}"},
     ])
     return json.loads(_clean_llm_json(response.output_text))
+
+
+def plate_arrangement(device_name, api_key=None):
+    """How a plate-based device holds its plates: "facing" (destination above the source, facing it) or "side_by_side"."""
+    client = OpenAI(api_key=api_key or get_api_key(), timeout=20, max_retries=0)
+    response = client.responses.create(model=light_functions_model, input=[
+        {"role": "system", "content": 'Answer with one word for the named liquid-handling device: "facing" if its destination plate is physically held above the source plate, facing it (as in acoustic transfer), otherwise "side_by_side".'},
+        {"role": "user", "content": f"Device model: {device_name}"},
+    ])
+    return "facing" if "facing" in response.output_text.lower() else "side_by_side"
 
 
 def bind_protocol(code, layout, api_key=None):

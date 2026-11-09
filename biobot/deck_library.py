@@ -112,6 +112,8 @@ def clean_layout(state):
         return {key: copy.deepcopy(value[key]) for key in fields if key in value}
 
     layout = {"platform": state.get("platform", ""), "layout_type": state["layout_type"]}
+    if state.get("arrangement") in {"side_by_side", "facing"}:
+        layout["arrangement"] = state["arrangement"]
     mounts = state.get("mounts", [])
     if not isinstance(mounts, list) or any(not isinstance(mount, str) or not mount for mount in mounts):
         raise ValueError("Instrument mounts must be a list of non-empty physical identifiers.")
@@ -263,6 +265,12 @@ def _choices(cursor, user_id, device_id):
 def _default_deck(cursor, name, device_id, api_key):
     cursor.execute("SELECT * FROM deck_templates WHERE device_id = %s AND is_default", (device_id,))
     cached = cursor.fetchone()
+    if cached is not None and cached["layout"].get("layout_type") == "plates" and "arrangement" not in cached["layout"]:
+        # Layouts stored before plate arrangements: add it without regenerating (positions stay the same).
+        from deck_visualizer import plate_arrangement
+        layout = {**cached["layout"], "arrangement": plate_arrangement(name, api_key)}
+        cursor.execute("UPDATE deck_templates SET layout = %s WHERE id = %s RETURNING *", (Json(layout), cached["id"]))
+        cached = cursor.fetchone()
     if cached is not None:
         return cached
     cursor.execute("SET LOCAL lock_timeout = '10s'")
