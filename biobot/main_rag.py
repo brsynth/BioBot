@@ -396,7 +396,9 @@ if not os.environ.get("BIOBOT_SKIP_SUFFICIENT_CHECK"):
 
 # 2. Consolidate the request
 if export_mode:
-    # A translation, not a redesign: the LLM gets the protocol and its deterministic expansion.
+    # Same path as before the simulator: the user's request, consolidated from the chat, drives the
+    # documentation search and the generate/validate loop; the checked protocol says exactly what to implement.
+    request = consolidate_request("Write the device script for this experiment.", chat_history, user_api_key) if chat_history else ""
     try:
         steps = [s["description"] for s in protocol_lang.expand(user_query)["steps"]]
     except ValueError:
@@ -405,19 +407,13 @@ if export_mode:
     if len(steps) > 400:
         listed += f"\n… {len(steps) - 400} more steps, following the protocol's program."
     consolidated_query = (
-        "Translate this BioBot protocol into the device's native protocol language. This is a translation, not a redesign: "
-        "reproduce exactly the expanded steps below, in this order, with the same labware, positions, wells, volumes and tip "
-        "handling. You may express them with the device's loops or transfer functions, but add no step and leave none out.\n\n"
+        (f"{request}\n\n" if request else "") +
+        "This experiment has been designed and checked in BioBot's simulator. The script must implement exactly this "
+        "protocol (BioBot language) and its expanded steps, in order, with the same labware, positions, wells, volumes "
+        "and tip handling; use the device's own loops or transfer functions as documented.\n\n"
         f"Protocol:\n{user_query}" + (f"\n\nExpanded steps ({len(steps)}):\n{listed}" if steps else ""))
     feasibility_result = None
-    # Search the documentation with what the code must do, not with the whole prompt.
-    structured = protocol_lang.parse(user_query) or {}
-    search_query = " ".join(filter(None, [
-        f"{structured.get('device', '')} protocol script", structured.get("description", ""),
-        "load labware " + ", ".join(str(lab.get("identifier")) for lab in structured.get("labware", []) if isinstance(lab, dict)),
-        "instruments " + ", ".join(str(i.get("model")) for i in structured.get("instruments", []) if isinstance(i, dict)),
-        "operations " + ", ".join(sorted({next(iter(op)) for op in structured.get("program", []) if isinstance(op, dict) and op})),
-        "pick up tip, drop tip, trash"]))
+    search_query = request or None
 else:
     search_query = None
     consolidated_query = consolidate_request(user_query, chat_history, user_api_key)

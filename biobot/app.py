@@ -1310,11 +1310,11 @@ def update_deck():
 _exports, _exports_lock = {}, __import__("threading").Lock()  # (user, protocol hash) -> export job
 
 
-def _run_export(key, job, protocol, api_key):
+def _run_export(key, job, protocol, api_key, history):
     from engine import RAG_STATUS_PREFIX, FAILED_CODE_MARKER, FORMAT_MARKER
     try:
         chunks = []
-        for chunk in process_user_query(protocol, [], biobot_model, api_key=api_key, export=True):
+        for chunk in process_user_query(protocol, history, biobot_model, api_key=api_key, export=True):
             if not chunk.startswith(RAG_STATUS_PREFIX):
                 chunks.append(chunk)
             elif chunk[len(RAG_STATUS_PREFIX):].startswith("__WARNING__:"):
@@ -1355,11 +1355,11 @@ def export_protocol():
         job = _exports.get(key)
         if data.get("start") is True and (job is None or job["state"] == "error"):
             try:
-                api_key, _ = _deck_request_context(data, user_id)
+                api_key, history = _deck_request_context(data, user_id)
             except ValueError as error:
                 return jsonify({"error": str(error)}), 400
             job = _exports[key] = {"state": "running", "step": "Starting…", "chat_id": data.get("chat_id")}
-            Thread(target=_run_export, args=(key, job, protocol, api_key), name="export", daemon=True).start()
+            Thread(target=_run_export, args=(key, job, protocol, api_key, history), name="export", daemon=True).start()
     return jsonify(job or {"state": "none"})
 
 
