@@ -122,12 +122,13 @@ def run_gpt(user_message, model=biobot_model):
 
 def content_extension(code, default=".txt"):
     """File extension implied by the content itself; simulators often refuse files whose extension does not match."""
-    first = code.lstrip().split("\n", 1)[0]
-    if first.startswith(("import ", "from ", "def ", "class ", "metadata", "requirements")) or re.match(r"^#!.*python", first):
+    stripped = code.lstrip()
+    first = stripped.split("\n", 1)[0]
+    if re.search(r"^(import \w|from [\w.]+ import |def \w+\(|class \w+)", code, re.M) or stripped.startswith(('"""', "'''", "#!")):
         return ".py"
-    if code.lstrip().startswith(("{", "[")):
+    if stripped.startswith(("{", "[")):
         return ".json"
-    if code.lstrip().startswith("<"):
+    if stripped.startswith("<"):
         return ".xml"
     if "," in first and not first.startswith("#"):
         return ".csv"
