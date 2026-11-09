@@ -407,7 +407,9 @@ if export_mode:
     consolidated_query = (
         "Translate this BioBot protocol into the device's native protocol language. This is a translation, not a redesign: "
         "reproduce exactly the expanded steps below, in this order, with the same labware, positions, wells, volumes and tip "
-        "handling. You may express them with the device's loops or transfer functions, but add no step and leave none out.\n\n"
+        "handling. You may express them with the device's loops or transfer functions, but add no step and leave none out. "
+        "For hardware that is built into the device (such as a fixed trash), follow the device documentation: reference it the "
+        "documented way instead of loading it as labware.\n\n"
         f"Protocol:\n{user_query}" + (f"\n\nExpanded steps ({len(steps)}):\n{listed}" if steps else ""))
     feasibility_result = None
 else:
@@ -509,7 +511,7 @@ else:
     time.sleep(2)
     fail_msg = (
         "I wasn't able to generate a fully functional script after several attempts. "
-        f"Validation kept failing: {(last_error or 'no details').strip()[:600]} "
+        f"Validation kept failing: …{(last_error or 'no details').strip()[-800:]} "
         "Here is the latest version of the script I generated — it may need some manual adjustments:"
     )
     print("FAILED_CODE:" + fail_msg + "___CODE_SEP___" + (last_code or "# No code was generated."), flush=True)
