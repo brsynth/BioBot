@@ -17,6 +17,7 @@ const chatJobs = new Map();
 let chatLoadVersion = 0;
 let autoScrollEnabled = true;
 
+window.syncChatActivity = syncChatActivity;
 function syncChatActivity() {
   const job = chatJobs.get(currentChatId);
   isTyping = job?.status === "running";
@@ -26,11 +27,12 @@ function syncChatActivity() {
   window.workspace?.syncActions();
   for (const row of chatListElem.children) {
     row.querySelector(".chat-status")?.remove();
-    const activity = chatJobs.get(row.dataset.chatId) || {status:row.dataset.runStatus};
+    let activity = chatJobs.get(row.dataset.chatId) || {status:row.dataset.runStatus};
+    if (activity?.status !== "running" && window.exportingChats?.has(row.dataset.chatId)) activity = {status:"exporting"};
     if (!activity?.status || activity.status === "read") continue;
     const dot = document.createElement("span");
     dot.className = `chat-status ${activity.status}`;
-    const label = {running:"In progress", done:"Finished", error:"An issue occurred"}[activity.status];
+    const label = {running:"In progress", done:"Finished", error:"An issue occurred", exporting:"Generating code"}[activity.status];
     dot.title = label; dot.setAttribute("role", "img"); dot.setAttribute("aria-label", label);
     row.prepend(dot);
   }

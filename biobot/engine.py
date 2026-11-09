@@ -157,9 +157,11 @@ FAILED_CODE_MARKER = "__FAILED_CODE__:"
 FORMAT_MARKER = "__FORMAT__:"
 QUESTIONS_MARKER = "__QUESTIONS__:"
 
-def process_user_query(user_query, chat_history, model, api_key=None):
+def process_user_query(user_query, chat_history, model, api_key=None, export=False):
     history = [msg for msg in chat_history]
-    if os.environ.get("BIOBOT_SKIP_SUFFICIENT_CHECK"):
+    if export:
+        classification = "code"
+    elif os.environ.get("BIOBOT_SKIP_SUFFICIENT_CHECK"):
         classification = classify_prompt(user_query, chat_history=history, api_key=api_key)
     else:
         assessment = check_sufficient_info(user_query, history, api_key or get_api_key(), allow_general=True)
@@ -173,6 +175,8 @@ def process_user_query(user_query, chat_history, model, api_key=None):
             env["API_KEY"] = api_key or get_api_key()
             # The shared dispatcher already checked completeness before choosing this route.
             env["BIOBOT_SKIP_SUFFICIENT_CHECK"] = "1"
+            if export:
+                env["BIOBOT_EXPORT"] = "1"
 
             # Keep diagnostics out of the reply without letting a full stderr pipe
             # block a long-running documentation/indexing process.

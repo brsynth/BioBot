@@ -20,6 +20,7 @@ from handlers import detect_handler, load_handlers_config
 # App & DB init
 # ---------------------
 app = Flask(__name__)
+app.config["TEMPLATES_AUTO_RELOAD"] = os.environ.get("BIOBOT_DEV") == "1"
 app.secret_key = get_flask_secret_key()
 app.config["SESSION_PERMANENT"] = True
 app.config["PERMANENT_SESSION_LIFETIME"] = 86400  # 24 hours in seconds
@@ -1290,7 +1291,11 @@ def update_deck():
     from deck_library import get_deck
     try:
         api_key, history = _deck_request_context(data, user_id)
-        updated = update_code_from_changes(code, changes, api_key)
+        import protocol_lang
+        if protocol_lang.parse(code) and all(change.get("type") == "set_parameter" for change in changes):
+            updated = protocol_lang.set_parameters(code, changes)
+        else:
+            updated = update_code_from_changes(code, changes, api_key)
         state = get_deck(updated, user_id, api_key, history, data.get("template_id"))
         if data.get("chat_id"):
             _save_deck_protocol(data["chat_id"], user_id, code, updated)
@@ -1300,6 +1305,73 @@ def update_deck():
     except Exception:
         app.logger.exception("Deck update failed")
         return jsonify({"error": "Could not update the protocol. Please try again."}), 502
+
+
+_exports, _exports_lock = {}, __import__("threading").Lock()  # (user, protocol hash) -> export job
+
+
+def _run_export(key, job, protocol, api_key):
+    from engine import RAG_STATUS_PREFIX, FAILED_CODE_MARKER, FORMAT_MARKER
+    try:
+        chunks = []
+        for chunk in process_user_query(protocol, [], biobot_model, api_key=api_key, export=True):
+            if not chunk.startswith(RAG_STATUS_PREFIX):
+                chunks.append(chunk)
+            elif chunk[len(RAG_STATUS_PREFIX):].startswith("__WARNING__:"):
+                job["warning"] = chunk[len(RAG_STATUS_PREFIX) + len("__WARNING__:"):].strip()
+            elif not chunk[len(RAG_STATUS_PREFIX):].startswith("__"):
+                job["step"] = chunk[len(RAG_STATUS_PREFIX):].strip()  # progress shown next to the spinner
+        output = "".join(chunks)
+        fmt, _, code = output[len(FORMAT_MARKER):].partition("\n")
+        if not output.startswith(FORMAT_MARKER):
+            job = {"state": "error", "error": "Could not identify the device for this protocol."}
+        elif code.startswith(FAILED_CODE_MARKER):
+            message, _, code = code[len(FAILED_CODE_MARKER):].partition("___CODE_SEP___")
+            job = {"state": "error", "error": message.strip(), "code": code.strip(), "format": fmt}
+        else:
+            job = {"state": "done", "code": code.strip(), "format": fmt, "warning": job.get("warning")}
+    except Exception:
+        app.logger.exception("Protocol export failed")
+        job = {"state": "error", "error": "Could not export the protocol. Please try again."}
+    with _exports_lock:
+        _exports[key] = job
+
+
+@app.route("/protocol/export", methods=["POST"])
+def export_protocol():
+    """Device code for the current protocol, generated in the background.
+    start=true starts a job unless one is running or done; the reply is the job's state."""
+    import hashlib
+    from threading import Thread
+    user_id = session.get("user")
+    if not user_id:
+        return jsonify({"error": "Not logged in"}), 403
+    data = request.get_json(silent=True) or {}
+    protocol = data.get("protocol")
+    if not isinstance(protocol, str) or not protocol.strip():
+        return jsonify({"error": "No protocol to export"}), 400
+    key = (user_id, hashlib.sha256(protocol.encode()).hexdigest())
+    with _exports_lock:
+        job = _exports.get(key)
+        if data.get("start") is True and (job is None or job["state"] == "error"):
+            try:
+                api_key, _ = _deck_request_context(data, user_id)
+            except ValueError as error:
+                return jsonify({"error": str(error)}), 400
+            job = _exports[key] = {"state": "running", "step": "Starting…", "chat_id": data.get("chat_id")}
+            Thread(target=_run_export, args=(key, job, protocol, api_key), name="export", daemon=True).start()
+    return jsonify(job or {"state": "none"})
+
+
+@app.route("/protocol/exports", methods=["GET"])
+def running_exports():
+    """Chats whose code is being generated, for the activity dots in the chat history."""
+    user_id = session.get("user")
+    if not user_id:
+        return jsonify({"error": "Not logged in"}), 403
+    with _exports_lock:
+        chats = {job.get("chat_id") for (owner, _), job in _exports.items() if owner == user_id and job["state"] == "running"}
+    return jsonify({"running": sorted(chat for chat in chats if chat)})
 
 
 def _save_deck_protocol(chat_id, user_id, original, updated):

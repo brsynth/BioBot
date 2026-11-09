@@ -390,7 +390,6 @@ function _renderDeck(state) {
   const title = document.createElement("div");
   title.className = "deck-title";
   title.textContent = state.platform || "Deck Layout";
-  if (state.title) title.textContent += " — " + state.title;
   wrapper.appendChild(title);
   const libraryPanel = document.getElementById("deck-library-panel");
   libraryPanel?.replaceChildren();
@@ -1574,6 +1573,9 @@ function _renderProtocolParameters(state) {
     }
     input.addEventListener("input", updateParameter);
     input.addEventListener("change", () => { input.value = input.value.trim(); updateParameter(); });
+    input.addEventListener("keydown", event => {
+      if (event.key === "Enter" && !event.isComposing) { event.preventDefault(); _commitChanges(); }
+    });
     label.append(text, input);
     fields.appendChild(label);
   }
@@ -1605,6 +1607,22 @@ function _discardChanges() {
   _renderApplyBar();
 }
 
+// While changes are applied, the deck is greyed out and ignores input.
+function _setDeckBusy(busy) {
+  const deck = document.querySelector("#deck-panel .deck-workspace");
+  deck?.classList.toggle("deck-busy", busy);
+  deck?.setAttribute("aria-busy", String(busy));
+  deck?.querySelector(".deck-busy-bubbles")?.remove();
+  if (!busy || !deck) return;
+  _pauseAnimation();
+  const bubbles = document.createElement("div");
+  bubbles.className = "deck-busy-bubbles";
+  bubbles.setAttribute("role", "status");
+  bubbles.setAttribute("aria-label", "Applying changes");
+  bubbles.innerHTML = "<span></span><span></span><span></span>";
+  deck.appendChild(bubbles);
+}
+
 async function _commitChanges() {
   if (window.workspace?.readOnly) return;
   if (_libraryEditing || _applyingChanges || _pendingChanges.length === 0) return;
@@ -1616,6 +1634,7 @@ async function _commitChanges() {
   }
   const state = _currentState;
   _applyingChanges = true;
+  _setDeckBusy(true);
   _renderProtocolParameters(state);
   window.workspace?.syncActions();
   _renderApplyBar();
@@ -1648,6 +1667,7 @@ async function _commitChanges() {
     }
   } finally {
     _applyingChanges = false;
+    _setDeckBusy(false);
     if (_currentState) _renderProtocolParameters(_currentState);
     if (updateError && _currentState === state) {
       const parametersError = document.getElementById("protocol-parameters-error");
@@ -1760,9 +1780,17 @@ function _ensureDeckSplitter() {
 function _renderDeckCode() {
   const panel = document.getElementById("deck-panel");
   const view = document.getElementById("deck-code-view");
-  if (!view || !panel || view._displayedCode === _currentCode) return;
+  const description = _currentCode ? _currentState?.title || "" : "";
+  if (!view || !panel || (view._displayedCode === _currentCode && view._description === description)) return;
   view.replaceChildren();
   view._displayedCode = _currentCode;
+  view._description = description;
+  if (description) {
+    const summary = document.createElement("p");
+    summary.className = "deck-code-description";
+    summary.textContent = description;
+    view.appendChild(summary);
+  }
   if (!_currentCode) {
     view.textContent = "Open a protocol to view its code.";
     return;
@@ -2247,7 +2275,7 @@ function _renderWellDetails(state, contents) {
   const present = value?.occupied ?? tips;
   panel.replaceChildren(); panel.hidden = false;
   const header = document.createElement("div"); header.className = "well-details-header";
-  _bindWellCardDrag(header, panel);
+  if (!panel._dragBound) { _bindWellCardDrag(panel, panel); panel._dragBound = true; }
   const title = document.createElement("h3"); title.textContent = `Well ${well}`;
   const close = document.createElement("button"); close.type = "button"; close.textContent = "×";
   close.setAttribute("aria-label", "Close well contents"); close.addEventListener("click", _closeWellDetails);
@@ -2433,7 +2461,9 @@ function _showTipAnimation(step, colors) {
   if (!container) return;
 
   const actionKey = (step.action || "").toLowerCase().replace(/[\s-]+/g, "_");
-  const targetSlotId = step.source?.slot || step.destination?.slot;
+  // A tip drop without a declared trash goes to the deck's own trash position.
+  const trash = actionKey === "drop_tip" && (_currentState?.positions || []).find(pos => _deckAreaType(pos.type, pos.labware) === "trash");
+  const targetSlotId = String(step.source?.slot || step.destination?.slot || trash?.id || "");
   if (!targetSlotId) return;
 
   // Find target slot element
@@ -2453,15 +2483,15 @@ function _showTipAnimation(step, colors) {
   overlay.innerHTML = `
     <div class="tip-body" style="border-color:${colors.fill}">
       <div class="tip-liquid" style="background:${colors.fill}"></div>
+      ${step.volume ? `<div class="tip-vol-label">${step.volume}</div>` : ""}
     </div>
     <div class="tip-nozzle" style="background:${colors.fill}"></div>
-    ${step.volume ? `<div class="tip-vol-label">${step.volume}</div>` : ""}
   `;
 
   // Bug 1 fix: account for scroll offset
   overlay.style.position = "absolute";
-  overlay.style.left = (slotRect.left - containerRect.left + container.scrollLeft + slotRect.width / 2 - 20) + "px";
-  overlay.style.top  = (slotRect.top  - containerRect.top  + container.scrollTop  - 52) + "px";
+  overlay.style.left = (slotRect.left - containerRect.left + container.scrollLeft + slotRect.width / 2 - 36) + "px";
+  overlay.style.top  = (slotRect.top  - containerRect.top  + container.scrollTop  - 62) + "px";
   overlay.style.zIndex = "50";
   overlay.style.pointerEvents = "none";
 
@@ -2630,6 +2660,8 @@ function _ensureResizeHandle() {
 document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("deck-discard-btn")?.addEventListener("click", _discardChanges);
   document.getElementById("deck-apply-btn")?.addEventListener("click", _commitChanges);
+  // Keep focus in a parameter box while pressing Discard/Apply: blurring it re-validates and can shift the buttons mid-click.
+  for (const id of ["deck-apply-btn", "deck-discard-btn"]) document.getElementById(id)?.addEventListener("mousedown", event => event.preventDefault());
   _renderApplyBar();
   const t = document.getElementById("deck-toggle-btn");
   const c = document.getElementById("deck-close-btn");

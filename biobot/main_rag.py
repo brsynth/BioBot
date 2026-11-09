@@ -12,6 +12,7 @@ from documentation_index import load_or_build_index, get_text_embedding_with_ret
 from feasibility_check import check_feasibility, format_feasibility_response
 from handlers import detect_handler
 from questionnaire import check_sufficient_info
+import protocol_lang
 
 
 def strip_code_fences(text):
@@ -34,6 +35,8 @@ else:
 user_api_key = get_api_key()
 if not user_api_key:
     raise ValueError("API_KEY environment variable not set")
+# Export implements a saved protocol as device code; otherwise BioBot designs the protocol.
+export_mode = bool(os.environ.get("BIOBOT_EXPORT"))
 
 
 def get_openai_client(api_key):
@@ -317,6 +320,65 @@ Do not ask me to complete anything — return the complete, working output file.
     return None, retrieved_chunks, retrieved_sources, attempt, last_error, last_code
 
 
+def _json_answer(prompt):
+    return json.loads(strip_code_fences(run_gpt(prompt)))
+
+
+def _expected_end_state(question, protocol):
+    """Expected final volumes, written from the request alone (never from the program)."""
+    answer = _json_answer(
+        "From this request only, state the final volume of every well whose content follows from it. "
+        f"Use these labware ids: {json.dumps(protocol.get('labware'))} and parameters: {json.dumps(protocol.get('parameters'))}. "
+        'Return ONLY JSON: {"expected": [{"at": "labware_id:WELLS", "volume_ul": number}]}, WELLS as "A1", "A1,A2" or "B2..B6". '
+        f"Leave out wells you cannot derive.\n\nRequest: {question}")
+    return answer.get("expected", []) if isinstance(answer, dict) else []
+
+
+def design_protocol(question, chunks, index, handler_config, max_attempts=3):
+    """Write the request in the BioBot language, grounded in the device documentation.
+    Returns (protocol text, problems): problems is empty when it expands cleanly and
+    reaches the end state expected from the request."""
+    print("STEP:Searching documentation for relevant context...", flush=True)
+    _, found = index.search(np.array([get_text_embedding_with_retry(question)]), k=5)
+    context = "\n\n".join(chunks[i] for i in found.tolist()[0])
+    prompt = (f"Documentation for {handler_config['name']}:\n---\n{context}\n---\n"
+              f"Write this request as a protocol for BioBot's simulator; device code is generated later.\n{protocol_lang.LANGUAGE_SPEC}\n\nRequest: {question}")
+    expected, text, problems = None, "", []
+    for attempt in range(1, max_attempts + 1):
+        print(f"STEP:Attempt {attempt} — writing and checking the protocol...", flush=True)
+        try:
+            text = strip_code_fences(run_gpt(prompt))
+            protocol = json.loads(text)
+            protocol_lang.expand(protocol)
+            if expected is None:
+                expected = _expected_end_state(question, protocol)
+            problems = protocol_lang.end_state_mismatches(protocol, expected)
+        except ValueError as error:  # invalid JSON or a ProtocolError
+            problems = [str(error)]
+        if not problems:
+            return json.dumps(protocol, indent=2, ensure_ascii=False), []
+        prompt += f"\n\nYour previous protocol:\n{text}\nfails these checks:\n- " + "\n- ".join(problems) + "\nReturn the corrected protocol."
+    return text, problems
+
+
+def read_back_difference(code, handler_config, protocol):
+    """Translate exported code back into the BioBot language; describe how its liquid movements differ."""
+    print("STEP:Checking that the code reproduces the protocol...", flush=True)
+    try:
+        back = _json_answer(
+            f"Translate this {handler_config['name']} script into the BioBot protocol language, describing only what the script does. "
+            f"Reuse these labware and liquids declarations: {json.dumps({k: protocol.get(k) for k in ('labware', 'instruments', 'liquids')})}.\n"
+            f"{protocol_lang.LANGUAGE_SPEC}\n\nScript:\n{code}")
+        got, want = protocol_lang.movements(back), protocol_lang.movements(protocol)
+    except ValueError as error:
+        return f"the script could not be read back: {error}"
+    if got == want:
+        return ""
+    i = next((i for i, (a, b) in enumerate(zip(got, want)) if a != b), min(len(got), len(want)))
+    return (f"the script makes {len(got)} transfers instead of {len(want)}; first difference at transfer {i + 1}: "
+            f"script {got[i] if i < len(got) else 'nothing'}, protocol {want[i] if i < len(want) else 'nothing'}")
+
+
 # ============================================================
 # EXECUTION
 # ============================================================
@@ -333,11 +395,15 @@ if not os.environ.get("BIOBOT_SKIP_SUFFICIENT_CHECK"):
         sys.exit(0)
 
 # 2. Consolidate the request
-consolidated_query = consolidate_request(user_query, chat_history, user_api_key)
-
-# 2b. Feasibility check — is the protocol physically/logically possible?
-print("STEP:Checking protocol feasibility...", flush=True)
-feasibility_result = check_feasibility(consolidated_query, user_api_key)
+if export_mode:
+    consolidated_query = ("Implement exactly this structured protocol on its device. Preserve its hardware, "
+                          "positions, liquids, parameters and operation order:\n" + user_query)
+    feasibility_result = None
+else:
+    consolidated_query = consolidate_request(user_query, chat_history, user_api_key)
+    # 2b. Feasibility check — is the protocol physically/logically possible?
+    print("STEP:Checking protocol feasibility...", flush=True)
+    feasibility_result = check_feasibility(consolidated_query, user_api_key)
 
 if feasibility_result is not None:
     if not feasibility_result.get("feasible"):
@@ -375,9 +441,29 @@ if index is None or not chunks:
           f"(PDF, RST, or TXT) to the {handler_config['docs_path']}/ folder.", flush=True)
     sys.exit(0)
 
-# 5. Run the RAG pipeline
-final_code, sources_used, file_refs, attempts, last_error, last_code = \
-    run_query_and_fix(consolidated_query, chunks, chunk_sources, index, handler_config)
+# 5. Design the protocol for the simulator; device code is generated only at export.
+if not export_mode:
+    protocol, problems = design_protocol(consolidated_query, chunks, index, handler_config)
+    print("FORMAT:json", flush=True)
+    if problems:
+        print("FAILED_CODE:The protocol still fails these checks:\n- " + "\n- ".join(problems) + "___CODE_SEP___" + protocol, flush=True)
+    else:
+        print(protocol, flush=True)
+    sys.exit(0)
+
+# Export: the code, read back into the BioBot language, should make the same liquid movements.
+# A validated script is kept even if the read-back still differs; the difference is reported as a warning.
+source_protocol = protocol_lang.parse(user_query)
+for attempt in range(2):
+    final_code, sources_used, file_refs, attempts, last_error, last_code = \
+        run_query_and_fix(consolidated_query, chunks, chunk_sources, index, handler_config)
+    difference = final_code and source_protocol and read_back_difference(final_code, handler_config, source_protocol)
+    if not difference:
+        break
+    if attempt == 0:
+        consolidated_query += f"\n\nA previous script did not reproduce the protocol: {difference}."
+if difference:
+    print(f"STEP:__WARNING__:The code passed validation, but reading it back found a difference with the protocol: {difference}. Check it before running.", flush=True)
 
 if final_code:
     # Detect the output format from the content
@@ -412,7 +498,7 @@ else:
     time.sleep(2)
     fail_msg = (
         "I wasn't able to generate a fully functional script after several attempts. "
-        "The simulation kept returning errors that I couldn't resolve automatically. "
+        f"Validation kept failing: {(last_error or 'no details').strip()[:600]} "
         "Here is the latest version of the script I generated — it may need some manual adjustments:"
     )
     print("FAILED_CODE:" + fail_msg + "___CODE_SEP___" + (last_code or "# No code was generated."), flush=True)

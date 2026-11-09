@@ -13,3 +13,6 @@ __pycache__/
 .venv/
 biobot/data/
 biobot/generated_script.py
+
+# Local development overrides
+docker-compose.override.yml

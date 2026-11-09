@@ -1,4 +1,4 @@
-/* Device-first workspace. Protocol code stays in memory, never in the view. */
+/* Device-first workspace. */
 (() => {
   const deviceSelect = document.getElementById("device-select");
   const protocolList = document.getElementById("protocol-list");
@@ -11,11 +11,11 @@
   const notice = document.getElementById("protocol-notice");
   const chats = new Map();
   let selectedDevice = "", protocolName = "", sourceProtocol = null, creating = null, deviceRequest = null, pageVersion = 0;
-  let noticeTimer, libraryProtocol = null;
-  function showNotice(message) {
+  let noticeTimer, libraryProtocol = null, exportRunning = false;
+  function showNotice(message, persist = false) {
     clearTimeout(noticeTimer);
     notice.textContent = message;
-    if (message) noticeTimer = setTimeout(() => { notice.textContent = ""; }, 5000);
+    if (message && !persist) noticeTimer = setTimeout(() => { notice.textContent = ""; }, 5000);
   }
 
   let nameEditor = null;
@@ -215,11 +215,12 @@
     syncNameActions();
     const protocol = window.getWorkspaceProtocol?.();
     const disabled = !protocol?.code || protocol.pending || isTyping;
-    copyButton.disabled = disabled; saveButton.disabled = disabled || !!libraryProtocol; downloadButton.disabled = disabled;
+    copyButton.disabled = disabled; saveButton.disabled = disabled || !!libraryProtocol; downloadButton.disabled = disabled || exportRunning;
     saveButton.hidden = !!libraryProtocol;
     sendBtn.disabled = isTyping || !!libraryProtocol || !!deviceRequest || !!(protocol?.code && protocol.pending);
   }
   function deckChanged(state) {
+    if (window.getWorkspaceProtocol?.()?.code !== exportChecked) pollExport(false, false);
     if (state && !libraryProtocol) window.floatingChat?.attach();
     if (state?.platform) {
       selectedDevice = state.platform;
@@ -396,17 +397,55 @@
     try {await navigator.clipboard.writeText(window.getWorkspaceProtocol().code); showNotice("Protocol copied.");}
     catch (_) {showNotice("Could not copy the protocol. Please try again.");}
   });
-  downloadButton.addEventListener("click", () => {
-    const code = window.getWorkspaceProtocol().code;
+  // Export runs on the server; the page only polls it, so the deck stays usable
+  // and leaving the chat does not lose the job.
+  const exportSpinner = document.getElementById("export-spinner");
+  const exportLink = document.getElementById("export-download");
+  const exportStep = document.getElementById("export-step");
+  window.exportingChats = new Set();
+  async function refreshExportingChats() {
+    try { window.exportingChats = new Set((await json("/protocol/exports")).running); } catch (_) { return; }
+    window.syncChatActivity?.();
+    if (window.exportingChats.size) setTimeout(refreshExportingChats, 3000);
+  }
+  function showExportProgress(job) {
+    exportRunning = job?.state === "running";
+    if (exportSpinner) exportSpinner.hidden = !exportRunning;
+    if (exportStep) { exportStep.hidden = !exportRunning; exportStep.textContent = exportRunning ? job.step || "" : ""; }
+    syncActions();
+  }
+  let exportTimer = null, exportChecked = null;
+  async function pollExport(start, deliver) {
+    const protocol = window.getWorkspaceProtocol?.()?.code;
+    clearTimeout(exportTimer);
+    exportChecked = protocol;
+    showDownload(null);
+    showExportProgress(null);
+    if (!protocol) return;
+    let job;
+    try { job = await json("/protocol/export", post({protocol, chat_id: currentChatId, start})); }
+    catch (error) { if (deliver) showNotice(`Code generation failed: ${error.message}`, true); return; }
+    if (window.getWorkspaceProtocol?.()?.code !== protocol) return;  // the user moved on; checked again on return
+    showExportProgress(job);
+    if (start && job.state === "running") refreshExportingChats();
+    if (job.state === "running") exportTimer = setTimeout(() => pollExport(false, true), 3000);
+    else if (job.state === "error" && deliver) showNotice(`Code generation failed: ${job.error}`, true);
+    else if (job.state === "done") { showDownload(job.code); if (deliver && job.warning) showNotice(job.warning, true); }
+  }
+  // A ready file is offered as a link next to the Share icon.
+  function showDownload(code) {
+    if (!exportLink) return;
+    if (String(exportLink.href || "").startsWith("blob:")) URL.revokeObjectURL(exportLink.href);
+    exportLink.hidden = !code;
+    exportLink.removeAttribute("href");
+    if (!code) return;
     const format = FORMAT_CONFIG[detectFormat(code)] || FORMAT_CONFIG.text;
-    const url = URL.createObjectURL(new Blob([code], {type: format.mime}));
-    const link = document.createElement("a");
     const name = (protocolName || "protocol").replace(/[\\/:*?"<>|]/g, "_");
-    link.href = url;
-    link.download = name.endsWith(format.ext) ? name : name + format.ext;
-    document.body.appendChild(link); link.click(); link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  });
+    exportLink.href = URL.createObjectURL(new Blob([code], {type: format.mime}));
+    exportLink.download = name.endsWith(format.ext) ? name : name + format.ext;
+  }
+  downloadButton.addEventListener("click", () => pollExport(true, true));
+  refreshExportingChats();
   actions.addEventListener("click", event => {
     if (event.target.closest("button")) actions.open = false;
   });

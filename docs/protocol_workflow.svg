@@ -1,0 +1,145 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="171mm" height="98.0mm" viewBox="0 0 1850 1060"><defs><marker id="head1f2937" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1f2937"/></marker><marker id="headb45309" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#b45309"/></marker></defs><rect width="1850" height="1060" fill="#ffffff"/><rect x="20" y="20" width="540" height="900" rx="14" fill="#fbfbfc" stroke="#d1d5db" stroke-width="2"/>
+<text x="42" y="62" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="30" font-weight="bold" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">A</text>
+<text x="72" y="62" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="26" font-weight="bold" font-style="normal" fill="#4b5563" text-anchor="start" xml:space="preserve">Design · chat</text>
+<rect x="75" y="88" width="460" height="100" rx="10" fill="#ffffff" stroke="#9ca3af" stroke-width="2" stroke-dasharray="6 5"/>
+<text x="91" y="122" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="24" font-weight="bold" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">User request</text>
+<text x="91" y="151" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="20" font-weight="normal" font-style="italic" fill="#4b5563" text-anchor="start" xml:space="preserve">“1:2 serial dilution of the sample across row B,</text>
+<text x="91" y="176" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="20" font-weight="normal" font-style="italic" fill="#4b5563" text-anchor="start" xml:space="preserve">6 points, 100 µL per well, on an Opentrons OT-2.”</text>
+<rect x="75" y="220" width="460" height="92" rx="10" fill="#eeecf8" stroke="#4a3aa7" stroke-width="2.5"/>
+<rect x="465" y="230" width="60" height="24" rx="12" fill="#4a3aa7"/>
+<text x="495.0" y="248" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="16" font-weight="bold" font-style="normal" fill="#ffffff" text-anchor="middle" xml:space="preserve">LLM</text>
+<text x="91" y="254" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="24" font-weight="bold" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">Identify device, open deck</text>
+<text x="91" y="282" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="20" font-weight="normal" font-style="normal" fill="#4b5563" text-anchor="start" xml:space="preserve">physical layout from the shared deck library</text>
+<rect x="75" y="344" width="460" height="92" rx="10" fill="#eeecf8" stroke="#4a3aa7" stroke-width="2.5"/>
+<rect x="465" y="354" width="60" height="24" rx="12" fill="#4a3aa7"/>
+<text x="495.0" y="372" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="16" font-weight="bold" font-style="normal" fill="#ffffff" text-anchor="middle" xml:space="preserve">LLM</text>
+<text x="91" y="378" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="24" font-weight="bold" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">Complete the request</text>
+<text x="91" y="406" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="20" font-weight="normal" font-style="normal" fill="#4b5563" text-anchor="start" xml:space="preserve">structured questions for missing values</text>
+<rect x="75" y="468" width="460" height="92" rx="10" fill="#eeecf8" stroke="#4a3aa7" stroke-width="2.5"/>
+<rect x="465" y="478" width="60" height="24" rx="12" fill="#4a3aa7"/>
+<text x="495.0" y="496" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="16" font-weight="bold" font-style="normal" fill="#ffffff" text-anchor="middle" xml:space="preserve">LLM</text>
+<text x="91" y="502" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="24" font-weight="bold" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">Write the protocol</text>
+<text x="91" y="530" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="20" font-weight="normal" font-style="normal" fill="#4b5563" text-anchor="start" xml:space="preserve">BioBot language, from the device documentation</text>
+<rect x="75" y="592" width="460" height="92" rx="10" fill="#e8f1fb" stroke="#2a78d6" stroke-width="2.5"/>
+<rect x="451" y="602" width="74" height="24" rx="12" fill="#2a78d6"/>
+<text x="488.0" y="620" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="16" font-weight="bold" font-style="normal" fill="#ffffff" text-anchor="middle" xml:space="preserve">CODE</text>
+<text x="91" y="626" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="24" font-weight="bold" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">Expand and check</text>
+<text x="91" y="654" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="20" font-weight="normal" font-style="normal" fill="#4b5563" text-anchor="start" xml:space="preserve">wells · volumes · pipette range · tips</text>
+<rect x="75" y="716" width="230" height="92" rx="10" fill="#e8f1fb" stroke="#2a78d6" stroke-width="2.5"/>
+<rect x="221" y="774" width="74" height="24" rx="12" fill="#2a78d6"/>
+<text x="258.0" y="792" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="16" font-weight="bold" font-style="normal" fill="#ffffff" text-anchor="middle" xml:space="preserve">CODE</text>
+<text x="91" y="750" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="24" font-weight="bold" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">Final-state check</text>
+<text x="91" y="778" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="20" font-weight="normal" font-style="normal" fill="#4b5563" text-anchor="start" xml:space="preserve">well volumes</text>
+<rect x="325" y="716" width="210" height="92" rx="10" fill="#eeecf8" stroke="#4a3aa7" stroke-width="2.5"/>
+<rect x="465" y="726" width="60" height="24" rx="12" fill="#4a3aa7"/>
+<text x="495.0" y="744" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="16" font-weight="bold" font-style="normal" fill="#ffffff" text-anchor="middle" xml:space="preserve">LLM</text>
+<text x="341" y="750" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="24" font-weight="bold" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">Expected</text>
+<text x="341" y="778" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="20" font-weight="normal" font-style="normal" fill="#4b5563" text-anchor="start" xml:space="preserve">from request only</text>
+<path d="M305,188 V218" fill="none" stroke="#1f2937" stroke-width="2.5" marker-end="url(#head1f2937)"/>
+<path d="M305,312 V342" fill="none" stroke="#1f2937" stroke-width="2.5" marker-end="url(#head1f2937)"/>
+<path d="M305,436 V466" fill="none" stroke="#1f2937" stroke-width="2.5" marker-end="url(#head1f2937)"/>
+<path d="M305,560 V590" fill="none" stroke="#1f2937" stroke-width="2.5" marker-end="url(#head1f2937)"/>
+<path d="M325,762 H307" fill="none" stroke="#1f2937" stroke-width="2.5" marker-end="url(#head1f2937)"/>
+<path d="M75,638 H50 V514 H73" fill="none" stroke="#b45309" stroke-width="2.5" marker-end="url(#headb45309)"/>
+<path d="M75,762 H50 V640" fill="none" stroke="#b45309" stroke-width="2.5" marker-end="url(#headb45309)"/>
+<text x="38" y="690" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="18" font-weight="bold" font-style="normal" fill="#b45309" text-anchor="middle" xml:space="preserve" transform="rotate(-90 38 690)">fail → errors to the LLM (≤ 3)</text>
+<path d="M197,808 V860 H548 V200 H560" fill="none" stroke="#1f2937" stroke-width="2.5"/>
+<text x="212" y="850" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="19" font-weight="bold" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">pass</text>
+<path d="M568,182 H612 V164 L642,200 L612,236 V218 H568 z" fill="#1f2937"/>
+<g transform="translate(70,0)">
+<rect x="580" y="20" width="550" height="900" rx="14" fill="#fbfbfc" stroke="#d1d5db" stroke-width="2"/>
+<text x="602" y="62" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="30" font-weight="bold" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">B</text>
+<text x="632" y="62" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="26" font-weight="bold" font-style="normal" fill="#4b5563" text-anchor="start" xml:space="preserve">Simulate · deck and playback</text>
+<path d="M580,200 H603" fill="none" stroke="#1f2937" stroke-width="2.5" marker-end="url(#head1f2937)"/>
+<rect x="605" y="88" width="500" height="228" rx="10" fill="#f3f4f6" stroke="#6b7280" stroke-width="2.5"/>
+<rect x="955" y="98" width="140" height="24" rx="12" fill="#6b7280"/>
+<text x="1025" y="116" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="16" font-weight="bold" font-style="normal" fill="#ffffff" text-anchor="middle" xml:space="preserve">SAVED</text>
+<text x="621" y="122" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="24" font-weight="bold" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">BioBot protocol</text>
+<text x="621" y="148" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="20" font-weight="normal" font-style="normal" fill="#4b5563" text-anchor="start" xml:space="preserve">vendor-agnostic JSON · source of truth</text>
+<text x="621" y="186" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="18" font-weight="normal" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">n_points: 6    volume_ul: 100</text>
+<text x="621" y="212" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="18" font-weight="normal" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">transfer res:A1 → plate:B2..B{n_points}</text>
+<text x="621" y="238" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="18" font-weight="normal" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">transfer res:A2 → plate:B1, 2×{volume_ul}</text>
+<text x="621" y="264" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="18" font-weight="normal" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">for i in 1..{n_points}−1:</text>
+<text x="621" y="290" font-family="'DejaVu Sans Mono', Menlo, monospace" font-size="18" font-weight="normal" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">  transfer plate:B{i} → B{i+1}, mix 3×</text>
+<rect x="605" y="348" width="500" height="92" rx="10" fill="#e8f1fb" stroke="#2a78d6" stroke-width="2.5"/>
+<rect x="1021" y="358" width="74" height="24" rx="12" fill="#2a78d6"/>
+<text x="1058.0" y="376" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="16" font-weight="bold" font-style="normal" fill="#ffffff" text-anchor="middle" xml:space="preserve">CODE</text>
+<text x="621" y="382" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="24" font-weight="bold" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">Expand</text>
+<text x="621" y="410" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="20" font-weight="normal" font-style="normal" fill="#4b5563" text-anchor="start" xml:space="preserve">steps, initial and final well contents</text>
+<rect x="605" y="472" width="500" height="100" rx="10" fill="#e6f6ef" stroke="#13865d" stroke-width="2.5"/>
+<rect x="1021" y="482" width="74" height="24" rx="12" fill="#13865d"/>
+<text x="1058.0" y="500" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="16" font-weight="bold" font-style="normal" fill="#ffffff" text-anchor="middle" xml:space="preserve">USER</text>
+<text x="621" y="506" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="24" font-weight="bold" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">Deck and playback</text>
+<text x="621" y="534" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="20" font-weight="normal" font-style="normal" fill="#4b5563" text-anchor="start" xml:space="preserve">play through steps · inspect wells and mixtures</text>
+<rect x="605" y="620" width="240" height="116" rx="10" fill="#e8f1fb" stroke="#2a78d6" stroke-width="2.5"/>
+<rect x="761" y="630" width="74" height="24" rx="12" fill="#2a78d6"/>
+<text x="798.0" y="648" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="16" font-weight="bold" font-style="normal" fill="#ffffff" text-anchor="middle" xml:space="preserve">CODE</text>
+<text x="621" y="654" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="24" font-weight="bold" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">Parameter</text>
+<text x="621" y="682" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="20" font-weight="normal" font-style="normal" fill="#4b5563" text-anchor="start" xml:space="preserve">set value, re-expand</text>
+<text x="621" y="707" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="20" font-weight="normal" font-style="normal" fill="#4b5563" text-anchor="start" xml:space="preserve">no LLM call</text>
+<rect x="865" y="620" width="240" height="116" rx="10" fill="#eeecf8" stroke="#4a3aa7" stroke-width="2.5"/>
+<rect x="1035" y="630" width="60" height="24" rx="12" fill="#4a3aa7"/>
+<text x="1065.0" y="648" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="16" font-weight="bold" font-style="normal" fill="#ffffff" text-anchor="middle" xml:space="preserve">LLM</text>
+<text x="881" y="654" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="24" font-weight="bold" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">Deck edit</text>
+<text x="881" y="682" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="20" font-weight="normal" font-style="normal" fill="#4b5563" text-anchor="start" xml:space="preserve">labware, instrument</text>
+<text x="881" y="707" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="20" font-weight="normal" font-style="normal" fill="#4b5563" text-anchor="start" xml:space="preserve">then re-checked</text>
+<path d="M855,316 V346" fill="none" stroke="#1f2937" stroke-width="2.5" marker-end="url(#head1f2937)"/>
+<path d="M855,440 V470" fill="none" stroke="#1f2937" stroke-width="2.5" marker-end="url(#head1f2937)"/>
+<path d="M725,572 V618" fill="none" stroke="#1f2937" stroke-width="2.5" marker-end="url(#head1f2937)"/>
+<path d="M985,572 V618" fill="none" stroke="#1f2937" stroke-width="2.5" marker-end="url(#head1f2937)"/>
+<path d="M725,736 V770 H1120 V230 H1107" fill="none" stroke="#b45309" stroke-width="2.5" marker-end="url(#headb45309)"/>
+<path d="M1105,678 H1120" fill="none" stroke="#b45309" stroke-width="2.5" marker-end="url(#headb45309)"/>
+<text x="1000" y="795" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="19" font-weight="bold" font-style="normal" fill="#b45309" text-anchor="middle" xml:space="preserve">updated protocol</text>
+</g>
+<path d="M1208,116 H1252 V98 L1282,134 L1252,170 V152 H1208 z" fill="#1f2937"/>
+<text x="1245.0" y="86" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="20" font-weight="bold" font-style="normal" fill="#1f2937" text-anchor="middle" xml:space="preserve">Export</text>
+<g transform="translate(140,0)">
+<rect x="1150" y="20" width="540" height="900" rx="14" fill="#fbfbfc" stroke="#d1d5db" stroke-width="2"/>
+<text x="1172" y="62" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="30" font-weight="bold" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">C</text>
+<text x="1202" y="62" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="26" font-weight="bold" font-style="normal" fill="#4b5563" text-anchor="start" xml:space="preserve">Export · device code</text>
+<rect x="1175" y="88" width="470" height="92" rx="10" fill="#eeecf8" stroke="#4a3aa7" stroke-width="2.5"/>
+<rect x="1575" y="98" width="60" height="24" rx="12" fill="#4a3aa7"/>
+<text x="1605.0" y="116" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="16" font-weight="bold" font-style="normal" fill="#ffffff" text-anchor="middle" xml:space="preserve">LLM</text>
+<text x="1191" y="122" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="24" font-weight="bold" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">Generate device code</text>
+<text x="1191" y="150" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="20" font-weight="normal" font-style="normal" fill="#4b5563" text-anchor="start" xml:space="preserve">from the protocol and device documentation</text>
+<rect x="1175" y="212" width="470" height="92" rx="10" fill="#e8f1fb" stroke="#2a78d6" stroke-width="2.5"/>
+<rect x="1491" y="222" width="144" height="24" rx="12" fill="#2a78d6"/>
+<text x="1563.0" y="240" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="16" font-weight="bold" font-style="normal" fill="#ffffff" text-anchor="middle" xml:space="preserve">SIM / LLM</text>
+<text x="1191" y="246" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="24" font-weight="bold" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">Validate</text>
+<text x="1191" y="274" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="20" font-weight="normal" font-style="normal" fill="#4b5563" text-anchor="start" xml:space="preserve">vendor simulator, otherwise LLM review</text>
+<rect x="1175" y="336" width="470" height="92" rx="10" fill="#eeecf8" stroke="#4a3aa7" stroke-width="2.5"/>
+<rect x="1575" y="394" width="60" height="24" rx="12" fill="#4a3aa7"/>
+<text x="1605.0" y="412" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="16" font-weight="bold" font-style="normal" fill="#ffffff" text-anchor="middle" xml:space="preserve">LLM</text>
+<text x="1191" y="370" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="24" font-weight="bold" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">Read back into BioBot language</text>
+<text x="1191" y="398" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="20" font-weight="normal" font-style="normal" fill="#4b5563" text-anchor="start" xml:space="preserve">what the generated code actually does</text>
+<rect x="1175" y="460" width="470" height="92" rx="10" fill="#e8f1fb" stroke="#2a78d6" stroke-width="2.5"/>
+<rect x="1561" y="470" width="74" height="24" rx="12" fill="#2a78d6"/>
+<text x="1598.0" y="488" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="16" font-weight="bold" font-style="normal" fill="#ffffff" text-anchor="middle" xml:space="preserve">CODE</text>
+<text x="1191" y="494" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="24" font-weight="bold" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">Compare liquid movements</text>
+<text x="1191" y="522" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="20" font-weight="normal" font-style="normal" fill="#4b5563" text-anchor="start" xml:space="preserve">source → destination, volume, order</text>
+<path d="M1150,134 H1173" fill="none" stroke="#1f2937" stroke-width="2.5" marker-end="url(#head1f2937)"/>
+<path d="M1410,180 V210" fill="none" stroke="#1f2937" stroke-width="2.5" marker-end="url(#head1f2937)"/>
+<path d="M1410,304 V334" fill="none" stroke="#1f2937" stroke-width="2.5" marker-end="url(#head1f2937)"/>
+<path d="M1410,428 V458" fill="none" stroke="#1f2937" stroke-width="2.5" marker-end="url(#head1f2937)"/>
+<path d="M1175,258 H1162 V160 H1173" fill="none" stroke="#b45309" stroke-width="2.5" marker-end="url(#headb45309)"/>
+<text x="1188" y="202" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="18" font-weight="bold" font-style="normal" fill="#b45309" text-anchor="start" xml:space="preserve">repair ≤ 5</text>
+<path d="M1645,506 H1662 V134 H1647" fill="none" stroke="#b45309" stroke-width="2.5" marker-end="url(#headb45309)"/>
+<text x="1668" y="320" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="18" font-weight="bold" font-style="normal" fill="#b45309" text-anchor="middle" xml:space="preserve" transform="rotate(90 1668 320)">mismatch → regenerate (≤ 1)</text>
+<rect x="1175" y="610" width="470" height="120" rx="10" fill="#ffffff" stroke="#6b7280" stroke-width="2.5"/>
+<text x="1191" y="644" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="24" font-weight="bold" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">Device-specific code</text>
+<text x="1191" y="672" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="20" font-weight="normal" font-style="normal" fill="#4b5563" text-anchor="start" xml:space="preserve">.py (Opentrons) · .csv picklist (Echo)</text>
+<text x="1191" y="697" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="20" font-weight="normal" font-style="normal" fill="#4b5563" text-anchor="start" xml:space="preserve">worklist (Hamilton) · any documented format</text>
+<path d="M1410,552 V608" fill="none" stroke="#1f2937" stroke-width="2.5" marker-end="url(#head1f2937)"/>
+<text x="1422" y="590" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="19" font-weight="bold" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">match</text>
+</g>
+<rect x="40" y="950" width="34" height="24" rx="6" fill="#eeecf8" stroke="#4a3aa7" stroke-width="2.5"/>
+<text x="84" y="969" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="20" font-weight="normal" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">LLM call</text>
+<rect x="205.6" y="950" width="34" height="24" rx="6" fill="#e8f1fb" stroke="#2a78d6" stroke-width="2.5"/>
+<text x="249.6" y="969" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="20" font-weight="normal" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">Deterministic code (no LLM, no generated code run)</text>
+<rect x="799.6" y="950" width="34" height="24" rx="6" fill="#e6f6ef" stroke="#13865d" stroke-width="2.5"/>
+<text x="843.6" y="969" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="20" font-weight="normal" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">User</text>
+<rect x="924.4" y="950" width="34" height="24" rx="6" fill="#f3f4f6" stroke="#6b7280" stroke-width="2.5"/>
+<text x="968.4" y="969" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="20" font-weight="normal" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">Data</text>
+<path d="M1049.2,962 H1089.2" stroke="#b45309" stroke-width="2.5" marker-end="url(#headb45309)"/>
+<text x="1101.2" y="969" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="20" font-weight="normal" font-style="normal" fill="#1f2937" text-anchor="start" xml:space="preserve">Feedback loop</text>
+<text x="40" y="1025" font-family="Helvetica, Arial, 'Liberation Sans', 'DejaVu Sans', sans-serif" font-size="21" font-weight="normal" font-style="italic" fill="#4b5563" text-anchor="start" xml:space="preserve">Device code is generated only at export. The simulator plays, and the system saves, the protocol — never code.</text></svg>

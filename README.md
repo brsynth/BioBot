@@ -146,7 +146,8 @@ BioBot/
 ├── biobot/
 │   ├── app.py                  # Flask routes
 │   ├── engine.py               # Chat and RAG dispatch
-│   ├── main_rag.py             # Retrieval, generation, validation
+│   ├── main_rag.py             # Retrieval, protocol design, export, validation
+│   ├── protocol_lang.py        # BioBot protocol language: expansion and checks
 │   ├── handlers.py             # On-demand platform discovery
 │   ├── doc_fetcher.py          # On-demand documentation download
 │   ├── doc_loader.py           # Documentation parsing
@@ -173,9 +174,9 @@ BioBot/
 1. **Register** a new account or log in.
 2. **Start a chat** and describe your protocol in plain English. Use **Edit** under a previous prompt, then **Save & regenerate**, to correct it. Saving replaces all replies and messages after that prompt; **Cancel** keeps the conversation unchanged.
 3. If BioBot needs more details, it presents **structured questions** select your options and click "Generate Protocol."
-4. BioBot generates, simulates, and validates the code automatically.
-5. The final code appears with **Copy**, **Download**, and **Deck** buttons.
-6. Click **Deck** to see the interactive deck layout, drag labware, change instruments, edit parameters.
+4. BioBot writes the protocol in its own vendor-agnostic language ([PROTOCOL_LANGUAGE.md](PROTOCOL_LANGUAGE.md)) and checks it in the simulator.
+5. The deck opens with the labware, liquids and ordered operations. Play through the steps, inspect wells, drag labware, change instruments, and edit parameters; changes update the protocol.
+6. Click **Export code** to generate the device-specific code from the current protocol.
 7. Test the code on your robot. Click **👍** if it works, **👎** if it doesn't (with a note about what went wrong). Your feedback improves future generations.
 
 ---

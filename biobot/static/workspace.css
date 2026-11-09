@@ -15,7 +15,11 @@
   font-weight: 500;
 }
 .workspace-app {display:flex; flex-direction:column; height:100dvh}
-.workspace-app > .container {flex:1; height:calc(100dvh - var(--banner-height)); min-height:0}
+.workspace-app {--footer-height:28px}
+.workspace-app > .container {flex:1; height:calc(100dvh - var(--banner-height) - var(--footer-height)); min-height:0}
+.funding-footer {flex:none; position:relative; z-index:60; height:var(--footer-height); line-height:var(--footer-height); text-align:center; padding:0 16px; overflow-x:auto; white-space:nowrap; font-size:11px; color:var(--text-muted); background:var(--bg-primary); border-top:1px solid var(--border)}
+.funding-footer a {color:var(--accent); text-underline-offset:3px}
+.deck-code-description {margin:0 0 10px; font-size:13px; line-height:1.5; color:var(--text-secondary)}
 .app-left {display:flex; flex-direction:column; flex:1; min-width:0; min-height:0}
 .left-panels {display:flex; flex:1; min-height:0}
 .container:has(> .deck-panel:not(.hidden)) > .app-left {flex:0 0 calc(var(--sidebar-width) + clamp(300px,26vw,360px)); border-right:1px solid var(--border)}
@@ -32,7 +36,7 @@
 .protocol-actions-menu button:hover:enabled {background:var(--protocol-soft)}
 .protocol-actions-menu button:disabled {opacity:.4; cursor:default}
 .workspace-app .sidebar-header {padding:0 0 12px; justify-content:flex-end}
-.workspace-app .deck-panel.deck-fullscreen {inset:var(--banner-height) 0 0; height:calc(100dvh - var(--banner-height))}
+.workspace-app .deck-panel.deck-fullscreen {inset:var(--banner-height) 0 var(--footer-height); height:calc(100dvh - var(--banner-height) - var(--footer-height))}
 [data-theme="daylight"] .workspace-app {
   --bg-primary: #fff; --bg-secondary: #fff; --bg-sidebar: #fff; --bg-elevated: #fff;
   --bg-input: #fafafd; --bg-hover: #f4f2fb; --bg-code: #f7f7fc;
@@ -131,11 +135,11 @@
 .workspace-button:focus-visible,#device-select:focus-visible,summary:focus-visible {outline:2px solid var(--accent);outline-offset:3px}
 .workspace-app .deck-panel .deck-svg-container {margin:0; border:0; border-radius:0; background:transparent; z-index:0; min-width:0}
 .deck-workspace {display:flex; flex-direction:row; flex:1; min-height:0; min-width:0}
-.well-details {position:absolute; top:var(--deck-center-y,50%); transform:translateY(-50%); right:20px; z-index:11; width:250px; max-width:calc(100% - 40px); max-height:calc(100% - 40px); box-sizing:border-box; padding:18px; overflow-y:auto; background:var(--bg-elevated); border:1px solid var(--border-light); border-radius:20px; box-shadow:var(--shadow-lg); color:var(--text-primary); font-size:13px; overflow-wrap:anywhere}
+.well-details {position:absolute; top:var(--deck-center-y,50%); transform:translateY(-50%); right:20px; z-index:11; width:250px; max-width:calc(100% - 40px); max-height:calc(100% - 40px); box-sizing:border-box; padding:18px; overflow-y:auto; background:var(--bg-elevated); border:1px solid var(--border-light); border-radius:10px; box-shadow:var(--shadow-lg); color:var(--text-primary); font-size:13px; overflow-wrap:anywhere}
 .well-details[hidden] {display:none}
 .well-details-header {display:flex; align-items:center; justify-content:space-between; gap:12px}
-.well-details-header {cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none}
-.well-details-header:active {cursor:grabbing}
+.well-details {cursor:grab; touch-action:none; user-select:none; -webkit-user-select:none}
+.well-details:active {cursor:grabbing}
 .well-detail-drawing {display:flex; align-items:center; gap:12px; color:var(--text-secondary); margin:16px 0}
 .well-detail-drawing svg {display:block; flex:0 0 84px; width:84px; max-height:150px}
 .well-liquid-legend {display:flex; flex-direction:column; gap:12px; min-width:0; flex:1; font-size:12px; line-height:1.4}
@@ -144,7 +148,7 @@
 .well-details-header h3 {margin:0; font-size:16px; color:var(--protocol-accent)}
 .well-details-header button {border:0; background:transparent; color:var(--text-muted); font:inherit; font-size:24px; cursor:pointer}
 .well-details p {line-height:1.5}
-.workspace-app .deck-slot .deck-well {cursor:crosshair; pointer-events:all}
+.workspace-app .deck-slot .deck-well {cursor:pointer; pointer-events:all}
 .workspace-app .deck-slot :is(.slot-mini-grid,.deck-plate-grid-wrapper) {cursor:default; user-select:none; -webkit-user-select:none}
 .workspace-app #deck-svg-container .deck-slot .deck-well.well-selected {stroke:var(--accent); stroke-width:4px; paint-order:stroke; outline:none}
 .workspace-app #deck-svg-container .deck-slot div.deck-well.well-selected {border-radius:50%; outline:2px solid var(--accent); outline-offset:2px}
@@ -309,12 +313,16 @@
 .workspace-app .sidebar.collapsed > .history-toolbar {display:flex; margin-bottom:0; justify-content:center}
 .workspace-app .sidebar.collapsed .history-toolbar .new-chat-btn {display:none}
 .container:has(> .deck-panel:not(.hidden)):has(.sidebar.collapsed) > .app-left {flex-basis:calc(56px + clamp(300px,26vw,360px))}
-.account-menu {position:relative; margin-left:auto}
+.account-menu {position:relative; flex-shrink:0; margin-left:auto; display:flex; flex-direction:row-reverse; align-items:center; gap:8px}
 .account-menu > summary {list-style:none; cursor:pointer; display:grid; place-items:center; width:38px; height:38px; border-radius:50%; color:var(--accent); background:var(--protocol-soft)}
 .account-menu > summary::-webkit-details-marker {display:none}
-.account-menu-content {position:absolute; right:0; top:calc(100% + 10px); width:230px; padding:8px; border:1px solid var(--border); border-radius:16px; background:var(--bg-elevated); box-shadow:var(--shadow-md); display:flex; flex-direction:column; gap:6px}
+.account-menu-content {display:flex; flex-direction:row; align-items:center; gap:6px; white-space:nowrap}
+/* Right to left from the account icon: log out, settings, appearance. */
+.account-menu-content .appearance-control {order:1}
+.account-menu-content #settings-btn {order:2}
+.account-menu-content #logout-btn {order:3}
 .account-menu-content .appearance-control {display:flex; align-items:center; justify-content:space-between; margin:0}
-.account-menu-content .sidebar-action-btn {width:100%; margin:0}
+.account-menu-content .sidebar-action-btn {width:38px; height:38px; margin:0; padding:0; justify-content:center; font-size:0}
 #trash-list {list-style:none; display:flex; flex-direction:column; gap:4px}
 .trash-library summary {color:var(--text-secondary)}
 .trash-row {display:flex; align-items:center; gap:6px; padding:8px 8px 8px 24px; border-radius:10px; font-size:12px; color:var(--text-secondary)}
@@ -376,7 +384,7 @@ body.workspace-app.protocol-library-view:has(.sidebar.collapsed) > .container > 
 body.workspace-app.floating-chat-workspace > .container > .app-left {flex:0 0 var(--sidebar-width); min-height:0; border-right:1px solid var(--border)}
 body.workspace-app.floating-chat-workspace:has(.sidebar.collapsed) > .container > .app-left {flex-basis:56px}
 .workspace-app .deck-workspace {position:relative; overflow:hidden}
-.workspace-app .chat-window.floating-chat {position:absolute; z-index:10; left:20px; top:var(--deck-center-y,50%); transform:translateY(-50%); width:min(360px,calc(100% - 16px)); min-width:0; height:min(560px,calc(100% - 16px)); min-height:0; flex:none; border:1px solid var(--border-light); border-radius:24px; box-shadow:var(--shadow-lg); overflow:hidden; background:var(--bg-elevated)}
+.workspace-app .chat-window.floating-chat {position:absolute; z-index:10; left:20px; top:var(--deck-center-y,50%); transform:translateY(-50%); width:min(360px,calc(100% - 16px)); min-width:0; height:min(560px,calc(100% - 16px)); min-height:0; flex:none; border:1px solid var(--border-light); border-radius:10px; box-shadow:var(--shadow-lg); overflow:hidden; background:var(--bg-elevated)}
 .floating-chat .floating-chat-header {display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 12px; background:var(--chat-soft); border-bottom:1px solid var(--border); flex-shrink:0}
 #chat-drag-handle {display:flex; align-items:center; gap:8px; flex:1; min-width:0; border:0; background:transparent; color:var(--chat-accent); font:600 13px var(--font-sans); text-align:left; cursor:grab; touch-action:none; user-select:none}
 #chat-drag-handle:active {cursor:grabbing}
@@ -387,7 +395,7 @@ body.workspace-app.floating-chat-workspace:has(.sidebar.collapsed) > .container 
 .workspace-app .floating-chat .input-area {padding:8px 12px 12px; flex-shrink:0}
 .floating-chat .input-disclaimer,.floating-chat #device-select {display:none}
 .floating-chat .composer-footer {justify-content:flex-end}
-.workspace-app .floating-chat .input-wrapper {padding:10px 12px; gap:4px; border-radius:18px; box-shadow:none}
+.workspace-app .floating-chat .input-wrapper {padding:10px 12px; gap:4px; border-radius:8px; box-shadow:none}
 .workspace-app .chat-window.floating-chat.chat-collapsed {width:210px; height:52px}
 .floating-chat.chat-collapsed #chat-history,.floating-chat.chat-collapsed .input-area {display:none}
 .chat-collapsed #chat-collapse-btn svg {transform:rotate(180deg)}
@@ -403,3 +411,33 @@ body.workspace-app.floating-chat-workspace:has(.sidebar.collapsed) > .container 
 #device-choice-status {margin-top:10px; font-size:12px; color:var(--chat-accent)}
 #device-choice-status.is-error {color:var(--danger)}
 #device-choice-status:empty,body:not(.landing) #device-choice-status {display:none}
+
+/* Playback pipette: large enough to print the volume inside. */
+.workspace-app .anim-tip-overlay {width:72px}
+.workspace-app .tip-body {width:68px; height:44px; display:grid; place-items:center}
+.workspace-app .tip-nozzle {width:8px; height:14px}
+.workspace-app .tip-vol-label {position:relative; margin:0; font-size:12px; font-weight:600; color:#fff}
+
+/* Discard / Apply: bottom of the parameters pane, centred. */
+.workspace-app .protocol-parameters .deck-apply-bar {display:flex; justify-content:center; margin-top:10px}
+
+.deck-workspace.deck-busy {pointer-events:none}
+.deck-workspace.deck-busy > :not(.deck-busy-bubbles) {opacity:.45; filter:grayscale(1); transition:opacity .2s}
+.deck-busy-bubbles {position:absolute; inset:0; z-index:30; display:flex; align-items:center; justify-content:center; gap:22px}
+.deck-busy-bubbles span {width:42px; height:42px; border-radius:50%; background:radial-gradient(circle at 32% 30%, #fff8 0 18%, transparent 19%), var(--accent); box-shadow:0 6px 18px #0003; animation:deckBubble 1.2s ease-in-out infinite}
+.deck-busy-bubbles span:nth-child(2) {animation-delay:.2s}
+.deck-busy-bubbles span:nth-child(3) {animation-delay:.4s}
+@keyframes deckBubble {0%,100% {transform:translateY(0) rotate(0) scale(.85)} 50% {transform:translateY(-28px) rotate(180deg) scale(1.1)}}
+@media(prefers-reduced-motion:reduce) {.deck-busy-bubbles span {animation:none}}
+
+/* Export in progress, next to the Share icon. */
+.export-spinner {width:18px; height:18px; border:2.5px solid var(--border-light); border-top-color:var(--accent); border-radius:50%; animation:exportSpin .8s linear infinite; align-self:center}
+.export-spinner[hidden] {display:none}
+@keyframes exportSpin {to {transform:rotate(360deg)}}
+.export-download {align-self:center; font-size:12px; font-weight:600; color:var(--accent); text-underline-offset:3px; white-space:nowrap}
+.export-download[hidden] {display:none}
+.export-step {align-self:center; max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; color:var(--text-secondary)}
+.export-step[hidden] {display:none}
+.chat-status.exporting {background:var(--accent); animation:chat-exporting 1.6s linear infinite}
+@keyframes chat-exporting {0% {background:#2a78d6} 33% {background:#1baf7a} 66% {background:#4a3aa7} 100% {background:#2a78d6}}
+@media(prefers-reduced-motion:reduce) {.chat-status.exporting {animation:none}}

@@ -93,10 +93,10 @@ def _clean_llm_json(raw: str) -> str:
 
 
 BATCH_UPDATE_PROMPT = """You are an expert in laboratory automation. Given:
-1. Current protocol code for a liquid handler
+1. Current protocol for a liquid handler (structured protocol or code)
 2. A list of changes the user made on the deck
 
-Apply ALL changes to the code and return the updated version.
+Apply ALL changes to the protocol and return the updated version in the same format.
 
 Rules:
 - Apply every change in the list.

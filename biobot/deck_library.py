@@ -9,7 +9,7 @@ from psycopg2.extras import Json, RealDictCursor
 from config import get_db_connection
 from deck_visualizer import identify_device, generate_device_layout, bind_protocol
 
-BINDING_VERSION = 7  # Resolve well volumes from execution-ordered volume changes.
+BINDING_VERSION = 8  # BioBot-language protocols include tip moves.
 CATALOG_VERSION = 4  # Broad catalogs with geometry and hardware schematics.
 
 
@@ -317,8 +317,11 @@ def get_deck(code, user_id, api_key=None, history=None, template_id=None, refres
                 cursor.execute("SELECT * FROM deck_protocols WHERE user_id = %s AND code_hash = %s", (user_id, digest))
                 protocol = cursor.fetchone()
             if protocol is None:
+                import protocol_lang
                 cursor.execute("SELECT DISTINCT device_id, device_name FROM deck_templates")
-                device = identify_device(code, history or [], [dict(row) for row in cursor.fetchall()], api_key)
+                known, structured = [dict(row) for row in cursor.fetchall()], protocol_lang.parse(code)
+                device = next((item for item in known if structured and str(item["device_name"]).casefold() == str(structured.get("device", "")).casefold()), None) \
+                    or identify_device(code, history or [], known, api_key)
                 device_id, name = device["device_id"], device["name"]
                 if requested and requested["device_id"] != device_id:
                     raise ValueError("Choose a deck for the protocol's device.")
@@ -326,15 +329,17 @@ def get_deck(code, user_id, api_key=None, history=None, template_id=None, refres
                 # Keep a successful device layout even if extracting this protocol fails.
                 # The code's session lock remains held until this connection closes.
                 conn.commit()
-                binding = bind_protocol(code, default["layout"], api_key)
+                binding = protocol_lang.binding(structured) if structured else bind_protocol(code, default["layout"], api_key)
                 binding["_version"] = BINDING_VERSION
                 protocol = {"device_id": device_id, "template_id": default["id"], "binding": binding}
                 cursor.execute("""INSERT INTO deck_protocols (user_id, code_hash, device_id, template_id, binding)
                                   VALUES (%s, %s, %s, %s, %s)""", (user_id, digest, device_id, default["id"], Json(binding)))
             elif refresh_parameters and protocol["binding"].get("_version") != BINDING_VERSION:
                 # Upgrade extraction artifacts without regenerating the shared device layout.
+                import protocol_lang
                 cursor.execute("SELECT layout FROM deck_templates WHERE device_id = %s AND is_default", (protocol["device_id"],))
-                binding = bind_protocol(code, cursor.fetchone()["layout"], api_key)
+                structured = protocol_lang.parse(code)
+                binding = protocol_lang.binding(structured) if structured else bind_protocol(code, cursor.fetchone()["layout"], api_key)
                 binding["_version"] = BINDING_VERSION
                 protocol["binding"] = binding
                 cursor.execute("UPDATE deck_protocols SET binding = %s WHERE user_id = %s AND code_hash = %s", (Json(binding), user_id, digest))
