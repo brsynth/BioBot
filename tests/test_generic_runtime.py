@@ -22,9 +22,10 @@ class GenericValidationTests(unittest.TestCase):
             self.assertEqual(path.suffix, command[1])
             self.assertEqual(path.read_text(), "synthetic protocol")
             paths.append(path)
-            return types.SimpleNamespace(returncode=0)
+            return types.SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        namespace = dict(os=os, re=re, tempfile=tempfile,
+        namespace = dict(os=os, re=re, tempfile=tempfile, log=lambda *args: None,
+                         content_extension=lambda code, default=".txt": default,
                          subprocess=types.SimpleNamespace(run=simulate, TimeoutExpired=subprocess.TimeoutExpired))
         exec(compile(ast.Module(body=[function], type_ignores=[]), str(source), "exec"), namespace)
         validate = namespace["validate_simulation"]

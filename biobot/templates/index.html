@@ -90,6 +90,7 @@
       <div id="chat-history"></div>
 
       <div class="input-area">
+        <div id="device-bubbles-above" class="device-bubbles" aria-label="Your previous devices"></div>
         <div class="input-wrapper">
           <textarea id="user-input" aria-label="Message BioBot" placeholder="Enter a device name…" rows="1"></textarea>
           <div class="composer-footer">
@@ -99,7 +100,9 @@
           </button>
           </div>
         </div>
+        <div id="device-bubbles-below" class="device-bubbles"></div>
         <p id="device-choice-status" role="status" aria-live="polite"></p>
+        <div id="device-model-choices" class="device-bubbles device-models" aria-label="Choose a model"></div>
         <p class="input-disclaimer">BioBot can make mistakes. Please review the answers before using them.</p>
       </div>
       <div id="code-actions" class="code-actions">

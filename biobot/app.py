@@ -11,7 +11,7 @@ import psycopg2
 import psycopg2.extras
 import psycopg2.errors
 
-from engine import process_user_query, dispatch_device
+from engine import process_user_query, dispatch_device, DeviceIncomplete
 from config import get_api_key, get_db_connection, biobot_model, get_flask_secret_key
 from crypt import generate_salt, derive_key, encrypt, decrypt
 from handlers import detect_handler, load_handlers_config
@@ -1252,6 +1252,9 @@ def validate_device():
         device = dispatch_device(name.strip(), [dict(row) for row in known], api_key)
         session["validated_device"] = device
         return jsonify(device)
+    except DeviceIncomplete as error:
+        from engine import list_device_models
+        return jsonify({"incomplete": True, "message": str(error), "options": list_device_models(error.query, api_key)})
     except ValueError as error:
         return jsonify({"error": str(error)}), 400
     except Exception:

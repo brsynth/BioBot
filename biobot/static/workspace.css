@@ -466,3 +466,14 @@ body.workspace-app.floating-chat-workspace:has(.sidebar.collapsed) > .container 
 .count-badge[hidden] {display:none}
 .admin-heading {margin:14px 0 6px; font-size:14px; color:var(--text-primary)}
 .admin-heading:first-child {margin-top:0}
+
+/* Landing: previous devices and model choices as bubbles around the text box. */
+#device-select {display:none}
+.device-bubbles {display:flex; flex-wrap:wrap; justify-content:space-around; gap:10px; margin:10px 0}
+.device-bubbles:empty {display:none}
+.device-bubble {padding:7px 14px; border:1px solid var(--border-light); border-radius:999px; background:var(--bg-elevated); color:var(--text-primary); font:500 13px var(--font-sans); cursor:pointer; box-shadow:var(--shadow-md)}
+.device-bubble:hover {border-color:var(--accent); color:var(--accent)}
+.device-bubbles:not(.device-models) .device-bubble:nth-child(3n+1) {transform:translateY(-6px)}
+.device-bubbles:not(.device-models) .device-bubble:nth-child(3n+2) {transform:translateY(5px)}
+.device-models {justify-content:center}
+body:not(.landing) .device-bubbles {display:none}

@@ -146,6 +146,20 @@
     for (const device of devices) deviceSelect.appendChild(new Option(device, device));
     if (selectedDevice && !devices.includes(selectedDevice)) deviceSelect.appendChild(new Option(selectedDevice, selectedDevice));
     deviceSelect.value = selectedDevice;
+    // Previous devices as bubbles, spread above and below the text box.
+    const above = document.getElementById("device-bubbles-above"), below = document.getElementById("device-bubbles-below");
+    above?.replaceChildren(); below?.replaceChildren();
+    devices.forEach((device, i) => (i % 2 ? below : above)?.appendChild(deviceBubble(device)));
+  }
+  function deviceBubble(device) {
+    const bubble = document.createElement("button");
+    bubble.type = "button"; bubble.className = "device-bubble"; bubble.textContent = device;
+    bubble.addEventListener("click", () => chooseDevice(device));
+    return bubble;
+  }
+  function showModelChoices(options) {
+    const box = document.getElementById("device-model-choices");
+    box?.replaceChildren(...(options || []).map(deviceBubble));
   }
   async function chooseDevice(device, templateId = null) {
     if (isTyping && !templateId) return;
@@ -160,8 +174,14 @@
     if (fromLanding) {status.classList.remove("is-error"); status.textContent = "Checking device…"; userInputElem.value = device;}
     try {
       if (fromLanding) {
+        showModelChoices([]);
         const validated = await json("/devices/validate", {...post({device}), signal:controller.signal});
         if (deviceRequest !== controller) return;
+        if (validated.incomplete) {
+          status.textContent = validated.options?.length ? `${validated.message} Choose one below, or type it.` : validated.message;
+          showModelChoices(validated.options);
+          return;
+        }
         if (userInputElem.value.trim() !== device.trim()) {status.textContent = "The device name changed. Submit it to check."; return;}
         device = validated.name;
       }
