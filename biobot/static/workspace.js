@@ -217,6 +217,10 @@
     const disabled = !protocol?.code || protocol.pending || isTyping;
     copyButton.disabled = disabled; saveButton.disabled = disabled || !!libraryProtocol; downloadButton.disabled = disabled || exportRunning || exportReady;
     saveButton.hidden = !!libraryProtocol;
+    for (const id of ["protocol-view-download", "protocol-view-copy"]) {
+      const icon = document.getElementById(id);
+      if (icon) icon.hidden = !libraryProtocol;
+    }
     sendBtn.disabled = isTyping || !!libraryProtocol || !!deviceRequest || !!(protocol?.code && protocol.pending);
   }
   function deckChanged(state) {
@@ -398,6 +402,19 @@
   }
   deviceSelect.addEventListener("change", () => {
     if (deviceSelect.value) chooseDevice(deviceSelect.value);
+  });
+  // Saved-protocol view: download or copy the protocol as saved.
+  document.getElementById("protocol-view-copy")?.addEventListener("click", () => copyButton.click());
+  document.getElementById("protocol-view-download")?.addEventListener("click", () => {
+    const code = window.getWorkspaceProtocol?.()?.code;
+    if (!code) return;
+    const format = FORMAT_CONFIG[detectFormat(code)] || FORMAT_CONFIG.text;
+    const link = document.createElement("a");
+    const name = (libraryProtocol?.name || protocolName || "protocol").replace(/[\\/:*?"<>|]/g, "_");
+    link.href = URL.createObjectURL(new Blob([code], {type: format.mime}));
+    link.download = name.endsWith(format.ext) ? name : name + format.ext;
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
   });
   copyButton.addEventListener("click", async () => {
     try {await navigator.clipboard.writeText(window.getWorkspaceProtocol().code); showNotice("Protocol copied.");}
