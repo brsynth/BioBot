@@ -149,19 +149,20 @@
     // Previous devices as bubbles, spread above and below the text box.
     const above = document.getElementById("device-bubbles-above"), below = document.getElementById("device-bubbles-below");
     above?.replaceChildren(); below?.replaceChildren();
-    devices.forEach((device, i) => (i % 2 ? below : above)?.appendChild(deviceBubble(device)));
+    devices.forEach((device, i) => (i % 2 ? below : above)?.appendChild(deviceBubble(device, true)));
   }
-  function deviceBubble(device) {
+  // Bubbles hold devices already known to be valid (used before, or proposed by the model search): they open at once.
+  function deviceBubble(device, trusted = true) {
     const bubble = document.createElement("button");
     bubble.type = "button"; bubble.className = "device-bubble"; bubble.textContent = device;
-    bubble.addEventListener("click", () => chooseDevice(device));
+    bubble.addEventListener("click", () => chooseDevice(device, null, trusted));
     return bubble;
   }
   function showModelChoices(options) {
     const box = document.getElementById("device-model-choices");
-    box?.replaceChildren(...(options || []).map(deviceBubble));
+    box?.replaceChildren(...(options || []).map(option => deviceBubble(option, true)));
   }
-  async function chooseDevice(device, templateId = null) {
+  async function chooseDevice(device, templateId = null, trusted = false) {
     if (isTyping && !templateId) return;
     deviceRequest?.abort();
     const controller = new AbortController();
@@ -173,8 +174,8 @@
     sendBtn.disabled = true; deviceSelect.disabled = true;
     if (fromLanding) {status.classList.remove("is-error"); status.textContent = "Checking device…"; userInputElem.value = device;}
     try {
-      if (fromLanding) {
-        showModelChoices([]);
+      if (fromLanding) showModelChoices([]);
+      if (fromLanding && !trusted) {
         const validated = await json("/devices/validate", {...post({device}), signal:controller.signal});
         if (deviceRequest !== controller) return;
         if (validated.incomplete) {
