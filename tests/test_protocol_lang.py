@@ -92,6 +92,17 @@ class CheckTests(unittest.TestCase):
                                           {"transfer": {"from": "res:A1", "to": "plate:A1", "volume": 100}}]), "overflows")
         self.assertFails(variant(program=[{"transfer": {"from": "res:A1", "to": "plate:A1..A12", "volume": 20}}] * 9), "needs 108 tips")
 
+    def test_documented_volume_step_and_dead_volume(self):
+        acoustic = variant(instruments=[{"id": "echo", "model": "Echo 650", "volume_step_ul": 0.0025}],
+                           program=[{"transfer": {"from": "res:A1", "to": "plate:A1", "volume": 0.0035}}])
+        self.assertFails(acoustic, "not a multiple of echo's 0.0025 µL volume step")
+        acoustic["program"][0]["transfer"]["volume"] = 0.005
+        self.assertEqual(len(lang.expand(acoustic)["steps"]), 1)
+        source = copy.deepcopy(DILUTION)
+        source["labware"][1]["dead_volume_ul"] = 1950
+        source["program"] = [{"transfer": {"from": "res:A2", "to": "plate:A1", "volume": 100}}]
+        self.assertFails(source, "below its 1950 µL dead volume")
+
     def test_reference_errors_name_the_instruction(self):
         self.assertFails(variant(program=[{"mix": {"at": "plate:I1", "volume": 50}}]), "program[0]: Well I1 does not exist")
         self.assertFails(variant(program=[{"transfer": {"from": "nope:A1", "to": "plate:A1", "volume": 50}}]), "Unknown labware")

@@ -12,8 +12,8 @@ import re
 LANGUAGE_SPEC = """BioBot protocol language (JSON). Return ONE JSON object:
 {"device": "device model", "description": "aim of the experiment",
  "labware": [{"id": "short name", "position": "documented deck position id", "identifier": "documented hardware identifier",
-              "type": "plate | tiprack | reservoir | tuberack | module | trash", "rows": 8, "columns": 12, "max_volume_ul": 360}],
- "instruments": [{"id": "short name", "model": "documented model", "mount": null, "tips": ["tiprack id"], "min_volume_ul": 20, "max_volume_ul": 300}],
+              "type": "plate | tiprack | reservoir | tuberack | module | trash", "rows": 8, "columns": 12, "max_volume_ul": 360, "dead_volume_ul": 0}],
+ "instruments": [{"id": "short name", "model": "documented model", "mount": null, "tips": ["tiprack id"], "min_volume_ul": 20, "max_volume_ul": 300, "volume_step_ul": null}],
  "liquids": [{"name": "diluent", "at": "res:A1", "volume_ul": 10000}],
  "parameters": {"n_points": 6, "volume_ul": 100},
  "program": [instructions, in execution order]}
@@ -31,7 +31,9 @@ Volumes are in µL. A transfer from one well to several dispenses into each; equ
 Tips are implicit: an instrument with "tips" takes the next unused tip (racks in order, column by column) for each transfer or mix
 ("new_tip": "once" keeps one tip for the whole instruction) and drops it in the labware of type "trash", which you must declare.
 Use the device's documented positions, identifiers and capabilities only. Put adopted defaults in parameters and reference them rather than repeating values.
-Optional fields (rows, columns, max_volume_ul, min/max_volume_ul) enable physical checks; give them when documented."""
+Device limits are enforced by the simulator, so take each one from the documentation and give it whenever it is documented:
+labware rows, columns, max_volume_ul (well capacity or working volume) and dead_volume_ul (volume a source well cannot be drawn below);
+instrument min_volume_ul, max_volume_ul and volume_step_ul (volume resolution, e.g. a droplet size: every volume must be a multiple of it)."""
 
 ACTIONS = ("transfer", "mix", "incubate", "wait", "move", "device_op")
 _OPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv,
@@ -181,6 +183,9 @@ class _Run:
 
     def move_liquid(self, src, dst, volume):
         source = self.wells.get(src)
+        dead = self.labware[src[0]].get("dead_volume_ul")
+        if source is not None and type(dead) in (int, float) and source["volume"] - volume < dead - 1e-6:
+            raise ProtocolError(f"{src[0]}:{src[1]} would go below its {dead} µL dead volume ({_number(source['volume'])} µL, aspirating {_number(volume)} µL).")
         if source is None or source["volume"] < volume - 1e-6:
             have = _number(source["volume"]) if source else 0
             raise ProtocolError(f"{src[0]}:{src[1]} holds {have} µL, cannot aspirate {_number(volume)} µL.")
@@ -234,6 +239,9 @@ class _Run:
         low, high = pipette.get("min_volume_ul"), pipette.get("max_volume_ul")
         if (type(low) in (int, float) and volume < low) or (type(high) in (int, float) and volume > high):
             raise ProtocolError(f"{_number(volume)} µL is outside {pipette.get('id')}'s range {low}–{high} µL.")
+        step = pipette.get("volume_step_ul")
+        if type(step) in (int, float) and step > 0 and abs(volume / step - round(volume / step)) > 1e-6:
+            raise ProtocolError(f"{_number(volume)} µL is not a multiple of {pipette.get('id')}'s {step} µL volume step.")
         once = op.get("new_tip") == "once"
         picked = once and self.pick(pipette)
         for source, target in zip(sources, targets):

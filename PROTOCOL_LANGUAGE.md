@@ -58,11 +58,13 @@ expanding, it tracks volume and composition in every well, and rejects:
 
 - unknown labware, instruments, wells or deck positions;
 - aspirating more than a well holds, or overflowing `max_volume_ul`;
-- volumes outside the instrument's `min/max_volume_ul`;
+- volumes outside the instrument's `min/max_volume_ul`, or not a multiple of its `volume_step_ul` (e.g. a droplet size);
+- drawing a source well below its `dead_volume_ul`;
 - programs needing more tips than are loaded.
 
-Optional fields (`rows`, `columns`, `max_volume_ul`, instrument volume range) enable the
-corresponding checks.
+These limits come from the device documentation: when designing a protocol, BioBot also
+searches the documentation for the device's specifications (volume range and resolution, well
+working volume, dead volume) and the LLM must declare every documented limit.
 
 ## Workflow
 

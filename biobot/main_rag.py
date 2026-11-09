@@ -387,8 +387,10 @@ def design_protocol(question, chunks, index, handler_config, max_attempts=3):
     Returns (protocol text, problems): problems is empty when it expands cleanly and
     reaches the end state expected from the request."""
     print("STEP:Searching documentation for relevant context...", flush=True)
-    _, found = index.search(np.array([get_text_embedding_with_retry(question)]), k=5)
-    context = "\n\n".join(chunks[i] for i in found.tolist()[0])
+    # The request's context, plus the device's limits (volume range and resolution, well capacity, dead volume).
+    limits = f"{handler_config['name']} specifications: transfer volume range, volume resolution or droplet size, well working volume, dead volume"
+    found = [i for query in (question, limits) for i in index.search(np.array([get_text_embedding_with_retry(query)]), k=5)[1].tolist()[0]]
+    context = "\n\n".join(chunks[i] for i in dict.fromkeys(found))
     prompt = (f"Documentation for {handler_config['name']}:\n---\n{context}\n---\n"
               f"Write this request as a protocol for BioBot's simulator; device code is generated later.\n{protocol_lang.LANGUAGE_SPEC}\n\nRequest: {question}")
     expected, text, problems = None, "", []
