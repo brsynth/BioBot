@@ -345,7 +345,8 @@
             await refreshTrash();
           } catch (error) {showNotice(error.message); restore.disabled = false;}
         });
-        row.append(name, date, badge, restore); list.appendChild(row);
+        const info = document.createElement("div"); info.className = "trash-info"; info.append(name, date);
+        row.append(info, badge, restore); list.appendChild(row);
       }
       if (!list.children.length) {
         const empty = document.createElement("li"); empty.className = "library-empty"; empty.textContent = "Trash is empty."; list.appendChild(empty);

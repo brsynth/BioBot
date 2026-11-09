@@ -125,8 +125,8 @@ test('saved protocols rename inline, move to combined Trash with type badges, an
   assert.equal(w.get('protocol-list').children[0].textContent, 'Protocols you save will appear here.');
   assert.equal(w.state.code, 'keep this protocol');
   const trashRows = w.get('trash-list').children;
-  assert.deepEqual(trashRows.map(row=>row.children[2].textContent), ['protocol', 'chat']);
-  await trashRows[0].children[3].events.click();
+  assert.deepEqual(trashRows.map(row=>row.children[1].textContent), ['protocol', 'chat']);
+  await trashRows[0].children[2].events.click();
   assert.equal(w.saved[0].name, 'Renamed');
   assert.equal(w.get('trash-list').children.length, 1);
 });
