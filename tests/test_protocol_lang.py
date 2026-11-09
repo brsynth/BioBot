@@ -103,6 +103,16 @@ class CheckTests(unittest.TestCase):
         source["program"] = [{"transfer": {"from": "res:A2", "to": "plate:A1", "volume": 100}}]
         self.assertFails(source, "below its 1950 µL dead volume")
 
+    def test_documented_constraints_are_checked_on_every_step(self):
+        rules = [{"applies_to": "transfer", "rule": "volume_ul / 0.0025 == round(volume_ul / 0.0025)", "message": "Droplets are 2.5 nL"},
+                 {"applies_to": "well", "rule": "type != 'plate' or well_volume_ul <= 150", "message": "Plate wells hold 150 µL"}]
+        ok = variant(constraints=rules, program=[{"transfer": {"from": "res:A1", "to": "plate:A1", "volume": 100}}])
+        self.assertEqual(len(lang.movements(ok)), 1)
+        self.assertFails(variant(constraints=rules, instruments=[{"id": "echo"}],
+                                 program=[{"transfer": {"from": "res:A1", "to": "plate:A1", "volume": 0.0031}}]), "Droplets are 2.5 nL")
+        self.assertFails(variant(constraints=rules, program=[{"transfer": {"from": "res:A1", "to": "plate:A1", "volume": 100}}] * 2), "Plate wells hold 150 µL")
+        self.assertFails(variant(constraints=[{"rule": "__import__('os')"}]), "cannot be evaluated")
+
     def test_reference_errors_name_the_instruction(self):
         self.assertFails(variant(program=[{"mix": {"at": "plate:I1", "volume": 50}}]), "program[0]: Well I1 does not exist")
         self.assertFails(variant(program=[{"transfer": {"from": "nope:A1", "to": "plate:A1", "volume": 50}}]), "Unknown labware")

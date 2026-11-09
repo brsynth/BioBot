@@ -31,7 +31,14 @@ Volumes are in µL. A transfer from one well to several dispenses into each; equ
 Tips are implicit: an instrument with "tips" takes the next unused tip (racks in order, column by column) for each transfer or mix
 ("new_tip": "once" keeps one tip for the whole instruction) and drops it in the labware of type "trash", which you must declare.
 Use the device's documented positions, identifiers and capabilities only. Put adopted defaults in parameters and reference them rather than repeating values.
-Device limits are enforced by the simulator, so take each one from the documentation and give it whenever it is documented:
+"constraints": every specificity or limit of this device stated in its documentation (volumes, resolution, capacities,
+dead volumes, compatible labware, positions, speeds, …), each as a rule the simulator checks:
+ {"applies_to": "transfer | mix | step | well", "rule": "expression that must be true", "message": "what the limit is", "source": "documentation excerpt"}
+ A transfer or mix rule sees volume_ul, instrument, source_/destination_ labware, type, identifier, before_ul and after_ul
+ (e.g. "volume_ul / 0.0025 == round(volume_ul / 0.0025)", "destination_after_ul <= 65 or destination_type != 'plate'");
+ "step" rules apply to every transfer and mix; a "well" rule sees labware, type, identifier, well and well_volume_ul after each change.
+ Rules use numbers, strings, + - * / // %, comparisons, and/or/not, abs, round, min, max. Declare only documented limits.
+The following fields are shortcuts for common limits; give them too when documented:
 labware rows, columns, max_volume_ul (well capacity or working volume) and dead_volume_ul (volume a source well cannot be drawn below);
 instrument min_volume_ul, max_volume_ul and volume_step_ul (volume resolution, e.g. a droplet size: every volume must be a multiple of it)."""
 
@@ -53,15 +60,34 @@ def parse(text):
     return protocol if isinstance(protocol, dict) and isinstance(protocol.get("program"), list) else None
 
 
+_COMPARE = {ast.Eq: operator.eq, ast.NotEq: operator.ne, ast.Lt: operator.lt, ast.LtE: operator.le,
+            ast.Gt: operator.gt, ast.GtE: operator.ge}
+_FUNCTIONS = {"abs": abs, "round": round, "min": min, "max": max}
+
+
 def evaluate(expr, scope):
-    """Arithmetic on numbers and names in scope; anything else is rejected."""
+    """Arithmetic, comparisons and and/or/not on numbers, strings and names in scope; anything else is rejected."""
     def walk(node):
         if isinstance(node, ast.Expression):
             return walk(node.body)
-        if isinstance(node, ast.Constant) and type(node.value) in (int, float):
+        if isinstance(node, ast.Constant) and type(node.value) in (int, float, str, bool):
             return node.value
-        if isinstance(node, ast.Name) and type(scope.get(node.id)) in (int, float):
+        if isinstance(node, ast.Name) and type(scope.get(node.id)) in (int, float, str, bool):
             return scope[node.id]
+        if isinstance(node, ast.Compare) and all(type(op) in _COMPARE for op in node.ops):
+            left = walk(node.left)
+            for op, right in zip(node.ops, map(walk, node.comparators)):
+                if not _COMPARE[type(op)](left, right):
+                    return False
+                left = right
+            return True
+        if isinstance(node, ast.BoolOp):
+            values = (walk(value) for value in node.values)
+            return all(values) if isinstance(node.op, ast.And) else any(values)
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+            return not walk(node.operand)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in _FUNCTIONS and not node.keywords:
+            return _FUNCTIONS[node.func.id](*map(walk, node.args))
         if isinstance(node, ast.BinOp) and type(node.op) in _OPS:
             return _OPS[type(node.op)](walk(node.left), walk(node.right))
         if isinstance(node, ast.UnaryOp) and type(node.op) in _OPS:
@@ -69,7 +95,7 @@ def evaluate(expr, scope):
         raise ProtocolError(f"Unsupported expression: {expr}")
     try:
         return walk(ast.parse(str(expr).strip(), mode="eval"))
-    except (SyntaxError, ZeroDivisionError) as error:
+    except (SyntaxError, ZeroDivisionError, TypeError) as error:
         raise ProtocolError(f"Invalid expression {expr}: {error}") from None
 
 
@@ -119,6 +145,7 @@ class _Run:
         if not isinstance(params, dict):
             raise ProtocolError("parameters must be an object of name: value.")
         self.params = params
+        self.rules = [rule for rule in protocol.get("constraints", []) if isinstance(rule, dict) and rule.get("rule")]
         self.wells, self.steps, self.tips = {}, [], 0
 
     def locate(self, spec, scope):
@@ -198,6 +225,29 @@ class _Run:
         target["volume"] += volume
         self.check_capacity(*dst)
 
+    def volume_of(self, place):
+        return _number(self.wells.get(place, {"volume": 0})["volume"])
+
+    def where(self, role, lab_id):
+        lab = self.labware.get(lab_id, {})
+        return {f"{role}_labware": lab_id or "", f"{role}_type": lab.get("type", ""), f"{role}_identifier": lab.get("identifier", "")}
+
+    def check_rules(self, values, wells=()):
+        """Every documented constraint that applies to this step (or to an affected well) must hold."""
+        for rule in self.rules:
+            target = rule.get("applies_to", "transfer")
+            scopes = ([{**self.params, "labware": lab, "well": well, "well_volume_ul": self.volume_of((lab, well)),
+                        "type": self.labware[lab].get("type", ""), "identifier": self.labware[lab].get("identifier", "")}
+                       for lab, well in wells] if target == "well"
+                      else [{**self.params, **values}] if target in ("step", values["action"]) else [])
+            for scope in scopes:
+                try:
+                    holds = evaluate(rule["rule"], scope)
+                except ProtocolError as error:
+                    raise ProtocolError(f"Constraint “{rule.get('message') or rule['rule']}” cannot be evaluated: {error}") from None
+                if not holds:
+                    raise ProtocolError(f"{rule.get('message') or 'Device constraint violated'} (rule: {rule['rule']}).")
+
     def pick(self, pipette):
         """Pick up the next unused tip: racks in order, wells column by column. No-op without tips."""
         racks = pipette.get("tips") or []
@@ -246,7 +296,13 @@ class _Run:
         picked = once and self.pick(pipette)
         for source, target in zip(sources, targets):
             fresh = not once and self.pick(pipette)
+            before = (self.volume_of((src_lab, source)), self.volume_of((dst_lab, target)))
             self.move_liquid((src_lab, source), (dst_lab, target), volume)
+            self.check_rules({"action": "transfer", "volume_ul": volume, "instrument": pipette.get("id", ""),
+                              **self.where("source", src_lab), **self.where("destination", dst_lab),
+                              "source_before_ul": before[0], "source_after_ul": self.volume_of((src_lab, source)),
+                              "destination_before_ul": before[1], "destination_after_ul": self.volume_of((dst_lab, target))},
+                             [(src_lab, source), (dst_lab, target)])
             mix = f", mix {op['mix_after']}×" if op.get("mix_after") else ""
             self.steps.append({"action": "transfer", "source": {"slot": self.slot(src_lab), "wells": [source]},
                                "destination": {"slot": self.slot(dst_lab), "wells": [target]},
@@ -284,9 +340,13 @@ class _Run:
                 picked = False
                 if action == "mix":
                     lab_id, wells = self.locate(op.get("at", ""), scope)
-                    _volume(op.get("volume"), scope)
+                    volume = _volume(op.get("volume"), scope)
                     picked = self.pick(self.instrument(op.get("with")))
                     step["source"] = {"slot": self.slot(lab_id), "wells": wells}
+                    for well in wells:
+                        self.check_rules({"action": "mix", "volume_ul": volume, "instrument": self.instrument(op.get("with")).get("id", ""),
+                                          **self.where("source", lab_id), "source_before_ul": self.volume_of((lab_id, well)),
+                                          "source_after_ul": self.volume_of((lab_id, well))}, [(lab_id, well)])
                 elif action == "incubate" and op.get("at") not in self.labware:
                     raise ProtocolError(f"Unknown labware {op.get('at')}.")
                 elif action == "move":

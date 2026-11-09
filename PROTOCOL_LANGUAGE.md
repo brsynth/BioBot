@@ -62,6 +62,19 @@ expanding, it tracks volume and composition in every well, and rejects:
 - drawing a source well below its `dead_volume_ul`;
 - programs needing more tips than are loaded.
 
+Beyond these fields, a protocol declares the device's own specificities as open-ended `constraints`,
+each a rule taken from the documentation and checked on every transfer, mix or well change, for example:
+
+```json
+"constraints": [
+  {"applies_to": "transfer", "rule": "volume_ul / 0.0025 == round(volume_ul / 0.0025)", "message": "Volumes are multiples of the 2.5 nL droplet", "source": "…"},
+  {"applies_to": "well", "rule": "type != 'plate' or well_volume_ul <= 65", "message": "Source wells hold at most 65 µL", "source": "…"}
+]
+```
+
+Rules use numbers, strings, arithmetic, comparisons, `and`/`or`/`not`, `abs`, `round`, `min`, `max`, and
+are evaluated without executing code. Nothing about any device is built into the language.
+
 These limits come from the device documentation: when designing a protocol, BioBot also
 searches the documentation for the device's specifications (volume range and resolution, well
 working volume, dead volume) and the LLM must declare every documented limit.
