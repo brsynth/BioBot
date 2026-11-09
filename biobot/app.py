@@ -404,10 +404,59 @@ def reset_password(token):
 # ---------------------
 # Main routes
 # ---------------------
-def is_admin(email):
-    """Admins are listed by email in BIOBOT_ADMINS (comma-separated)."""
-    admins = {item.strip().casefold() for item in os.environ.get("BIOBOT_ADMINS", "").split(",") if item.strip()}
-    return isinstance(email, str) and email.strip().casefold() in admins
+def is_owner(email):
+    """Server owners, listed by email in BIOBOT_ADMINS (comma-separated), are admins and approve the others."""
+    owners = {item.strip().casefold() for item in os.environ.get("BIOBOT_ADMINS", "").split(",") if item.strip()}
+    return isinstance(email, str) and email.strip().casefold() in owners
+
+
+def is_admin(user):
+    return bool(user) and (is_owner(user.get("email")) or user.get("admin_status") == "approved")
+
+
+def _admin_or_403():
+    """The signed-in user's id if they are an admin, else None."""
+    user_id = session.get("user")
+    return user_id if user_id and _user_is_admin(user_id) else None
+
+
+@app.route("/admin/request", methods=["POST"])
+def request_admin():
+    user_id = session.get("user")
+    if not user_id:
+        return jsonify({"error": "Not logged in"}), 403
+    conn = get_db_connection()
+    try:
+        execute(conn, "UPDATE users SET admin_status = 'requested' WHERE id = %s AND admin_status IS NULL", (user_id,), commit=True)
+    finally:
+        conn.close()
+    return jsonify({"status": "requested"})
+
+
+@app.route("/admin/requests", methods=["GET"])
+def admin_requests():
+    if not _admin_or_403():
+        return jsonify({"error": "Admins only"}), 403
+    conn = get_db_connection()
+    try:
+        rows = fetchall_dict(conn, "SELECT id, first_name, last_name, email FROM users WHERE admin_status = 'requested' ORDER BY id")
+    finally:
+        conn.close()
+    return jsonify([dict(row) for row in rows])
+
+
+@app.route("/admin/requests/<int:target>", methods=["POST"])
+def decide_admin_request(target):
+    if not _admin_or_403():
+        return jsonify({"error": "Admins only"}), 403
+    approve = (request.get_json(silent=True) or {}).get("approve") is True
+    conn = get_db_connection()
+    try:
+        execute(conn, "UPDATE users SET admin_status = %s WHERE id = %s AND admin_status = 'requested'",
+                ("approved" if approve else None, target), commit=True)
+    finally:
+        conn.close()
+    return jsonify({"status": "approved" if approve else "rejected"})
 
 
 @app.route("/")
@@ -434,7 +483,7 @@ def index():
         return redirect("/login")
 
     session.setdefault("answer_session", uuid.uuid4().hex)
-    return render_template("index.html", user=user, version=__version__, is_admin=is_admin(user.get("email")))
+    return render_template("index.html", user=user, version=__version__, is_admin=is_admin(user))
 
 
 @app.route("/chat", methods=["POST"])
@@ -1317,10 +1366,10 @@ def update_deck():
 def _user_is_admin(user_id):
     conn = get_db_connection()
     try:
-        user = fetchone_dict(conn, "SELECT email FROM users WHERE id = %s", (user_id,))
+        user = fetchone_dict(conn, "SELECT email, admin_status FROM users WHERE id = %s", (user_id,))
     finally:
         conn.close()
-    return bool(user) and is_admin(user["email"])
+    return is_admin(user)
 
 
 _exports, _exports_lock = {}, __import__("threading").Lock()  # (user, protocol hash) -> export job

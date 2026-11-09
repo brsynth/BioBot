@@ -427,6 +427,32 @@
   const exportLink = document.getElementById("export-download");
   const exportStep = document.getElementById("export-step");
   const debugExport = document.getElementById("debug-export");  // admins only
+  // Admin access: users request it; admins approve or reject pending requests in Settings.
+  document.getElementById("admin-request-btn")?.addEventListener("click", async event => {
+    try { await json("/admin/request", post({})); event.target.outerHTML = '<p class="admin-status">Admin access requested — awaiting approval.</p>'; }
+    catch (error) { showNotice(error.message); }
+  });
+  async function refreshAdminRequests() {
+    const box = document.getElementById("admin-requests");
+    if (!box) return;
+    let users;
+    try { users = await json("/admin/requests"); } catch (_) { return; }
+    box.replaceChildren();
+    for (const user of users) {
+      const row = document.createElement("div"); row.className = "admin-request";
+      const who = document.createElement("span"); who.textContent = `${user.first_name || ""} ${user.last_name || ""} (${user.email}) requests admin access`;
+      row.appendChild(who);
+      for (const [label, approve] of [["Approve", true], ["Reject", false]]) {
+        const button = document.createElement("button"); button.type = "button"; button.className = "btn"; button.textContent = label;
+        button.addEventListener("click", async () => {
+          try { await json(`/admin/requests/${user.id}`, post({approve})); refreshAdminRequests(); } catch (error) { showNotice(error.message); }
+        });
+        row.appendChild(button);
+      }
+      box.appendChild(row);
+    }
+  }
+  refreshAdminRequests();
   if (debugExport) {
     try { debugExport.checked = localStorage.getItem("biobot-debug-export") === "1"; } catch (_) {}
     debugExport.addEventListener("change", () => {

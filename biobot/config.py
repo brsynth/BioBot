@@ -85,6 +85,7 @@ def init_db():
                 name TEXT NOT NULL
             );
         """)
+        cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_status TEXT")  # NULL, 'requested' or 'approved'
         cur.execute("ALTER TABLE chat_names ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ")
         cur.execute("ALTER TABLE chat_names ADD COLUMN IF NOT EXISTS device_name TEXT")
         cur.execute("""

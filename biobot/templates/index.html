@@ -205,11 +205,16 @@
           <label for="profile-country">Country</label>
           <input id="profile-country" type="text" />
         </div>
-        {% if is_admin %}
-        <div class="form-group">
+        <div class="form-group admin-section">
+          {% if is_admin %}
           <label><input id="debug-export" type="checkbox"> Debug (admin): generate code from the chat request only, as before the simulator</label>
+          <div id="admin-requests"></div>
+          {% elif user.admin_status == 'requested' %}
+          <p class="admin-status">Admin access requested — awaiting approval.</p>
+          {% else %}
+          <button type="button" id="admin-request-btn" class="btn">Request admin access</button>
+          {% endif %}
         </div>
-        {% endif %}
       </div>
       <div class="modal-footer">
         <button id="edit-profile" class="btn btn-primary">

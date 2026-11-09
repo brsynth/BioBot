@@ -456,3 +456,6 @@ body.workspace-app.floating-chat-workspace:has(.sidebar.collapsed) > .container 
 .protocol-actions[hidden] {display:none}
 .code-action-icon:disabled,.code-action-icon.is-disabled {opacity:.4; cursor:default; pointer-events:none}
 .trash-date {font-size:10px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.admin-request {display:flex; align-items:center; gap:8px; margin-top:8px; font-size:13px}
+.admin-request span {flex:1}
+.admin-status {font-size:13px; color:var(--text-secondary)}
