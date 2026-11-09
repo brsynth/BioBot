@@ -402,6 +402,13 @@
   const exportSpinner = document.getElementById("export-spinner");
   const exportLink = document.getElementById("export-download");
   const exportStep = document.getElementById("export-step");
+  const exportCopy = document.getElementById("export-copy"), exportSave = document.getElementById("export-save");
+  let exportCode = null;
+  exportCopy?.addEventListener("click", async () => {
+    try {await navigator.clipboard.writeText(exportCode); showNotice("Code copied.");}
+    catch (_) {showNotice("Could not copy the code. Please try again.");}
+  });
+  exportSave?.addEventListener("click", () => saveButton.click());
   window.exportingChats = new Set();
   async function refreshExportingChats() {
     try { window.exportingChats = new Set((await json("/protocol/exports")).running); } catch (_) { return; }
@@ -434,6 +441,9 @@
   }
   // A ready file is offered as a link next to the Share icon.
   function showDownload(code) {
+    exportCode = code;
+    if (exportCopy) exportCopy.hidden = !code;
+    if (exportSave) exportSave.hidden = !code;
     if (!exportLink) return;
     if (String(exportLink.href || "").startsWith("blob:")) URL.revokeObjectURL(exportLink.href);
     exportLink.hidden = !code;

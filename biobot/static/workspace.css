@@ -441,3 +441,14 @@ body.workspace-app.floating-chat-workspace:has(.sidebar.collapsed) > .container 
 .chat-status.exporting {background:var(--accent); animation:chat-exporting 1.6s linear infinite}
 @keyframes chat-exporting {0% {background:#2a78d6} 33% {background:#1baf7a} 66% {background:#4a3aa7} 100% {background:#2a78d6}}
 @media(prefers-reduced-motion:reduce) {.chat-status.exporting {animation:none}}
+
+/* Code generation bar, attached under the floating chat card. */
+.workspace-app .chat-window.floating-chat {overflow:visible}
+.floating-chat .floating-chat-header {border-radius:10px 10px 0 0}
+.floating-chat .input-area {border-radius:0 0 10px 10px}
+.code-actions {display:none}
+.floating-chat .code-actions {position:absolute; top:calc(100% + 8px); left:0; right:0; display:flex; align-items:center; gap:8px; min-width:0}
+.code-actions .workspace-button {padding:7px 14px; font-size:12px; box-shadow:var(--shadow-md)}
+.code-action-icon {display:grid; place-items:center; width:32px; height:32px; padding:0; border:1px solid var(--border-light); border-radius:8px; background:var(--bg-elevated); color:var(--accent); cursor:pointer; box-shadow:var(--shadow-md)}
+.code-action-icon[hidden] {display:none}
+.code-action-icon:hover {background:var(--bg-hover)}
