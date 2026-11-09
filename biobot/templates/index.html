@@ -173,6 +173,23 @@
   </dialog>
 
   <!-- Modal: Settings -->
+  {% if is_admin %}
+  <div id="admin-modal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Administration</h2>
+        <button id="close-admin" class="modal-close-btn" aria-label="Close"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+      </div>
+      <div class="settings-form">
+        <h3 class="admin-heading">Pending admin requests</h3>
+        <div id="admin-requests"><p class="admin-status">No pending requests.</p></div>
+        <h3 class="admin-heading">Debug</h3>
+        <label><input id="debug-export" type="checkbox"> Generate code from the chat request only, as before the simulator</label>
+      </div>
+    </div>
+  </div>
+  {% endif %}
   <div id="settings-modal" class="modal hidden">
     <div class="modal-backdrop"></div>
     <div class="modal-content modal-lg">
@@ -208,16 +225,15 @@
           <label for="profile-country">Country</label>
           <input id="profile-country" type="text" />
         </div>
+        {% if not is_admin %}
         <div class="form-group admin-section">
-          {% if is_admin %}
-          <label><input id="debug-export" type="checkbox"> Debug (admin): generate code from the chat request only, as before the simulator</label>
-          <div id="admin-requests"></div>
-          {% elif user.admin_status == 'requested' %}
+          {% if user.admin_status == 'requested' %}
           <p class="admin-status">Admin access requested — awaiting approval.</p>
           {% else %}
           <button type="button" id="admin-request-btn" class="btn">Request admin access</button>
           {% endif %}
         </div>
+        {% endif %}
       </div>
       <div class="modal-footer">
         <button id="edit-profile" class="btn btn-primary">

@@ -443,6 +443,7 @@
     clearTimeout(refreshAdminRequests.timer);
     refreshAdminRequests.timer = setTimeout(refreshAdminRequests, 60000);
     box.replaceChildren();
+    if (!users.length) box.innerHTML = '<p class="admin-status">No pending requests.</p>';
     for (const user of users) {
       const row = document.createElement("div"); row.className = "admin-request";
       const who = document.createElement("span"); who.textContent = `${user.first_name || ""} ${user.last_name || ""} (${user.email}) requests admin access`;
@@ -458,10 +459,11 @@
     }
   }
   refreshAdminRequests();
-  document.getElementById("admin-btn")?.addEventListener("click", () => {
-    document.getElementById("settings-btn")?.click();
-    setTimeout(() => document.getElementById("admin-requests")?.scrollIntoView({block:"center"}), 50);
-  });
+  const adminModal = document.getElementById("admin-modal");
+  document.getElementById("admin-btn")?.addEventListener("click", () => { adminModal?.classList.remove("hidden"); refreshAdminRequests(); });
+  for (const close of [document.getElementById("close-admin"), adminModal?.querySelector(".modal-backdrop")]) {
+    close?.addEventListener("click", () => adminModal.classList.add("hidden"));
+  }
   if (debugExport) {
     try { debugExport.checked = localStorage.getItem("biobot-debug-export") === "1"; } catch (_) {}
     debugExport.addEventListener("change", () => {

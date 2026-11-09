@@ -320,8 +320,8 @@
 /* Right to left from the account icon: log out, settings, appearance. */
 .account-menu-content .appearance-control {order:1}
 .account-menu-content #settings-btn {order:2}
-.account-menu-content #admin-btn {order:3}
-.account-menu-content #logout-btn {order:4}
+.account-menu-content #admin-btn {order:0}
+.account-menu-content #logout-btn {order:3}
 .account-menu-content .appearance-control {display:flex; align-items:center; justify-content:space-between; margin:0}
 .account-menu-content .sidebar-action-btn {width:38px; height:38px; margin:0; padding:0; justify-content:center; font-size:0}
 #trash-list {list-style:none; display:flex; flex-direction:column; gap:4px}
@@ -464,3 +464,5 @@ body.workspace-app.floating-chat-workspace:has(.sidebar.collapsed) > .container 
 .account-menu > summary,#admin-btn {position:relative}
 .count-badge {position:absolute; top:-3px; right:-3px; min-width:16px; height:16px; padding:0 4px; box-sizing:border-box; border-radius:8px; background:#d65e63; color:#fff; font:700 10px/16px var(--font-sans); text-align:center}
 .count-badge[hidden] {display:none}
+.admin-heading {margin:14px 0 6px; font-size:14px; color:var(--text-primary)}
+.admin-heading:first-child {margin-top:0}
