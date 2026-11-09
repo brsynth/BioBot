@@ -65,6 +65,7 @@ RULES:
 - "allow_other": true = adds a text field for custom answers.
 - Include practical, common options with reasonable defaults.
 - Do not add questions just for optional remarks, preferences, or confirmation of defaults. Users can supply extra requirements in chat.
+- A request to regenerate, retry or redo the current protocol, unchanged, is complete: reply SUFFICIENT and ask nothing.
 - Return ONLY "SUFFICIENT" or the JSON. Nothing else.
 """
  
