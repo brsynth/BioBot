@@ -233,9 +233,9 @@ def reverse_check(user_query, generated_code, handler_name):
     return verdict
 
 
-def run_query_and_fix(question, chunks, chunk_sources, index, handler_config, max_attempts=5):
+def run_query_and_fix(question, chunks, chunk_sources, index, handler_config, max_attempts=5, search_query=None):
     print("STEP:Analyzing your request...", flush=True)
-    question_embedding = np.array([get_text_embedding_with_retry(question)])
+    question_embedding = np.array([get_text_embedding_with_retry(search_query or question)])
 
     print("STEP:Searching documentation for relevant context...", flush=True)
     D, I = index.search(question_embedding, k=5)
@@ -407,12 +407,19 @@ if export_mode:
     consolidated_query = (
         "Translate this BioBot protocol into the device's native protocol language. This is a translation, not a redesign: "
         "reproduce exactly the expanded steps below, in this order, with the same labware, positions, wells, volumes and tip "
-        "handling. You may express them with the device's loops or transfer functions, but add no step and leave none out. "
-        "For hardware that is built into the device (such as a fixed trash), follow the device documentation: reference it the "
-        "documented way instead of loading it as labware.\n\n"
+        "handling. You may express them with the device's loops or transfer functions, but add no step and leave none out.\n\n"
         f"Protocol:\n{user_query}" + (f"\n\nExpanded steps ({len(steps)}):\n{listed}" if steps else ""))
     feasibility_result = None
+    # Search the documentation with what the code must do, not with the whole prompt.
+    structured = protocol_lang.parse(user_query) or {}
+    search_query = " ".join(filter(None, [
+        f"{structured.get('device', '')} protocol script", structured.get("description", ""),
+        "load labware " + ", ".join(str(lab.get("identifier")) for lab in structured.get("labware", []) if isinstance(lab, dict)),
+        "instruments " + ", ".join(str(i.get("model")) for i in structured.get("instruments", []) if isinstance(i, dict)),
+        "operations " + ", ".join(sorted({next(iter(op)) for op in structured.get("program", []) if isinstance(op, dict) and op})),
+        "pick up tip, drop tip, trash"]))
 else:
+    search_query = None
     consolidated_query = consolidate_request(user_query, chat_history, user_api_key)
     # 2b. Feasibility check — is the protocol physically/logically possible?
     print("STEP:Checking protocol feasibility...", flush=True)
@@ -469,7 +476,7 @@ if not export_mode:
 source_protocol = protocol_lang.parse(user_query)
 for attempt in range(2):
     final_code, sources_used, file_refs, attempts, last_error, last_code = \
-        run_query_and_fix(consolidated_query, chunks, chunk_sources, index, handler_config)
+        run_query_and_fix(consolidated_query, chunks, chunk_sources, index, handler_config, search_query=search_query)
     difference = final_code and source_protocol and read_back_difference(final_code, handler_config, source_protocol)
     if not difference:
         break
