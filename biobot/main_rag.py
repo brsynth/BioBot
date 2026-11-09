@@ -37,6 +37,20 @@ if not user_api_key:
     raise ValueError("API_KEY environment variable not set")
 # Export implements a saved protocol as device code; otherwise BioBot designs the protocol.
 export_mode = bool(os.environ.get("BIOBOT_EXPORT"))
+# Every run is logged to logs/<mode>-<time>.log next to this file (shared with the host through the code mount).
+LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs",
+                        f"{'export' if export_mode else 'chat'}-{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}.log")
+
+
+def log(title, body=""):
+    try:
+        os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
+        with open(LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(f"\n===== {time.strftime('%H:%M:%S')} {title} =====\n{body}\n")
+    except OSError:
+        pass
+
+
 # Debug: generate device code from the chat alone (prompts and questionnaire answers), as before the simulator.
 EXPORT_FROM_CHAT = True
 
@@ -127,7 +141,9 @@ def validate_simulation(code, handler_config, save_path=None):
             full_cmd = simulate_cmd + [path]
             print(f"STEP:Running simulation: {' '.join(simulate_cmd)}", flush=True)
             result = subprocess.run(full_cmd, capture_output=True, text=True, timeout=120)
+            log("SIMULATION", f"command: {' '.join(full_cmd)}\nexit code: {result.returncode}\n--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}")
     except subprocess.TimeoutExpired:
+        log("SIMULATION", "timed out after 120 seconds")
         return False, "Simulation timed out after 120 seconds."
 
     # Primary check: return code (0 = success for any CLI tool)
@@ -246,6 +262,9 @@ def run_query_and_fix(question, chunks, chunk_sources, index, handler_config, ma
 
     context = "\n\n".join(retrieved_chunks)
     handler_name = handler_config["name"]
+    log("REQUEST", question)
+    log("HANDLER", json.dumps({k: handler_config.get(k) for k in ("name", "validation_strategy", "simulate_cmd", "output_type", "file_extension")}, indent=2))
+    log("RETRIEVED SOURCES", "\n".join(map(str, retrieved_sources)))
     strategy = handler_config.get("validation_strategy", "llm_review")
     output_type = handler_config.get("output_type", "script")
 
@@ -281,7 +300,9 @@ Query: {question}
 
         print(f"STEP:Attempt {attempt} — validating via {strategy_label}...", flush=True)
         time.sleep(1)
+        log(f"ATTEMPT {attempt} — CODE", code)
         passed, feedback = validate_code(code, handler_config, retrieved_chunks, question)
+        log(f"ATTEMPT {attempt} — {'PASSED' if passed else 'FAILED'}", feedback)
 
         if passed and strategy_label == "simulation":
             print("STEP:Validation passed — verifying semantic intent...", flush=True)
@@ -466,6 +487,7 @@ if index is None or not chunks:
     sys.exit(0)
 
 # 5. Design the protocol for the simulator; device code is generated only at export.
+log("RUN", f"mode: {'export' if export_mode else 'chat'}\nuser query:\n{user_query}\n\nconsolidated query:\n{consolidated_query}")
 if not export_mode:
     protocol, problems = design_protocol(consolidated_query, chunks, index, handler_config)
     print("FORMAT:json", flush=True)
@@ -486,6 +508,7 @@ for attempt in range(2):
         break
     if attempt == 0:
         consolidated_query += f"\n\nA previous script did not reproduce the protocol: {difference}."
+log("OUTCOME", f"final code: {'yes' if final_code else 'no'}\nread-back difference: {difference or 'none'}\nlast error:\n{last_error}")
 if difference:
     print(f"STEP:__WARNING__:The code passed validation, but reading it back found a difference with the protocol: {difference}. Check it before running.", flush=True)
 

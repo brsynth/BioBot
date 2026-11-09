@@ -16,3 +16,6 @@ biobot/generated_script.py
 
 # Local development overrides
 docker-compose.override.yml
+
+# Generation logs
+biobot/logs/
