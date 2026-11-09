@@ -30,6 +30,7 @@ WELLS is "labware_id:A1", a list "plate:A1,A2", or a range along a row or a colu
 Volumes are in µL. A transfer from one well to several dispenses into each; equal-length lists pair up.
 Tips are implicit: an instrument with "tips" takes the next unused tip (racks in order, column by column) for each transfer or mix
 ("new_tip": "once" keeps one tip for the whole instruction) and drops it in the labware of type "trash", which you must declare.
+Labware are only the items placed on deck positions; built-in parts of the device (heads, transducers, pipettes, grippers) are instruments.
 Use the device's documented positions, identifiers and capabilities only. Put adopted defaults in parameters and reference them rather than repeating values.
 "constraints": every specificity or limit of this device stated in its documentation (volumes, resolution, capacities,
 dead volumes, compatible labware, positions, speeds, …), each as a rule the simulator checks:

@@ -382,7 +382,24 @@ def _expected_end_state(question, protocol):
     return answer.get("expected", []) if isinstance(answer, dict) else []
 
 
-def design_protocol(question, chunks, index, handler_config, max_attempts=3):
+DECK_MESSAGE = "The user selected this physical deck configuration."
+
+
+def deck_positions(history):
+    """Position ids of the deck shown to the user (sent with each chat message), or None if unknown."""
+    for message in reversed(history):
+        content = message.get("content", "")
+        if message.get("role") == "assistant" and content.startswith(DECK_MESSAGE) and "{" in content:
+            try:
+                layout = json.loads(content[content.index("{"):])
+            except ValueError:
+                return None
+            ids = [str(pos.get("id")) for pos in layout.get("positions", []) if isinstance(pos, dict) and pos.get("id") is not None]
+            return ids or None
+    return None
+
+
+def design_protocol(question, chunks, index, handler_config, max_attempts=3, positions=None):
     """Write the request in the BioBot language, grounded in the device documentation.
     Returns (protocol text, problems): problems is empty when it expands cleanly and
     reaches the end state expected from the request."""
@@ -392,14 +409,16 @@ def design_protocol(question, chunks, index, handler_config, max_attempts=3):
     found = [i for query in (question, limits) for i in index.search(np.array([get_text_embedding_with_retry(query)]), k=5)[1].tolist()[0]]
     context = "\n\n".join(chunks[i] for i in dict.fromkeys(found))
     prompt = (f"Documentation for {handler_config['name']}:\n---\n{context}\n---\n"
-              f"Write this request as a protocol for BioBot's simulator; device code is generated later.\n{protocol_lang.LANGUAGE_SPEC}\n\nRequest: {question}")
+              f"Write this request as a protocol for BioBot's simulator; device code is generated later.\n{protocol_lang.LANGUAGE_SPEC}\n"
+              + (f"\nThe deck's positions are exactly: {json.dumps(positions)}. Labware must use these ids.\n" if positions else "")
+              + f"\nRequest: {question}")
     expected, text, problems = None, "", []
     for attempt in range(1, max_attempts + 1):
         print(f"STEP:Attempt {attempt} — writing and checking the protocol...", flush=True)
         try:
             text = strip_code_fences(run_gpt(prompt))
             protocol = json.loads(text)
-            protocol_lang.expand(protocol)
+            protocol_lang.expand(protocol, positions)
             if expected is None:
                 expected = _expected_end_state(question, protocol)
             problems = protocol_lang.end_state_mismatches(protocol, expected)
@@ -516,7 +535,7 @@ if index is None or not chunks:
 # 5. Design the protocol for the simulator; device code is generated only at export.
 log("RUN", f"mode: {'export' if export_mode else 'chat'}\nuser query:\n{user_query}\n\nconsolidated query:\n{consolidated_query}")
 if not export_mode:
-    protocol, problems = design_protocol(consolidated_query, chunks, index, handler_config)
+    protocol, problems = design_protocol(consolidated_query, chunks, index, handler_config, positions=deck_positions(chat_history))
     print("FORMAT:json", flush=True)
     if problems:
         print("FAILED_CODE:The protocol still fails these checks:\n- " + "\n- ".join(problems) + "___CODE_SEP___" + protocol, flush=True)
