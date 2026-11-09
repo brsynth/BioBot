@@ -243,6 +243,12 @@ def validate_code(code, handler_config, context_chunks, question, save_path=None
     """
     strategy = handler_config.get("validation_strategy", "llm_review")
 
+    # An export that just returns the BioBot protocol (the input) is not device code.
+    braces = code[code.find("{"):code.rfind("}") + 1] if "{" in code else ""
+    if export_mode and protocol_lang.parse(braces):
+        return False, (f"This output is the BioBot protocol (the input), not {handler_config['name']} code. "
+                       "Write the device's own documented protocol file format instead.")
+
     if strategy == "simulation":
         return validate_simulation(code, handler_config, save_path)
     elif strategy == "llm_review":
