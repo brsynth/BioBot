@@ -452,3 +452,4 @@ body.workspace-app.floating-chat-workspace:has(.sidebar.collapsed) > .container 
 .code-action-icon {display:grid; place-items:center; width:32px; height:32px; padding:0; border:1px solid var(--border-light); border-radius:8px; background:var(--bg-elevated); color:var(--accent); cursor:pointer; box-shadow:var(--shadow-md)}
 .code-action-icon[hidden] {display:none}
 .code-action-icon:hover {background:var(--bg-hover)}
+.protocol-actions[hidden] {display:none}

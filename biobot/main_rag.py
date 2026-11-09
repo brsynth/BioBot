@@ -51,6 +51,14 @@ def log(title, body=""):
         pass
 
 
+def discard_log():
+    """A run that ends successfully keeps no log; failed runs keep theirs for diagnosis."""
+    try:
+        os.remove(LOG_PATH)
+    except OSError:
+        pass
+
+
 # Debug: generate device code from the chat alone (prompts and questionnaire answers), as before the simulator.
 EXPORT_FROM_CHAT = True
 
@@ -437,7 +445,11 @@ if not os.environ.get("BIOBOT_SKIP_SUFFICIENT_CHECK"):
 # 2. Consolidate the request
 if export_mode and EXPORT_FROM_CHAT:
     chat_only = [m for m in chat_history if not (m.get("role") == "assistant" and '"program"' in m.get("content", ""))]
-    consolidated_query = consolidate_request("Write the device script for this experiment.", chat_only, user_api_key)
+    edited = (protocol_lang.parse(user_query) or {}).get("parameters")
+    latest = "Write the device script for this experiment."
+    if edited:
+        latest += f" The user has since set these parameter values in the simulator; they override any earlier values: {json.dumps(edited)}"
+    consolidated_query = consolidate_request(latest, chat_only, user_api_key)
     feasibility_result = None
     search_query = None
     print("STEP:Generating from the chat request (debug mode)...", flush=True)
@@ -512,6 +524,7 @@ if not export_mode:
         print("FAILED_CODE:The protocol still fails these checks:\n- " + "\n- ".join(problems) + "___CODE_SEP___" + protocol, flush=True)
     else:
         print(protocol, flush=True)
+        discard_log()
     sys.exit(0)
 
 # Export: the code, read back into the BioBot language, should make the same liquid movements.
@@ -526,6 +539,8 @@ for attempt in range(2):
     if attempt == 0:
         consolidated_query += f"\n\nA previous script did not reproduce the protocol: {difference}."
 log("OUTCOME", f"final code: {'yes' if final_code else 'no'}\nread-back difference: {difference or 'none'}\nlast error:\n{last_error}")
+if final_code:
+    discard_log()
 if difference:
     print(f"STEP:__WARNING__:The code passed validation, but reading it back found a difference with the protocol: {difference}. Check it before running.", flush=True)
 
