@@ -120,6 +120,20 @@ def run_gpt(user_message, model=biobot_model):
 
 # ----------- VALIDATION STRATEGIES -------------
 
+def content_extension(code, default=".txt"):
+    """File extension implied by the content itself; simulators often refuse files whose extension does not match."""
+    first = code.lstrip().split("\n", 1)[0]
+    if first.startswith(("import ", "from ", "def ", "class ", "metadata", "requirements")) or re.match(r"^#!.*python", first):
+        return ".py"
+    if code.lstrip().startswith(("{", "[")):
+        return ".json"
+    if code.lstrip().startswith("<"):
+        return ".xml"
+    if "," in first and not first.startswith("#"):
+        return ".csv"
+    return default
+
+
 def validate_simulation(code, handler_config, save_path=None):
     """
     Strategy: SIMULATION
@@ -135,6 +149,8 @@ def validate_simulation(code, handler_config, save_path=None):
             extension = handler_config.get("file_extension", ".txt")
             if not isinstance(extension, str) or not re.fullmatch(r"\.[a-zA-Z0-9]{1,16}", extension):
                 extension = ".txt"
+            if extension == ".txt":  # unknown at discovery: trust the content
+                extension = content_extension(code)
             path = save_path or os.path.join(directory, "protocol" + extension)
             with open(path, "w") as f:
                 f.write(code)
