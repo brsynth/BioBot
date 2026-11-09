@@ -1116,8 +1116,9 @@ def saved_protocols():
     try:
         if request.method == "GET":
             predicate = "IS NOT NULL" if request.args.get("trashed") == "1" else "IS NULL"
-            rows = fetchall_dict(conn, f"SELECT id::text, name, device_name, deleted_at FROM saved_protocols WHERE user_id = %s AND deleted_at {predicate} ORDER BY created_at DESC", (user_id,))
-            return jsonify([dict(row, name=decrypt_message(row["name"]), deleted_at=row["deleted_at"].isoformat() if row["deleted_at"] else None) for row in rows])
+            rows = fetchall_dict(conn, f"SELECT id::text, name, device_name, created_at, deleted_at FROM saved_protocols WHERE user_id = %s AND deleted_at {predicate} ORDER BY created_at DESC", (user_id,))
+            stamp = lambda value: value.isoformat() if hasattr(value, "isoformat") else value
+            return jsonify([dict(row, name=decrypt_message(row["name"]), created_at=stamp(row["created_at"]), deleted_at=stamp(row["deleted_at"])) for row in rows])
         protocol_id = str(uuid.uuid4())
         execute(conn, "INSERT INTO saved_protocols (id, user_id, name, device_name, code) VALUES (%s, %s, %s, %s, %s)",
                 (protocol_id, user_id, encrypt_message(name.strip()), device.strip(), encrypt_message(code)), commit=True)

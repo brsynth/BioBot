@@ -229,6 +229,10 @@
     }
     syncActions();
   }
+  function formatDate(value) {
+    const date = new Date(value || "");
+    return isNaN(date) ? "" : date.toLocaleString(undefined, {day:"numeric", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit"});
+  }
   async function refreshProtocols() {
     const protocols = await json("/protocols");
     protocolList.replaceChildren();
@@ -242,7 +246,7 @@
       const button = document.createElement("button");
       button.className = "saved-protocol-link";
       const title = document.createElement("span"); title.textContent = protocol.name;
-      const device = document.createElement("small"); device.textContent = protocol.device_name;
+      const device = document.createElement("small"); device.textContent = [protocol.device_name, formatDate(protocol.created_at)].filter(Boolean).join(" · ");
       button.append(title, device);
       button.addEventListener("click", () => openProtocol(protocol.id));
       info.appendChild(button);
@@ -323,6 +327,8 @@
         const row = document.createElement("li"); row.className = "trash-row";
         const name = document.createElement("span"); name.className = "trash-name"; name.textContent = item.name; name.title = item.name;
         const badge = document.createElement("span"); badge.className = `trash-badge ${item.type}`; badge.textContent = item.type;
+        const date = document.createElement("small"); date.className = "trash-date"; date.textContent = formatDate(item.deleted_at);
+        date.title = item.deleted_at ? `Moved to Trash ${new Date(item.deleted_at).toLocaleString()}` : "";
         const restore = document.createElement("button"); restore.type = "button"; restore.className = "restore-chat-btn";
         restore.title = `Restore ${item.type}`; restore.setAttribute("aria-label", `Restore ${item.type} “${item.name}”`);
         restore.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10a9 9 0 1 1 2 8M3 4v6h6"/></svg>';
@@ -335,7 +341,7 @@
             await refreshTrash();
           } catch (error) {showNotice(error.message); restore.disabled = false;}
         });
-        row.append(name, badge, restore); list.appendChild(row);
+        row.append(name, date, badge, restore); list.appendChild(row);
       }
       if (!list.children.length) {
         const empty = document.createElement("li"); empty.className = "library-empty"; empty.textContent = "Trash is empty."; list.appendChild(empty);

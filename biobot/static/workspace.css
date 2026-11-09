@@ -454,3 +454,4 @@ body.workspace-app.floating-chat-workspace:has(.sidebar.collapsed) > .container 
 .code-action-icon:hover {background:var(--bg-hover)}
 .protocol-actions[hidden] {display:none}
 .code-action-icon:disabled,.code-action-icon.is-disabled {opacity:.4; cursor:default; pointer-events:none}
+.trash-date {flex-shrink:0; font-size:11px; color:var(--text-muted); white-space:nowrap}
