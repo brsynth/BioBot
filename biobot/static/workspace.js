@@ -11,7 +11,7 @@
   const notice = document.getElementById("protocol-notice");
   const chats = new Map();
   let selectedDevice = "", protocolName = "", sourceProtocol = null, creating = null, deviceRequest = null, pageVersion = 0;
-  let noticeTimer, libraryProtocol = null, exportRunning = false;
+  let noticeTimer, libraryProtocol = null, exportRunning = false, exportReady = false;
   function showNotice(message, persist = false) {
     clearTimeout(noticeTimer);
     notice.textContent = message;
@@ -215,7 +215,7 @@
     syncNameActions();
     const protocol = window.getWorkspaceProtocol?.();
     const disabled = !protocol?.code || protocol.pending || isTyping;
-    copyButton.disabled = disabled; saveButton.disabled = disabled || !!libraryProtocol; downloadButton.disabled = disabled || exportRunning;
+    copyButton.disabled = disabled; saveButton.disabled = disabled || !!libraryProtocol; downloadButton.disabled = disabled || exportRunning || exportReady;
     saveButton.hidden = !!libraryProtocol;
     sendBtn.disabled = isTyping || !!libraryProtocol || !!deviceRequest || !!(protocol?.code && protocol.pending);
   }
@@ -417,6 +417,7 @@
   }
   function showExportProgress(job) {
     exportRunning = job?.state === "running";
+    exportReady = job?.state === "done";  // code for this exact protocol exists; a chat change or a parameter edit makes a new protocol
     if (exportSpinner) exportSpinner.hidden = !exportRunning;
     if (exportStep) { exportStep.hidden = !exportRunning; exportStep.textContent = exportRunning ? job.step || "" : ""; }
     syncActions();
