@@ -477,3 +477,4 @@ body.workspace-app.floating-chat-workspace:has(.sidebar.collapsed) > .container 
 .device-bubbles:not(.device-models) .device-bubble:nth-child(3n+2) {transform:translateY(5px)}
 .device-models {justify-content:center}
 body:not(.landing) .device-bubbles {display:none}
+#send-btn {margin-left:auto}  /* stays right now that the device drop-down is hidden */
