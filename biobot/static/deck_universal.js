@@ -1607,6 +1607,43 @@ function _discardChanges() {
   _renderApplyBar();
 }
 
+function _adoptProtocol(code, state) {
+  _currentCode = code;
+  _currentState = state;
+  _originalState = JSON.parse(JSON.stringify(state));
+  _updateSourceCodeBlock(code);
+  _originalCode = code;
+  _pendingChanges = [];
+  _selectedSlot = null;
+  _renderDeck(_currentState);
+  _renderApplyBar();
+}
+
+// Go back to a previous protocol, e.g. the one the last code was generated from.
+async function _restoreProtocol(code) {
+  if (!_currentCode || _applyingChanges) return;
+  const state = _currentState;
+  _applyingChanges = true;
+  _setDeckBusy(true);
+  _renderApplyBar();
+  try {
+    const response = await fetch("/deck/restore", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({code, original: _currentCode, template_id: state?._library?.selected.id,
+        chat_id: typeof currentChatId !== "undefined" ? currentChatId : null}),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.state) throw new Error(result.error || "Could not restore the protocol.");
+    if (_currentState === state) _adoptProtocol(result.code, result.state);
+  } catch (error) {
+    _libraryNotice(error.message);
+  } finally {
+    _applyingChanges = false;
+    _setDeckBusy(false);
+    _renderApplyBar();
+  }
+}
+
 // While changes are applied, the deck is greyed out and ignores input.
 function _setDeckBusy(busy) {
   const deck = document.querySelector("#deck-panel .deck-workspace");
@@ -1649,15 +1686,7 @@ async function _commitChanges() {
     const result = await response.json();
     if (!response.ok || !result.code || !result.state) throw new Error(result.error || "Could not apply these changes.");
     if (_currentState !== state) return;
-    _currentCode = result.code;
-    _currentState = result.state;
-    _originalState = JSON.parse(JSON.stringify(result.state));
-    _updateSourceCodeBlock(result.code);
-    _originalCode = result.code;
-    _pendingChanges = [];
-    _selectedSlot = null;
-    _renderDeck(_currentState);
-    _renderApplyBar();
+    _adoptProtocol(result.code, result.state);
   } catch (error) {
     updateError = error.message;
     if (_currentState === state) {
@@ -2680,6 +2709,7 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 window.parseDeckFromCode = parseDeckFromCode;
+window.restoreProtocol = _restoreProtocol;
 window.getWorkspaceProtocol = () => ({code: _currentCode, pending: !!_deckAbort || _pendingChanges.length > 0 || _libraryEditing || _applyingChanges
   || !!document.getElementById("protocol-parameter-fields")?.querySelector("input:invalid"),
   layout: _currentState ? JSON.parse(JSON.stringify(_currentState)) : null});

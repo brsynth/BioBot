@@ -453,3 +453,4 @@ body.workspace-app.floating-chat-workspace:has(.sidebar.collapsed) > .container 
 .code-action-icon[hidden] {display:none}
 .code-action-icon:hover {background:var(--bg-hover)}
 .protocol-actions[hidden] {display:none}
+.code-action-icon:disabled,.code-action-icon.is-disabled {opacity:.4; cursor:default; pointer-events:none}

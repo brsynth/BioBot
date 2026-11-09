@@ -403,7 +403,12 @@
   const exportLink = document.getElementById("export-download");
   const exportStep = document.getElementById("export-step");
   const exportCopy = document.getElementById("export-copy"), exportSave = document.getElementById("export-save");
-  let exportCode = null;
+  let exportCode = null, revertTo = null;
+  const exportRevert = document.getElementById("export-revert");
+  exportRevert?.addEventListener("click", () => {
+    if (!revertTo || !confirm("Go back to the protocol of the last generated code? Changes made since then (chat or parameters) will be lost.")) return;
+    window.restoreProtocol?.(revertTo);
+  });
   exportCopy?.addEventListener("click", async () => {
     try {await navigator.clipboard.writeText(exportCode); showNotice("Code copied.");}
     catch (_) {showNotice("Could not copy the code. Please try again.");}
@@ -429,6 +434,8 @@
     exportChecked = protocol;
     showDownload(null);
     showExportProgress(null);
+    revertTo = null;
+    if (exportRevert) exportRevert.hidden = true;
     if (!protocol) return;
     let job;
     try { job = await json("/protocol/export", post({protocol, chat_id: currentChatId, start})); }
@@ -439,12 +446,16 @@
     if (job.state === "running") exportTimer = setTimeout(() => pollExport(false, true), 3000);
     else if (job.state === "error" && deliver) showNotice(`Code generation failed: ${job.error}`, true);
     else if (job.state === "done") { showDownload(job.code); if (deliver && job.warning) showNotice(job.warning, true); }
+    if (job.state !== "done" && job.previous) showDownload(job.previous.code, false);
+    revertTo = job.state !== "done" ? job.previous?.protocol || null : null;
+    if (exportRevert) exportRevert.hidden = !revertTo;
   }
   // A ready file is offered as a link next to the Share icon.
-  function showDownload(code) {
+  function showDownload(code, current = true) {
     exportCode = code;
-    if (exportCopy) exportCopy.hidden = !code;
-    if (exportSave) exportSave.hidden = !code;
+    for (const icon of [exportCopy, exportSave]) if (icon) { icon.hidden = !code; icon.disabled = !current; }
+    exportLink?.classList.toggle("is-disabled", !current);
+    exportLink?.setAttribute("aria-disabled", String(!current));
     if (!exportLink) return;
     if (String(exportLink.href || "").startsWith("blob:")) URL.revokeObjectURL(exportLink.href);
     exportLink.hidden = !code;

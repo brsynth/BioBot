@@ -1329,7 +1329,8 @@ def _run_export(key, job, protocol, api_key, history):
             message, _, code = code[len(FAILED_CODE_MARKER):].partition("___CODE_SEP___")
             job = {"state": "error", "error": message.strip(), "code": code.strip(), "format": fmt}
         else:
-            job = {"state": "done", "code": code.strip(), "format": fmt, "warning": job.get("warning")}
+            job = {"state": "done", "code": code.strip(), "format": fmt, "warning": job.get("warning"),
+                   "chat_id": job.get("chat_id"), "protocol": protocol, "finished": time.time()}
     except Exception:
         app.logger.exception("Protocol export failed")
         job = {"state": "error", "error": "Could not export the protocol. Please try again."}
@@ -1360,7 +1361,14 @@ def export_protocol():
                 return jsonify({"error": str(error)}), 400
             job = _exports[key] = {"state": "running", "step": "Starting…", "chat_id": data.get("chat_id")}
             Thread(target=_run_export, args=(key, job, protocol, api_key, history), name="export", daemon=True).start()
-    return jsonify(job or {"state": "none"})
+        reply = {k: v for k, v in (job or {"state": "none"}).items() if k != "protocol"}
+        if reply["state"] != "done" and data.get("chat_id"):
+            # The chat's last generated code, so the user can go back to its protocol.
+            done = [j for (owner, _), j in _exports.items() if owner == user_id and j["state"] == "done" and j.get("chat_id") == data["chat_id"]]
+            if done:
+                last = max(done, key=lambda j: j["finished"])
+                reply["previous"] = {"protocol": last["protocol"], "code": last["code"]}
+    return jsonify(reply)
 
 
 @app.route("/protocol/exports", methods=["GET"])
@@ -1372,6 +1380,30 @@ def running_exports():
     with _exports_lock:
         chats = {job.get("chat_id") for (owner, _), job in _exports.items() if owner == user_id and job["state"] == "running"}
     return jsonify({"running": sorted(chat for chat in chats if chat)})
+
+
+@app.route("/deck/restore", methods=["POST"])
+def restore_deck():
+    """Put back a previous protocol (the one the last code was generated from)."""
+    user_id = session.get("user")
+    if not user_id:
+        return jsonify({"error": "Not logged in"}), 403
+    data = request.get_json(silent=True) or {}
+    code, original = data.get("code"), data.get("original")
+    if not isinstance(code, str) or not code.strip() or not isinstance(original, str):
+        return jsonify({"error": "Missing protocol"}), 400
+    from deck_library import get_deck
+    try:
+        api_key, history = _deck_request_context(data, user_id)
+        state = get_deck(code, user_id, api_key, history, data.get("template_id"))
+        if data.get("chat_id"):
+            _save_deck_protocol(data["chat_id"], user_id, original, code)
+        return jsonify({"code": code, "state": state})
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    except Exception:
+        app.logger.exception("Protocol restore failed")
+        return jsonify({"error": "Could not restore the protocol. Please try again."}), 502
 
 
 def _save_deck_protocol(chat_id, user_id, original, updated):
