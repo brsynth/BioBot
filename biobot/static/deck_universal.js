@@ -563,6 +563,15 @@ function _renderLinear(state) {
 // Plates Layout (source→destination transfers)
 // ============================================================
 
+// A plate role with no plate loaded is an empty position, drawn like the empty slots of other decks.
+function _plateOrEmpty(plate, role, slotId, pos) {
+  if (pos?.labware || Number.isInteger(plate?.format) || Number.isInteger(plate?.well_rows)) return _renderPlateMap(plate, role, slotId, pos);
+  const empty = _createSlot({...(pos || {}), id: slotId, labware: null, type: "empty"});
+  empty.classList.add("deck-plate-empty");
+  empty.title = `${role === "dest" ? "Destination" : "Source"} position · empty`;
+  return empty;
+}
+
 function _renderPlates(state) {
   const plates = state.plates || {};
   const positions = state.positions || [];
@@ -595,7 +604,7 @@ function _renderPlates(state) {
     const slotId = srcPos?.id || "source";
     if (srcPos) usedIds.add(srcPos.id);
     _plateSlotRoles.set(String(slotId), new Set(["source"]));
-    const source = _renderPlateMap(plates.source, "source", slotId, srcPos);
+    const source = _plateOrEmpty(plates.source, "source", slotId, srcPos);
     source.classList?.add("plate-source");
     container.appendChild(source);
   }
@@ -605,7 +614,7 @@ function _renderPlates(state) {
     if (dstPos) usedIds.add(dstPos.id);
     if (!_plateSlotRoles.has(String(slotId))) _plateSlotRoles.set(String(slotId), new Set());
     _plateSlotRoles.get(String(slotId)).add("destination");
-    const destination = _renderPlateMap(plates.destination, "dest", slotId, dstPos);
+    const destination = _plateOrEmpty(plates.destination, "dest", slotId, dstPos);
     destination.classList?.add("plate-dest");
     container.appendChild(destination);
     if (state.arrangement === "facing") {

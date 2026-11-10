@@ -520,3 +520,5 @@ body:not(.landing) .device-bubbles {display:none}
 /* Centred on the deck, but never above the pane: a short deck (e.g. empty plates) must not push the card's top out of view. */
 .workspace-app .chat-window.floating-chat {top:max(var(--deck-center-y, 50%), calc(min(560px, 100% - 16px) / 2 + 8px))}
 .floating-chat .code-actions {width:max-content; right:auto}
+/* Empty plate positions (no plate loaded yet): dashed slots sized like a plate. */
+.deck-plates .deck-plate-empty {width:520px; max-width:100%; aspect-ratio:1.5; height:auto}
