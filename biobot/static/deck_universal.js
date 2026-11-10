@@ -2494,11 +2494,35 @@ function _removeTipOverlay() {
   document.querySelectorAll(".anim-tip-overlay").forEach(el => el.remove());
 }
 
+// Facing plates mean contactless transfer (e.g. acoustic): a droplet rises from the source well to the
+// destination well instead of a pipette moving.
+function _showDropletAnimation(step, colors, container) {
+  if (!step.source?.slot || !step.destination?.slot) return;
+  const slot = id => [...container.querySelectorAll(".deck-slot[data-id]")].find(s => s.dataset.id === String(id));
+  const point = (id, wells) => {
+    const area = slot(id);
+    return area?.querySelector(`.deck-well[data-well="${wells?.[0]}"]`) || area;
+  };
+  const from = point(step.source.slot, step.source.wells), to = point(step.destination.slot, step.destination.wells);
+  if (!from || !to) return;
+  const box = container.getBoundingClientRect(), a = from.getBoundingClientRect(), b = to.getBoundingClientRect();
+  const drop = document.createElement("div");
+  drop.className = "anim-tip-overlay anim-droplet";
+  drop.innerHTML = `<span class="droplet" style="background:${colors.fill}"></span>${step.volume ? `<span class="tip-vol-label">${step.volume}</span>` : ""}`;
+  Object.assign(drop.style, {position:"absolute", zIndex:"50", pointerEvents:"none",
+    left:`${a.left - box.left + container.scrollLeft + a.width / 2}px`, top:`${a.top - box.top + container.scrollTop + a.height / 2}px`});
+  container.style.position = "relative";
+  container.appendChild(drop);
+  const dx = b.left + b.width / 2 - (a.left + a.width / 2), dy = b.top + b.height / 2 - (a.top + a.height / 2);
+  requestAnimationFrame(() => { drop.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`; });
+}
+
 function _showTipAnimation(step, colors) {
   _removeTipOverlay();
 
   const container = document.getElementById("deck-svg-container");
   if (!container) return;
+  if (_currentState?.arrangement === "facing") { _showDropletAnimation(step, colors, container); return; }
 
   const actionKey = (step.action || "").toLowerCase().replace(/[\s-]+/g, "_");
   // A tip drop without a declared trash goes to the deck's own trash position.
