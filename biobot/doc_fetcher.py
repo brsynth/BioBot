@@ -188,6 +188,8 @@ def is_doc_url(url, base_domain):
     # Skip non-doc paths
     skip_patterns = [
         r'/issues', r'/pull/', r'/commit/', r'/releases',
+        r'/(tree|blob)/[0-9a-f]{7,40}(/|$)', r'/commits?/', r'/blame/', r'/compare/',  # past snapshots of a repository
+        r'/stargazers', r'/watchers', r'/forks?(/|$)',
         r'/actions', r'/security', r'/graphs', r'/network',
         r'\.zip$', r'\.tar\.gz$', r'\.whl$',
         r'/login', r'/signup', r'/search',
