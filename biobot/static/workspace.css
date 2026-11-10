@@ -504,6 +504,5 @@ body:not(.landing) .device-bubbles {display:none}
 .anim-droplet .tip-vol-label {position:static; color:var(--text-primary); font-size:11px; font-weight:600; background:var(--bg-elevated); padding:1px 5px; border-radius:6px}
 #protocol-notice:has(.notice-close) {pointer-events:auto; padding-right:34px}
 .notice-close {position:absolute; top:6px; right:8px; padding:2px 4px; border:0; background:none; color:inherit; font-size:16px; line-height:1; cursor:pointer}
-.deck-cancel-edits {position:absolute; top:12px; left:50%; transform:translateX(-50%); z-index:25; padding:7px 14px; border:1px solid var(--border-light); border-radius:8px; background:var(--bg-elevated); color:var(--text-primary); font:600 12px var(--font-sans); box-shadow:var(--shadow-md); cursor:pointer}
-.deck-cancel-edits[hidden] {display:none}
-.deck-cancel-edits:hover {border-color:var(--danger); color:var(--danger)}
+.deck-history {position:absolute; top:12px; left:50%; transform:translateX(-50%); z-index:25; display:flex; gap:6px}
+.deck-history[hidden] {display:none}

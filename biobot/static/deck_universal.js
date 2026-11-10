@@ -1608,13 +1608,48 @@ function _renderApplyBar() {
   const apply = document.getElementById("deck-apply-btn");
   const disabled = !!window.workspace?.readOnly || _libraryEditing || _applyingChanges || _pendingChanges.length === 0;
   if (discard) discard.disabled = disabled;
-  // Visible on the deck whenever edits (deck or parameters) are waiting, even if the parameters pane is folded or absent.
-  const cancel = document.getElementById("deck-cancel-edits");
-  if (cancel) cancel.hidden = disabled;
+  _trackEditHistory();
   if (apply) {
     apply.disabled = disabled || !!document.getElementById("protocol-parameter-fields")?.querySelector("input:invalid");
     apply.textContent = _applyingChanges ? "Applying…" : "Apply";
   }
+}
+
+// Undo/redo of unapplied edits (deck and parameters). Each entry is a snapshot of the pending changes and the
+// deck state; quick successive changes (typing) form one step. Loading another deck or protocol starts afresh.
+let _editUndo = [], _editRedo = [], _editLast = null, _editDeck = null, _editTime = 0, _editRestoring = false;
+function _editSnapshot() {
+  return {pending: JSON.stringify(_pendingChanges), state: JSON.stringify(_currentState)};
+}
+function _trackEditHistory() {
+  const deck = `${_currentCode}\u0000${_currentState?.platform}`;
+  if (deck !== _editDeck || !_currentState) {
+    _editUndo = []; _editRedo = []; _editDeck = deck; _editLast = _currentState ? _editSnapshot() : null;
+  } else if (!_editRestoring) {
+    const now = _editSnapshot();
+    if (now.pending !== _editLast?.pending) {
+      if (Date.now() - _editTime > 800) _editUndo.push(_editLast);
+      _editRedo = []; _editTime = Date.now();
+    }
+    _editLast = now;
+  }
+  const bar = document.getElementById("deck-history");
+  if (bar) bar.hidden = !_currentState || !!window.workspace?.readOnly || _libraryEditing;
+  const undo = document.getElementById("deck-undo"), redo = document.getElementById("deck-redo");
+  if (undo) undo.disabled = _applyingChanges || !_editUndo.length;
+  if (redo) redo.disabled = _applyingChanges || !_editRedo.length;
+}
+function _stepEditHistory(direction) {
+  const from = direction < 0 ? _editUndo : _editRedo, to = direction < 0 ? _editRedo : _editUndo;
+  if (_applyingChanges || !from.length) return;
+  to.push(_editSnapshot());
+  const target = from.pop();
+  _pendingChanges = JSON.parse(target.pending);
+  _currentState = JSON.parse(target.state);
+  _editLast = target;
+  _editRestoring = true;
+  try { _renderDeck(_currentState); _renderApplyBar(); } finally { _editRestoring = false; }
+  _trackEditHistory();
 }
 
 function _discardChanges() {
@@ -2735,7 +2770,13 @@ function _ensureResizeHandle() {
 // Init
 document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("deck-discard-btn")?.addEventListener("click", _discardChanges);
-  document.getElementById("deck-cancel-edits")?.addEventListener("click", _discardChanges);
+  document.getElementById("deck-undo")?.addEventListener("click", () => _stepEditHistory(-1));
+  document.getElementById("deck-redo")?.addEventListener("click", () => _stepEditHistory(1));
+  document.addEventListener("keydown", event => {
+    if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "z" || event.target.closest?.("input, textarea, [contenteditable]")) return;
+    event.preventDefault();
+    _stepEditHistory(event.shiftKey ? 1 : -1);
+  });
   document.getElementById("deck-apply-btn")?.addEventListener("click", _commitChanges);
   // Keep focus in a parameter box while pressing Discard/Apply: blurring it re-validates and can shift the buttons mid-click.
   for (const id of ["deck-apply-btn", "deck-discard-btn"]) document.getElementById(id)?.addEventListener("mousedown", event => event.preventDefault());

@@ -162,7 +162,10 @@
         <p class="deck-empty-message">Generate a protocol to see the deck layout</p>
       </div>
       <aside id="well-details" class="well-details" aria-label="Well contents" hidden></aside>
-      <button type="button" id="deck-cancel-edits" class="deck-cancel-edits" hidden>Cancel edits</button>
+      <div id="deck-history" class="deck-history" hidden>
+        <button type="button" id="deck-undo" class="code-action-icon" aria-label="Undo edit" title="Undo (⌘/Ctrl+Z)" disabled><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
+        <button type="button" id="deck-redo" class="code-action-icon" aria-label="Redo edit" title="Redo (⇧⌘/Ctrl+Shift+Z)" disabled><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/></svg></button>
+      </div>
       </div>
       <div id="deck-info" class="deck-info"></div>
       <p id="protocol-notice" role="status"></p>
