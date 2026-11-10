@@ -716,6 +716,9 @@ function _renderPlateMap(plate, role, slotId, posData) {
   const grid = document.createElement("div");
   grid.className = "deck-well-grid";
   grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+  // Rows sized by the grid's own proportions, not by each well's aspect ratio (which some browsers ignore for row height).
+  grid.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+  grid.style.aspectRatio = `${cols} / ${rows}`;
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
