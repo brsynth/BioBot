@@ -1332,6 +1332,18 @@ def select_device(chat_id):
         return jsonify({"error": "Could not open this device. Please try again."}), 502
 
 
+def _chat_device(data, user_id):
+    """The device validated for this chat, if any."""
+    if not data.get("chat_id"):
+        return None
+    conn = get_db_connection()
+    try:
+        row = fetchone_dict(conn, "SELECT device_name FROM chat_names WHERE chat_id = %s AND user_id = %s", (data["chat_id"], user_id))
+    finally:
+        conn.close()
+    return row and row["device_name"]
+
+
 def _deck_request_context(data, user_id):
     conn = get_db_connection()
     try:
@@ -1361,7 +1373,8 @@ def visualize_deck():
     from deck_library import get_deck
     try:
         api_key, history = _deck_request_context(data, user_id)
-        return jsonify(get_deck(code, user_id, api_key, history, data.get("template_id"), refresh_parameters=data.get("refresh_parameters") is True))
+        return jsonify(get_deck(code, user_id, api_key, history, data.get("template_id"), refresh_parameters=data.get("refresh_parameters") is True,
+                                device_name=_chat_device(data, user_id)))
     except ValueError as error:
         return jsonify({"error": str(error)}), 400
     except Exception:
@@ -1387,7 +1400,7 @@ def update_deck():
             updated = protocol_lang.set_parameters(code, changes)
         else:
             updated = update_code_from_changes(code, changes, api_key)
-        state = get_deck(updated, user_id, api_key, history, data.get("template_id"))
+        state = get_deck(updated, user_id, api_key, history, data.get("template_id"), device_name=_chat_device(data, user_id))
         if data.get("chat_id"):
             _save_deck_protocol(data["chat_id"], user_id, code, updated)
         return jsonify({"code": updated, "state": state})
@@ -1543,7 +1556,7 @@ def restore_deck():
     from deck_library import get_deck
     try:
         api_key, history = _deck_request_context(data, user_id)
-        state = get_deck(code, user_id, api_key, history, data.get("template_id"))
+        state = get_deck(code, user_id, api_key, history, data.get("template_id"), device_name=_chat_device(data, user_id))
         if data.get("chat_id"):
             _save_deck_protocol(data["chat_id"], user_id, original, code)
         return jsonify({"code": code, "state": state})

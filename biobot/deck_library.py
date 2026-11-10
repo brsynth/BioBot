@@ -343,7 +343,8 @@ def get_device_deck(name, user_id, api_key=None, template_id=None, identified_de
         conn.close()
 
 
-def get_deck(code, user_id, api_key=None, history=None, template_id=None, refresh_parameters=False):
+def get_deck(code, user_id, api_key=None, history=None, template_id=None, refresh_parameters=False, device_name=None):
+    """device_name: the device validated for the chat, used before any name found in the protocol."""
     digest = hashlib.sha256(code.replace("\r\n", "\n").rstrip("\n").encode()).hexdigest()
     conn = get_db_connection()
     try:
@@ -361,7 +362,8 @@ def get_deck(code, user_id, api_key=None, history=None, template_id=None, refres
                 import protocol_lang
                 cursor.execute("SELECT DISTINCT device_id, device_name FROM deck_templates")
                 known, structured = [dict(row) for row in cursor.fetchall()], protocol_lang.parse(code)
-                device = next((item for item in known if structured and str(item["device_name"]).casefold() == str(structured.get("device", "")).casefold()), None) \
+                same = lambda name: next((item for item in known if name and str(item["device_name"]).casefold() == str(name).casefold()), None)
+                device = same(device_name) or (structured and same(structured.get("device"))) \
                     or identify_device(code, history or [], known, api_key)
                 device_id, name = device["device_id"], device["name"]
                 if requested and requested["device_id"] != device_id:
