@@ -114,6 +114,9 @@ def clean_layout(state):
     layout = {"platform": state.get("platform", ""), "layout_type": state["layout_type"]}
     if state.get("arrangement") in {"side_by_side", "facing"}:
         layout["arrangement"] = state["arrangement"]
+    if isinstance(state.get("sources"), list):  # what the layout is based on
+        layout["sources"] = [{"claim": str(s.get("claim", ""))[:300], "source": str(s.get("source", ""))[:500]}
+                             for s in state["sources"][:40] if isinstance(s, dict)]
     mounts = state.get("mounts", [])
     if not isinstance(mounts, list) or any(not isinstance(mount, str) or not mount for mount in mounts):
         raise ValueError("Instrument mounts must be a list of non-empty physical identifiers.")
@@ -265,10 +268,12 @@ def _choices(cursor, user_id, device_id):
 def _default_deck(cursor, name, device_id, api_key):
     cursor.execute("SELECT * FROM deck_templates WHERE device_id = %s AND is_default", (device_id,))
     cached = cursor.fetchone()
-    if cached is not None and cached["layout"].get("layout_type") == "plates" and "arrangement" not in cached["layout"]:
-        # Layouts stored before plate arrangements: add it without regenerating (positions stay the same).
+    if cached is not None and cached["layout"].get("layout_type") == "plates" and not cached["layout"].get("sources"):
+        # Plate layouts stored without sources: ground their arrangement in the documentation (positions stay the same).
         from deck_visualizer import plate_arrangement
-        layout = {**cached["layout"], "arrangement": plate_arrangement(name, api_key)}
+        arrangement, source = plate_arrangement(name, api_key)
+        layout = {**cached["layout"], "arrangement": arrangement,
+                  "sources": cached["layout"].get("sources", []) + [{"claim": f"plate arrangement: {arrangement}", "source": source or "not found in sources"}]}
         cursor.execute("UPDATE deck_templates SET layout = %s WHERE id = %s RETURNING *", (Json(layout), cached["id"]))
         cached = cursor.fetchone()
     if cached is not None:

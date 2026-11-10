@@ -230,9 +230,12 @@ def identify_device(code, history, known_devices, api_key=None):
     return result
 
 
-DEVICE_LAYOUT_PROMPT = """You design reusable physical deck layouts for laboratory instruments.
-You receive ONLY a device model name, not a protocol. Generate its complete physical layout once.
-""" + LAYOUT_SCHEMA + """
+DEVICE_LAYOUT_PROMPT = """You describe the real physical deck of a laboratory instrument, for a simulator that must look like the actual device.
+You receive ONLY a device model name, not a protocol. Use web search to find the device's documentation (manufacturer manuals,
+product pages, specifications) and base every structural element on it: layout type, positions and their names, arrangement and
+orientation of plates, fixed hardware. Never use a generic or assumed deck. When the sources do not establish something, use the
+simplest neutral representation and say so.
+""" + LAYOUT_SCHEMA + """Also include "sources": [{"claim": "structural element", "source": "URL or short documentation excerpt"}] supporting each structural choice, and listing what could not be found.
 Rules:
 - Describe the device's actual physical geometry, all positions (including unused ones), fixed hardware, and available source/destination locations.
 - Use empty labware and instrument lists for configurable hardware; retain only mandatory, permanently fixed hardware. Mark fixed positions with fixed: true. Do not add example plates, optional modules, tips, or protocol-specific hardware.
@@ -242,7 +245,7 @@ Rules:
 - mounts: actual documented instrument mounting identifiers, or [] when unknown or not applicable. Do not assume a particular number, naming scheme or orientation.
 - When known, provide each position's physical width/height as a numeric aspect_ratio, respecting the device's orientation. Omit it when unknown.
 - For plate-based layouts, define source/destination plate roles without assuming the protocol's plate format.
-- arrangement (plate-based layouts): "facing" when the destination plate is physically held above the source plate, facing it (as in acoustic transfer); "side_by_side" otherwise.
+- arrangement (plate-based layouts): "facing" when the sources show the plates held one above the other, facing each other; "side_by_side" otherwise or when the sources do not say.
 - Return ONLY the JSON object.
 """
 
@@ -250,8 +253,8 @@ Rules:
 def generate_device_layout(device_name, api_key=None):
     import json
     from config import biobot_model
-    client = OpenAI(api_key=api_key or get_api_key(), timeout=40, max_retries=0)
-    response = client.responses.create(model=biobot_model, input=[
+    client = OpenAI(api_key=api_key or get_api_key(), timeout=120, max_retries=0)
+    response = client.responses.create(model=biobot_model, tools=[{"type": "web_search"}], input=[
         {"role": "system", "content": DEVICE_LAYOUT_PROMPT},
         {"role": "user", "content": f"Device model: {device_name}"},
     ])
@@ -259,13 +262,22 @@ def generate_device_layout(device_name, api_key=None):
 
 
 def plate_arrangement(device_name, api_key=None):
-    """How a plate-based device holds its plates: "facing" (destination above the source, facing it) or "side_by_side"."""
-    client = OpenAI(api_key=api_key or get_api_key(), timeout=20, max_retries=0)
-    response = client.responses.create(model=light_functions_model, input=[
-        {"role": "system", "content": 'Answer with one word for the named liquid-handling device: "facing" if its destination plate is physically held above the source plate, facing it (as in acoustic transfer), otherwise "side_by_side".'},
+    """How a plate-based device physically holds its plates, from its documentation found with web search:
+    "facing" (one above the other, facing each other) or "side_by_side" (also when the sources do not say)."""
+    import json, re
+    from config import biobot_model
+    client = OpenAI(api_key=api_key or get_api_key(), timeout=90, max_retries=0)
+    response = client.responses.create(model=biobot_model, tools=[{"type": "web_search"}], input=[
+        {"role": "system", "content": 'Use web search to find how the named liquid-handling device physically holds its source and destination plates, from its documentation. Return ONLY JSON: {"arrangement": "facing" if the sources show the plates held one above the other, facing each other, else "side_by_side", "source": "URL or short excerpt supporting it, or null"}. Without supporting sources answer side_by_side.'},
         {"role": "user", "content": f"Device model: {device_name}"},
     ])
-    return "facing" if "facing" in response.output_text.lower() else "side_by_side"
+    match = re.search(r"\{[\s\S]*\}", response.output_text or "")
+    try:
+        answer = json.loads(match[0]) if match else {}
+    except ValueError:
+        answer = {}
+    grounded = answer.get("arrangement") == "facing" and answer.get("source")
+    return ("facing" if grounded else "side_by_side"), answer.get("source")
 
 
 def bind_protocol(code, layout, api_key=None):
