@@ -44,10 +44,10 @@ def load_or_build_index(handler_id, handler_config, chunk_size=3000, api_key=Non
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            print(f"STEP:Waiting for {name} documentation preparation...", flush=True)
+            print("STEP:Checking available resources...", flush=True)
             fcntl.flock(lock, fcntl.LOCK_EX)
         if store_path.exists():
-            print(f"STEP:Loading {name} documentation index...", flush=True)
+            print("STEP:Checking available resources...", flush=True)
             with store_path.open("rb") as file:
                 store = pickle.load(file)
         else:
@@ -55,7 +55,7 @@ def load_or_build_index(handler_id, handler_config, chunk_size=3000, api_key=Non
             has_docs = any(path.is_file() and path.suffix.lower() in extensions for path in docs_path.rglob("*"))
             if not has_docs and not fetch_documentation(name, handler_config.get("keywords", []), str(docs_path), api_key or get_api_key()):
                 return [], [], None
-            print(f"STEP:Building {name} documentation index...", flush=True)
+            print("STEP:Checking available resources...", flush=True)
             chunks, sources = load_and_chunk_docs(str(docs_path), chunk_size)
             if not chunks:
                 return [], [], None

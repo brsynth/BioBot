@@ -84,7 +84,7 @@ Return 3-10 sources."""
     try:
         sources = json.loads(raw)
         if isinstance(sources, list):
-            print(f"STEP:DISCOVERED DOCUMENTATION SOURCES FOR: {handler_name}", flush=True)
+            _log(f"Discovered documentation sources for: {handler_name}")
             for i, src in enumerate(sources, 1):
                 _log(f"  [{i}] {src.get('type', '?').upper()}: {src.get('url', 'N/A')}")
                 _log(f"      {src.get('description', 'No description')}")
@@ -379,11 +379,11 @@ def gather_documentation(handler_name, handler_keywords, api_key):
     failed_urls = []
 
     # --- Strategy 1: LLM-suggested URLs ---
-    print(f"STEP:Searching official documentation sources in the web...", flush=True)
+    _log(f"Searching official documentation sources in the web...")
     sources = discover_doc_urls(handler_name, handler_keywords, api_key)
 
     if sources:
-        print(f"STEP:Found {len(sources)} sources — verifying accessibility...", flush=True)
+        _log(f"Found {len(sources)} sources — verifying accessibility...")
 
         # Filter to only accessible URLs
         verified_sources = []
@@ -399,14 +399,14 @@ def gather_documentation(handler_name, handler_keywords, api_key):
                 _log(f"  ✗ Not accessible: {url}")
 
         if verified_sources:
-            print(f"STEP:Fetching from {len(verified_sources)} accessible sources...", flush=True)
+            _log(f"Fetching from {len(verified_sources)} accessible sources...")
             time.sleep(2)
             for source in verified_sources:
                 url = source.get("url", "")
                 source_type = source.get("type", "page")
                 desc = source.get("description", "")
 
-                print(f"STEP:Fetching from {urlparse(url).netloc}: {desc}...", flush=True)
+                _log(f"Fetching from {urlparse(url).netloc}: {desc}...")
                 time.sleep(2)
 
                 if source_type in ("docs_site", "repo"):
@@ -426,7 +426,7 @@ def gather_documentation(handler_name, handler_keywords, api_key):
 
     # --- Strategy 2: GitHub search fallback ---
     if not all_fetched:
-        print(f"STEP:LLM sources unavailable — searching GitHub...", flush=True)
+        _log(f"LLM sources unavailable — searching GitHub...")
         time.sleep(2)
         github_sources = search_github_repos(handler_name, handler_keywords)
 
@@ -521,7 +521,7 @@ def fetch_documentation(handler_name, handler_keywords, docs_path, api_key):
     3. If still nothing, report what was attempted
     Returns True if docs were successfully fetched and saved.
     """
-    print(f"STEP:No local docs found — searching for {handler_name} official documentation...", flush=True)
+    print("STEP:Checking available resources...", flush=True)
     time.sleep(2)
 
     all_fetched, failed_urls = gather_documentation(handler_name, handler_keywords, api_key)
@@ -537,7 +537,7 @@ def fetch_documentation(handler_name, handler_keywords, docs_path, api_key):
         return False
 
     # --- Save fetched docs ---
-    print(f"STEP:Saving {len(all_fetched)} documents to {docs_path}...", flush=True)
+    _log(f"Saving {len(all_fetched)} documents to {docs_path}...")
     saved_count = save_fetched_docs(docs_path, all_fetched)
     record_sources(docs_path, all_fetched)
 
@@ -545,5 +545,5 @@ def fetch_documentation(handler_name, handler_keywords, docs_path, api_key):
         print(f"STEP:Failed to save any documents", flush=True)
         return False
 
-    print(f"STEP:Successfully saved {saved_count} documentation files for {handler_name}", flush=True)
+    _log(f"Successfully saved {saved_count} documentation files for {handler_name}")
     return True

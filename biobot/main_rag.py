@@ -286,7 +286,7 @@ def run_query_and_fix(question, chunks, chunk_sources, index, handler_config, ma
     print("STEP:Analyzing your request...", flush=True)
     question_embedding = np.array([get_text_embedding_with_retry(search_query or question)])
 
-    print("STEP:Searching documentation for relevant context...", flush=True)
+    print("STEP:Checking available resources...", flush=True)
     D, I = index.search(question_embedding, k=5)
     retrieved_chunks = [chunks[i] for i in I.tolist()[0]]
     retrieved_sources = [chunk_sources[i] for i in I.tolist()[0]]
@@ -409,7 +409,7 @@ def design_protocol(question, chunks, index, handler_config, max_attempts=3, pos
     """Write the request in the BioBot language, grounded in the device documentation.
     Returns (protocol text, problems): problems is empty when it expands cleanly and
     reaches the end state expected from the request."""
-    print("STEP:Searching documentation for relevant context...", flush=True)
+    print("STEP:Checking available resources...", flush=True)
     # The request's context, plus the device's limits (volume range and resolution, well capacity, dead volume).
     limits = f"{handler_config['name']} specifications, limits, requirements and compatible labware"
     found = [i for query in (question, limits) for i in index.search(np.array([get_text_embedding_with_retry(query)]), k=5)[1].tolist()[0]]
