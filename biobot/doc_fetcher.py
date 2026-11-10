@@ -190,6 +190,7 @@ def is_doc_url(url, base_domain):
         r'/issues', r'/pull/', r'/commit/', r'/releases',
         r'/(tree|blob)/[0-9a-f]{7,40}(/|$)', r'/commits?/', r'/blame/', r'/compare/',  # past snapshots of a repository
         r'/stargazers', r'/watchers', r'/forks?(/|$)',
+        r'(?i)\.(dxf|dwg|step|stp|stl|igs|iges|sldprt|sldasm|f3d|png|jpe?g|gif|svg|ico|bmp|tiff?|mp4|mov|avi|zip|7z|rar|tar|gz|whl|exe|dmg|msi|bin|hex)$',  # CAD, media, archives, binaries
         r'/actions', r'/security', r'/graphs', r'/network',
         r'\.zip$', r'\.tar\.gz$', r'\.whl$',
         r'/login', r'/signup', r'/search',
