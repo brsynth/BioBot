@@ -393,6 +393,24 @@ def _expand(protocol, positions):
     return {"steps": run.steps, "initial_wells": initial, "final_wells": final}
 
 
+def match_positions(protocol, position_ids):
+    """Map labware positions to the deck's real position ids when the match is unambiguous
+    (same name ignoring case and punctuation, or contained in exactly one id). Returns a new protocol."""
+    protocol = json.loads(json.dumps(parse(protocol)))
+    norm = lambda value: re.sub(r"[^a-z0-9]", "", str(value).lower())
+    ids = [str(i) for i in position_ids]
+    for lab in protocol.get("labware", []):
+        if not isinstance(lab, dict) or str(lab.get("position")) in ids:
+            continue
+        wanted = norm(lab.get("position"))
+        same = [i for i in ids if norm(i) == wanted]
+        near = [i for i in ids if wanted and (wanted in norm(i) or norm(i) in wanted)]
+        match = same if len(same) == 1 else near if len(near) == 1 else []
+        if match:
+            lab["position"] = match[0]
+    return protocol
+
+
 def binding(protocol):
     """Simulator contents for get_deck, computed without any LLM call."""
     protocol = parse(protocol)

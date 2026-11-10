@@ -370,7 +370,8 @@ def get_deck(code, user_id, api_key=None, history=None, template_id=None, refres
                 # Keep a successful device layout even if extracting this protocol fails.
                 # The code's session lock remains held until this connection closes.
                 conn.commit()
-                binding = protocol_lang.binding(structured) if structured else bind_protocol(code, default["layout"], api_key)
+                binding = (protocol_lang.binding(protocol_lang.match_positions(structured, [p.get("id") for p in default["layout"].get("positions", [])]))
+                           if structured else bind_protocol(code, default["layout"], api_key))
                 binding["_version"] = BINDING_VERSION
                 protocol = {"device_id": device_id, "template_id": default["id"], "binding": binding}
                 cursor.execute("""INSERT INTO deck_protocols (user_id, code_hash, device_id, template_id, binding)
@@ -380,7 +381,9 @@ def get_deck(code, user_id, api_key=None, history=None, template_id=None, refres
                 import protocol_lang
                 cursor.execute("SELECT layout FROM deck_templates WHERE device_id = %s AND is_default", (protocol["device_id"],))
                 structured = protocol_lang.parse(code)
-                binding = protocol_lang.binding(structured) if structured else bind_protocol(code, cursor.fetchone()["layout"], api_key)
+                layout = cursor.fetchone()["layout"]
+                binding = (protocol_lang.binding(protocol_lang.match_positions(structured, [p.get("id") for p in layout.get("positions", [])]))
+                           if structured else bind_protocol(code, layout, api_key))
                 binding["_version"] = BINDING_VERSION
                 protocol["binding"] = binding
                 cursor.execute("UPDATE deck_protocols SET binding = %s WHERE user_id = %s AND code_hash = %s", (Json(binding), user_id, digest))

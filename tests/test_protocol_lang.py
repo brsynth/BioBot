@@ -74,6 +74,12 @@ class ExpansionTests(unittest.TestCase):
         self.assertEqual(binding["parameters"][0], {"id": "n_points", "label": "n points", "value": "6", "type": "number", "unit": "", "units": {"": 1}, "integer": True})
         self.assertEqual(binding["initial_wells"][0]["liquids"], [{"name": "diluent", "volume_ul": 10000}])
 
+    def test_positions_matched_to_the_deck_when_unambiguous(self):
+        protocol = variant(labware=[dict(lab, position=name) for lab, name in zip(DILUTION["labware"], ["source", "dest", "tips rack", "trash"])])
+        matched = lang.match_positions(protocol, ["Source Plate", "Destination Plate", "Tips", "Trash"])
+        self.assertEqual([lab["position"] for lab in matched["labware"]], ["Source Plate", "Destination Plate", "Tips", "Trash"])
+        self.assertEqual(lang.match_positions(protocol, ["Source A", "Source B"])["labware"][0]["position"], "source")
+
     def test_non_protocols_are_left_to_the_llm_path(self):
         self.assertIsNone(lang.parse("from opentrons import protocol_api"))
         self.assertIsNone(lang.parse('{"steps": []}'))
