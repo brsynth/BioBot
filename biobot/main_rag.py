@@ -424,6 +424,8 @@ def design_protocol(question, chunks, index, handler_config, max_attempts=3, pos
         try:
             text = strip_code_fences(run_gpt(prompt))
             protocol = json.loads(text)
+            if os.environ.get("BIOBOT_DEVICE") and isinstance(protocol, dict):
+                protocol["device"] = os.environ["BIOBOT_DEVICE"]  # the chat's locked device
             protocol_lang.expand(protocol, positions)
             if expected is None:
                 expected = _expected_end_state(question, protocol)
@@ -503,7 +505,9 @@ if feasibility_result is not None:
         print(warnings_msg, flush=True)
 
 # 3. Detect which handler the user needs
-handler_id, handlers = detect_handler(consolidated_query, chat_history, user_api_key)
+# The chat's device is locked once picked: documentation and code target it, not a device guessed from the text.
+LOCKED_DEVICE = os.environ.get("BIOBOT_DEVICE")
+handler_id, handlers = detect_handler(LOCKED_DEVICE or consolidated_query, [] if LOCKED_DEVICE else chat_history, user_api_key)
 if handler_id is None:
     print("QUESTIONS:" + json.dumps({
         "message": "Which robot or instrument should this protocol use?",

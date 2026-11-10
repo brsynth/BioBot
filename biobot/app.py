@@ -829,7 +829,7 @@ def chat_stream(chat_id):
 
     messages = [{"role": r["role"], "content": decrypt_message(r["content"])} for r in rows]
     if device:
-        messages.insert(max(0, len(messages) - 1), {"role": "assistant", "content": f"Selected device context: {device}. Use it unless the user's prompt specifies another device."})
+        messages.insert(max(0, len(messages) - 1), {"role": "assistant", "content": f"The device for this chat is locked to: {device}. Work only for this device."})
     if deck_layout is not None:
         import json
         messages.insert(max(0, len(messages) - 1), {"role": "assistant", "content": "The user selected this physical deck configuration. Preserve its hardware and positions when generating the protocol: " + json.dumps(deck_layout)})
@@ -843,7 +843,8 @@ def chat_stream(chat_id):
         from engine import RAG_STATUS_PREFIX, FAILED_CODE_MARKER, FORMAT_MARKER
         
         try:
-            result = process_user_query(user_message, messages, biobot_model, api_key=user_api_key, debug=debug_logs)
+            result = process_user_query(user_message, messages, biobot_model, api_key=user_api_key, debug=debug_logs,
+                                        device=device or _chat_device({"chat_id": chat_id}, user_id))
             if result is None:
                 raise RuntimeError("Couldn't process your request. Please try again.")
             for chunk in result:
@@ -1466,11 +1467,11 @@ def _saved_export(user_id, protocol_hash=None, chat_id=None):
                     "chat_id": row["chat_id"], "protocol": decrypt_message(row["protocol"])}
 
 
-def _run_export(key, job, protocol, api_key, history, debug=False):
+def _run_export(key, job, protocol, api_key, history, debug=False, device=None):
     from engine import RAG_STATUS_PREFIX, FAILED_CODE_MARKER, FORMAT_MARKER
     try:
         chunks = []
-        for chunk in process_user_query(protocol, history, biobot_model, api_key=api_key, export=True, debug=debug):
+        for chunk in process_user_query(protocol, history, biobot_model, api_key=api_key, export=True, debug=debug, device=device):
             if not chunk.startswith(RAG_STATUS_PREFIX):
                 chunks.append(chunk)
             elif chunk[len(RAG_STATUS_PREFIX):].startswith("__WARNING__:"):
@@ -1522,7 +1523,7 @@ def export_protocol():
             except ValueError as error:
                 return jsonify({"error": str(error)}), 400
             job = _exports[key] = {"state": "running", "step": "Starting…", "chat_id": data.get("chat_id")}
-            Thread(target=_run_export, args=(key, job, protocol, api_key, history, debug), name="export", daemon=True).start()
+            Thread(target=_run_export, args=(key, job, protocol, api_key, history, debug, _chat_device(data, user_id)), name="export", daemon=True).start()
         reply = {k: v for k, v in (job or {"state": "none"}).items() if k != "protocol"}
     if reply["state"] != "done" and data.get("chat_id"):
         # The chat's last generated code, so the user can go back to its protocol.
