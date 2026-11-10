@@ -802,7 +802,8 @@ test('selecting hardware on a new deck adds it before any protocol code exists a
 test('the entire deck scales to fit in both normal and fullscreen panes', () => {
   const w = setup();
   let fullscreen = true;
-  const wrapper = { scrollWidth: 1200, scrollHeight: 800,
+  let bar = {};
+  const wrapper = { scrollWidth: 1200, scrollHeight: 800, querySelector: selector => selector === '#anim-playback-bar' ? bar : null,
     style: { removeProperty(name) { delete this[name]; } } };
   const container = { clientWidth: 624, clientHeight: 424, querySelector: () => wrapper };
   w.context.document.getElementById = id => id === 'deck-panel'
@@ -818,6 +819,10 @@ test('the entire deck scales to fit in both normal and fullscreen panes', () => 
   w.context._fitDeck();
   assert.equal(wrapper.style.transform, 'scale(0.25)');
   assert.equal(wrapper.style.width, '600px');
+  bar = null;  // before playback exists, its room is kept free under the deck
+  container.clientHeight = 424 + 96;
+  w.context._fitDeck();
+  assert.equal(wrapper.style.transform, 'scale(0.5)');
 });
 
 test('active code lines are centered using viewport coordinates regardless of offset parents', () => {
