@@ -607,12 +607,13 @@
   function showDownload(code, current = true) {
     exportCode = code;
     exportCurrent = !!code && current;
-    for (const icon of [exportCopy, exportSave]) if (icon) { icon.hidden = !code; icon.disabled = !current; }
-    exportLink?.classList.toggle("is-disabled", !current);
-    exportLink?.setAttribute("aria-disabled", String(!current));
+    // Always shown; usable only once code matching the current protocol exists.
+    for (const icon of [exportCopy, exportSave]) if (icon) { icon.hidden = false; icon.disabled = !exportCurrent; }
+    exportLink?.classList.toggle("is-disabled", !exportCurrent);
+    exportLink?.setAttribute("aria-disabled", String(!exportCurrent));
     if (!exportLink) return;
     if (String(exportLink.href || "").startsWith("blob:")) URL.revokeObjectURL(exportLink.href);
-    exportLink.hidden = !code;
+    exportLink.hidden = false;
     exportLink.removeAttribute("href");
     if (!code) return;
     const format = FORMAT_CONFIG[detectFormat(code)] || FORMAT_CONFIG.text;
