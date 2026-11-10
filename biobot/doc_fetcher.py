@@ -313,11 +313,19 @@ def _link(source, target):
     os.replace(temporary, target)
 
 
+def mark_crawled(docs_path, url):
+    """Record that this site was crawled from this address, so its stored pages can stand for a new crawl."""
+    with _shared_entries(docs_path) as (shared, entries):
+        entries["_crawled"] = sorted(set(entries.get("_crawled", [])) | {url})
+
+
 def shared_pages(docs_path, url):
-    """Pages already in the shared store at this address or under it (a site another device crawled)."""
+    """Pages already in the shared store for this address: the page itself, or every page of a site that was
+    crawled from exactly this address. Other sites are crawled normally (a partial crawl may lack pages)."""
     prefix = url.rstrip("/") + "/"
     with _shared_entries(docs_path) as (shared, entries):
-        found = [(u, e) for u, e in entries.items() if u == url or u.startswith(prefix)]
+        crawled = url in entries.get("_crawled", [])
+        found = [(u, e) for u, e in entries.items() if u != "_crawled" and (u == url or (crawled and u.startswith(prefix)))]
     pages = []
     for u, entry in found:
         path = os.path.join(shared, "files", entry["file"])
@@ -487,6 +495,8 @@ def gather_documentation(handler_name, handler_keywords, api_key, docs_path=None
                 if source_type in ("docs_site", "repo"):
                     pages = crawl_docs_site(url, max_pages=MAX_PAGES_PER_SOURCE)
                     all_fetched.extend(pages)
+                    if pages and docs_path:
+                        mark_crawled(docs_path, url)
                 else:
                     content, _, content_type = fetch_page_content(url)
                     if content:
@@ -583,6 +593,8 @@ def update_documentation(handler_name, handler_keywords, docs_path, api_key):
             continue
         if source.get("type") in ("docs_site", "repo"):
             pages = crawl_docs_site(url, max_pages=MAX_PAGES_PER_SOURCE)
+            if pages:
+                mark_crawled(docs_path, url)
         else:
             content, _, kind = fetch_page_content(url)
             pages = [{"url": url, "content": content, "type": kind}] if content else []
