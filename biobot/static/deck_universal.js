@@ -2815,7 +2815,10 @@ window.parseDeckFromCode = parseDeckFromCode;
 window.restoreProtocol = _restoreProtocol;
 window.getWorkspaceProtocol = () => ({code: _currentCode, pending: !!_deckAbort || _pendingChanges.length > 0 || _libraryEditing || _applyingChanges
   || !!document.getElementById("protocol-parameter-fields")?.querySelector("input:invalid"),
-  layout: _currentState ? JSON.parse(JSON.stringify(_currentState)) : null});
+  layout: _currentState ? JSON.parse(JSON.stringify(_currentState)) : null,
+  edited: _pendingChanges.length > 0 && !_applyingChanges && !_libraryEditing && !_deckAbort,  // unapplied edits only
+  invalid: !!document.getElementById("protocol-parameter-fields")?.querySelector("input:invalid")});
+window.applyDeckEdits = _commitChanges;
 window.openDeviceWorkspace = () => { _openDeckPanel(); _showLoading(); };
 window.ensureDeckWorkspace = () => { _openDeckPanel(); };
 window.showDeckLoadError = (message, retry) => _showError(message, retry);

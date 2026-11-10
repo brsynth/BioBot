@@ -11,7 +11,7 @@
   const notice = document.getElementById("protocol-notice");
   const chats = new Map();
   let selectedDevice = "", protocolName = "", sourceProtocol = null, creating = null, deviceRequest = null, pageVersion = 0;
-  let noticeTimer, libraryProtocol = null, exportRunning = false, exportReady = false;
+  let noticeTimer, libraryProtocol = null, exportRunning = false, exportReady = false, exportCurrent = false;
   // Errors and warnings belong to their chat: kept per chat until closed, shown again on return.
   let noticeChat = null;
   const chatNotices = new Map();
@@ -250,7 +250,13 @@
     syncNameActions();
     const protocol = window.getWorkspaceProtocol?.();
     const disabled = !protocol?.code || protocol.pending || isTyping;
-    copyButton.disabled = disabled; saveButton.disabled = disabled || !!libraryProtocol; downloadButton.disabled = disabled || exportRunning || exportReady;
+    copyButton.disabled = disabled; saveButton.disabled = disabled || !!libraryProtocol;
+    // The code must match the deck: unapplied edits make it stale (Generate enabled, its icons greyed); undoing them restores both.
+    downloadButton.disabled = !protocol?.code || isTyping || exportRunning || protocol.invalid
+      || (protocol.pending && !protocol.edited) || (exportReady && !protocol.edited);
+    const stale = !exportCurrent || !!protocol?.edited;
+    for (const id of ["export-copy", "export-save"]) { const icon = document.getElementById(id); if (icon) icon.disabled = stale; }
+    document.getElementById("export-download")?.classList.toggle("is-disabled", stale);
     saveButton.hidden = !!libraryProtocol;
     for (const id of ["protocol-view-download", "protocol-view-copy"]) {
       const icon = document.getElementById(id);
@@ -594,6 +600,7 @@
   // A ready file is offered as a link next to the Share icon.
   function showDownload(code, current = true) {
     exportCode = code;
+    exportCurrent = !!code && current;
     for (const icon of [exportCopy, exportSave]) if (icon) { icon.hidden = !code; icon.disabled = !current; }
     exportLink?.classList.toggle("is-disabled", !current);
     exportLink?.setAttribute("aria-disabled", String(!current));
@@ -607,7 +614,14 @@
     exportLink.href = URL.createObjectURL(new Blob([code], {type: format.mime}));
     exportLink.download = name.endsWith(format.ext) ? name : name + format.ext;
   }
-  downloadButton.addEventListener("click", () => pollExport(true, true));
+  downloadButton.addEventListener("click", async () => {
+    // Unapplied deck or parameter edits are applied first, so the code matches what is shown.
+    if (window.getWorkspaceProtocol?.()?.edited) {
+      await window.applyDeckEdits?.();
+      if (window.getWorkspaceProtocol?.()?.pending) return;
+    }
+    pollExport(true, true);
+  });
   refreshExportingChats();
   actions.addEventListener("click", event => {
     if (event.target.closest("button")) actions.open = false;
