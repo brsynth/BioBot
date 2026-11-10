@@ -52,15 +52,15 @@ def log(title, body=""):
 
 
 def discard_log():
-    """A run that ends successfully keeps no log; failed runs keep theirs for diagnosis."""
+    """A run that ends successfully keeps no log, unless an admin turned debug on; failed runs keep theirs."""
+    if os.environ.get("BIOBOT_DEBUG_LOGS") == "1":
+        return
     try:
         os.remove(LOG_PATH)
     except OSError:
         pass
 
 
-# Debug: generate device code from the chat alone (prompts and questionnaire answers), as before the simulator.
-EXPORT_FROM_CHAT = os.environ.get("BIOBOT_EXPORT_FROM_CHAT") == "1"  # set per export, for admins only
 
 
 def get_openai_client(api_key):
@@ -466,35 +466,25 @@ if not os.environ.get("BIOBOT_SKIP_SUFFICIENT_CHECK"):
         sys.exit(0)
 
 # 2. Consolidate the request
-if export_mode and EXPORT_FROM_CHAT:
+if export_mode:
+    # Same path as before the simulator: the chat's request and questionnaire answers, enriched with what the
+    # user changed in the simulator (parameters, deck), written in plain words. No BioBot code is given.
+    current = protocol_lang.parse(user_query) or {}
     chat_only = [m for m in chat_history if not (m.get("role") == "assistant" and '"program"' in m.get("content", ""))]
-    edited = (protocol_lang.parse(user_query) or {}).get("parameters")
+    deck = "; ".join(f"{lab.get('name') or lab.get('identifier')} ({lab.get('identifier')}) at position {lab.get('position')}"
+                     for lab in current.get("labware", []) if isinstance(lab, dict))
+    tools = "; ".join(" ".join(str(x) for x in (i.get("model"), f"on mount {i.get('mount')}" if i.get("mount") else "") if x)
+                      for i in current.get("instruments", []) if isinstance(i, dict))
     latest = "Write the device script for this experiment."
-    if edited:
-        latest += f" The user has since set these parameter values in the simulator; they override any earlier values: {json.dumps(edited)}"
+    if current.get("parameters"):
+        latest += f" In the simulator the user has since set these values, which override any earlier ones: {json.dumps(current['parameters'])}."
+    if deck:
+        latest += f" The deck is now set up as follows: {deck}."
+    if tools:
+        latest += f" Instruments: {tools}."
     consolidated_query = consolidate_request(latest, chat_only, user_api_key)
     feasibility_result = None
     search_query = None
-    print("STEP:Generating from the chat request (debug mode)...", flush=True)
-elif export_mode:
-    # Same path as before the simulator: the user's request, consolidated from the chat, drives the
-    # documentation search and the generate/validate loop; the checked protocol says exactly what to implement.
-    request = consolidate_request("Write the device script for this experiment.", chat_history, user_api_key) if chat_history else ""
-    try:
-        steps = [s["description"] for s in protocol_lang.expand(user_query)["steps"]]
-    except ValueError:
-        steps = []
-    listed = "\n".join(f"{i}. {s}" for i, s in enumerate(steps[:400], 1))
-    if len(steps) > 400:
-        listed += f"\n… {len(steps) - 400} more steps, following the protocol's program."
-    consolidated_query = (
-        (f"{request}\n\n" if request else "") +
-        "This experiment has been designed and checked in BioBot's simulator. The script must implement exactly this "
-        "protocol (BioBot language) and its expanded steps, in order, with the same labware, positions, wells, volumes "
-        "and tip handling; use the device's own loops or transfer functions as documented.\n\n"
-        f"Protocol:\n{user_query}" + (f"\n\nExpanded steps ({len(steps)}):\n{listed}" if steps else ""))
-    feasibility_result = None
-    search_query = request or None
 else:
     search_query = None
     consolidated_query = consolidate_request(user_query, chat_history, user_api_key)
@@ -554,8 +544,8 @@ if not export_mode:
 fmt = handler_config.get("output_format") or ""
 consolidated_query += (f"\n\nWrite the output in the {handler_config['name']}'s own documented protocol file format"
                        + (f" ({fmt}, {handler_config.get('file_extension')})" if fmt and fmt != "text" else "")
-                       + ", exactly as the device's software imports it, as described in the documentation. The BioBot protocol "
-                       "above is input only: never output it, and never answer in its JSON.")
+                       + ", exactly as the device's software imports it, as described in the documentation. "
+                       "Never answer in BioBot's own JSON protocol language.")
 
 # Export: the code, read back into the BioBot language, should make the same liquid movements.
 # A validated script is kept even if the read-back still differs; the difference is reported as a warning.

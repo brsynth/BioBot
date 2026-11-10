@@ -447,7 +447,7 @@
   const exportSpinner = document.getElementById("export-spinner");
   const exportLink = document.getElementById("export-download");
   const exportStep = document.getElementById("export-step");
-  const debugExport = document.getElementById("debug-export");  // admins only
+  const debugLogs = document.getElementById("debug-logs");  // admins only
   // Admin access: users request it; admins approve or reject pending requests in Settings.
   document.getElementById("admin-request-btn")?.addEventListener("click", async event => {
     try { await json("/admin/request", post({})); event.target.outerHTML = '<p class="admin-status">Admin access requested — awaiting approval.</p>'; }
@@ -485,11 +485,10 @@
   for (const close of [document.getElementById("close-admin"), adminModal?.querySelector(".modal-backdrop")]) {
     close?.addEventListener("click", () => adminModal.classList.add("hidden"));
   }
-  if (debugExport) {
-    try { debugExport.checked = localStorage.getItem("biobot-debug-export") === "1"; } catch (_) {}
-    debugExport.addEventListener("change", () => {
-      try { localStorage.setItem("biobot-debug-export", debugExport.checked ? "1" : "0"); } catch (_) {}
-      exportChecked = null; pollExport(false, false);
+  if (debugLogs) {
+    try { debugLogs.checked = localStorage.getItem("biobot-debug-logs") === "1"; } catch (_) {}
+    debugLogs.addEventListener("change", () => {
+      try { localStorage.setItem("biobot-debug-logs", debugLogs.checked ? "1" : "0"); } catch (_) {}
     });
   }
   const exportCopy = document.getElementById("export-copy"), exportSave = document.getElementById("export-save");
@@ -528,7 +527,7 @@
     if (exportRevert) exportRevert.hidden = true;
     if (!protocol) return;
     let job;
-    try { job = await json("/protocol/export", post({protocol, chat_id: currentChatId, start, debug: debugExport?.checked === true})); }
+    try { job = await json("/protocol/export", post({protocol, chat_id: currentChatId, start, debug: debugLogs?.checked === true})); }
     catch (error) { if (deliver) showNotice(`Code generation failed: ${error.message}`, true); return; }
     if (window.getWorkspaceProtocol?.()?.code !== protocol) return;  // the user moved on; checked again on return
     showExportProgress(job);

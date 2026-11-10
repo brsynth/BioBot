@@ -695,6 +695,7 @@ def chat_stream(chat_id):
         return jsonify({"error": "Message required"}), 400
     user_message = user_message.strip()
     deck_layout = data.get("deck_layout")
+    debug_logs = data.get("debug") is True and _user_is_admin(user_id)
     if deck_layout is not None:
         from deck_library import clean_layout
         try:
@@ -811,7 +812,7 @@ def chat_stream(chat_id):
         from engine import RAG_STATUS_PREFIX, FAILED_CODE_MARKER, FORMAT_MARKER
         
         try:
-            result = process_user_query(user_message, messages, biobot_model, api_key=user_api_key)
+            result = process_user_query(user_message, messages, biobot_model, api_key=user_api_key, debug=debug_logs)
             if result is None:
                 raise RuntimeError("Couldn't process your request. Please try again.")
             for chunk in result:
@@ -1378,11 +1379,11 @@ def _user_is_admin(user_id):
 _exports, _exports_lock = {}, __import__("threading").Lock()  # (user, protocol hash) -> export job
 
 
-def _run_export(key, job, protocol, api_key, history, from_chat=False):
+def _run_export(key, job, protocol, api_key, history, debug=False):
     from engine import RAG_STATUS_PREFIX, FAILED_CODE_MARKER, FORMAT_MARKER
     try:
         chunks = []
-        for chunk in process_user_query(protocol, history, biobot_model, api_key=api_key, export=True, from_chat=from_chat):
+        for chunk in process_user_query(protocol, history, biobot_model, api_key=api_key, export=True, debug=debug):
             if not chunk.startswith(RAG_STATUS_PREFIX):
                 chunks.append(chunk)
             elif chunk[len(RAG_STATUS_PREFIX):].startswith("__WARNING__:"):
@@ -1419,9 +1420,8 @@ def export_protocol():
     protocol = data.get("protocol")
     if not isinstance(protocol, str) or not protocol.strip():
         return jsonify({"error": "No protocol to export"}), 400
-    # Debug (admins only): generate from the chat request alone, as before the simulator.
-    from_chat = data.get("debug") is True and _user_is_admin(user_id)
-    key = (user_id, hashlib.sha256((protocol + ("\0chat" if from_chat else "")).encode()).hexdigest())
+    debug = data.get("debug") is True and _user_is_admin(user_id)  # admins: keep the log even on success
+    key = (user_id, hashlib.sha256(protocol.encode()).hexdigest())
     with _exports_lock:
         job = _exports.get(key)
         if data.get("start") is True and (job is None or job["state"] == "error"):
@@ -1430,7 +1430,7 @@ def export_protocol():
             except ValueError as error:
                 return jsonify({"error": str(error)}), 400
             job = _exports[key] = {"state": "running", "step": "Starting…", "chat_id": data.get("chat_id")}
-            Thread(target=_run_export, args=(key, job, protocol, api_key, history, from_chat), name="export", daemon=True).start()
+            Thread(target=_run_export, args=(key, job, protocol, api_key, history, debug), name="export", daemon=True).start()
         reply = {k: v for k, v in (job or {"state": "none"}).items() if k != "protocol"}
         if reply["state"] != "done" and data.get("chat_id"):
             # The chat's last generated code, so the user can go back to its protocol.

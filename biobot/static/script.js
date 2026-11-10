@@ -1045,7 +1045,7 @@ async function sendMessage(edit = {}) {
     const res = await fetch(`/chat/${chatId}/stream`, edit.resume ? {signal:requestController.signal} : {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message, message_id: edit.messageId, deck_layout: deckLayout, device }),
+      body: JSON.stringify({ message, message_id: edit.messageId, deck_layout: deckLayout, device, debug: document.getElementById("debug-logs")?.checked === true }),
       signal: requestController.signal,
     });
 

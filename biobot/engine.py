@@ -180,7 +180,7 @@ FAILED_CODE_MARKER = "__FAILED_CODE__:"
 FORMAT_MARKER = "__FORMAT__:"
 QUESTIONS_MARKER = "__QUESTIONS__:"
 
-def process_user_query(user_query, chat_history, model, api_key=None, export=False, from_chat=False):
+def process_user_query(user_query, chat_history, model, api_key=None, export=False, debug=False):
     history = [msg for msg in chat_history]
     if export:
         classification = "code"
@@ -200,8 +200,8 @@ def process_user_query(user_query, chat_history, model, api_key=None, export=Fal
             env["BIOBOT_SKIP_SUFFICIENT_CHECK"] = "1"
             if export:
                 env["BIOBOT_EXPORT"] = "1"
-            if from_chat:
-                env["BIOBOT_EXPORT_FROM_CHAT"] = "1"
+            if debug:
+                env["BIOBOT_DEBUG_LOGS"] = "1"  # keep this run's log even if it succeeds
 
             # Keep diagnostics out of the reply without letting a full stderr pipe
             # block a long-running documentation/indexing process.

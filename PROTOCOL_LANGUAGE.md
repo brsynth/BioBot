@@ -91,7 +91,8 @@ well volumes with an expected state that the LLM wrote from the request alone, w
 seeing the program. Failures go back to the LLM (≤ 3 attempts). (B) *Simulate.* The saved
 protocol is expanded into the deck and playback. A parameter change re-expands it instantly,
 with no LLM call; other deck edits are applied by the LLM and re-checked. (C) *Export.* The
-LLM generates device code, which is validated by the vendor simulator when one exists,
+LLM generates device code from the user's request and questionnaire answers, enriched in plain words
+with the parameters and deck set in the simulator (no BioBot code is given), which is validated by the vendor simulator when one exists,
 otherwise by LLM review (≤ 5 repairs). The code is then translated back into the BioBot
 language, and its liquid movements must match the protocol's; if not, it is regenerated
 once with the difference. Device code is generated only at export: the simulator plays,
