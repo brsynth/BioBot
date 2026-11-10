@@ -1407,6 +1407,49 @@ def _user_is_admin(user_id):
 _exports, _exports_lock = {}, __import__("threading").Lock()  # (user, protocol hash) -> export job
 
 
+def _protocol_hash(protocol):
+    """Same key for the same protocol, whatever its formatting."""
+    import hashlib, protocol_lang
+    parsed = protocol_lang.parse(protocol)
+    text = json.dumps(parsed, sort_keys=True, ensure_ascii=False) if parsed else protocol.strip()
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def _exports_table(conn):
+    """Finished exports survive server restarts and chat switches."""
+    execute(conn, """CREATE TABLE IF NOT EXISTS protocol_exports (
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE, protocol_hash TEXT NOT NULL, chat_id TEXT,
+        code TEXT NOT NULL, format TEXT, warning TEXT, protocol TEXT NOT NULL, finished TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        PRIMARY KEY (user_id, protocol_hash))""", commit=True)
+
+
+def _save_export(user_id, protocol_hash, job):
+    conn = get_db_connection()
+    try:
+        _exports_table(conn)
+        execute(conn, """INSERT INTO protocol_exports (user_id, protocol_hash, chat_id, code, format, warning, protocol)
+                         VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (user_id, protocol_hash) DO UPDATE
+                         SET chat_id = EXCLUDED.chat_id, code = EXCLUDED.code, format = EXCLUDED.format,
+                             warning = EXCLUDED.warning, protocol = EXCLUDED.protocol, finished = NOW()""",
+                (user_id, protocol_hash, job.get("chat_id"), encrypt_message(job["code"]), job.get("format"),
+                 job.get("warning"), encrypt_message(job["protocol"])), commit=True)
+    finally:
+        conn.close()
+
+
+def _saved_export(user_id, protocol_hash=None, chat_id=None):
+    """A finished export: for this protocol, or the chat's latest one."""
+    conn = get_db_connection()
+    try:
+        _exports_table(conn)
+        row = fetchone_dict(conn, "SELECT * FROM protocol_exports WHERE user_id = %s AND protocol_hash = %s", (user_id, protocol_hash)) \
+            if protocol_hash else fetchone_dict(conn, "SELECT * FROM protocol_exports WHERE user_id = %s AND chat_id = %s ORDER BY finished DESC LIMIT 1", (user_id, chat_id))
+    finally:
+        conn.close()
+    return row and {"state": "done", "code": decrypt_message(row["code"]), "format": row["format"], "warning": row["warning"],
+                    "chat_id": row["chat_id"], "protocol": decrypt_message(row["protocol"])}
+
+
 def _run_export(key, job, protocol, api_key, history, debug=False):
     from engine import RAG_STATUS_PREFIX, FAILED_CODE_MARKER, FORMAT_MARKER
     try:
@@ -1427,7 +1470,8 @@ def _run_export(key, job, protocol, api_key, history, debug=False):
             job = {"state": "error", "error": message.strip(), "code": code.strip(), "format": fmt}
         else:
             job = {"state": "done", "code": code.strip(), "format": fmt, "warning": job.get("warning"),
-                   "chat_id": job.get("chat_id"), "protocol": protocol, "finished": time.time()}
+                   "chat_id": job.get("chat_id"), "protocol": protocol}
+            _save_export(key[0], key[1], job)
     except Exception:
         app.logger.exception("Protocol export failed")
         job = {"state": "error", "error": "Could not export the protocol. Please try again."}
@@ -1439,7 +1483,6 @@ def _run_export(key, job, protocol, api_key, history, debug=False):
 def export_protocol():
     """Device code for the current protocol, generated in the background.
     start=true starts a job unless one is running or done; the reply is the job's state."""
-    import hashlib
     from threading import Thread
     user_id = session.get("user")
     if not user_id:
@@ -1449,7 +1492,12 @@ def export_protocol():
     if not isinstance(protocol, str) or not protocol.strip():
         return jsonify({"error": "No protocol to export"}), 400
     debug = data.get("debug") is True and _user_is_admin(user_id)  # admins: keep the log even on success
-    key = (user_id, hashlib.sha256(protocol.encode()).hexdigest())
+    key = (user_id, _protocol_hash(protocol))
+    with _exports_lock:
+        job = _exports.get(key)
+    if job is None and (saved := _saved_export(user_id, key[1])):
+        with _exports_lock:
+            job = _exports.setdefault(key, saved)
     with _exports_lock:
         job = _exports.get(key)
         if data.get("start") is True and (job is None or job["state"] == "error"):
@@ -1460,12 +1508,11 @@ def export_protocol():
             job = _exports[key] = {"state": "running", "step": "Starting…", "chat_id": data.get("chat_id")}
             Thread(target=_run_export, args=(key, job, protocol, api_key, history, debug), name="export", daemon=True).start()
         reply = {k: v for k, v in (job or {"state": "none"}).items() if k != "protocol"}
-        if reply["state"] != "done" and data.get("chat_id"):
-            # The chat's last generated code, so the user can go back to its protocol.
-            done = [j for (owner, _), j in _exports.items() if owner == user_id and j["state"] == "done" and j.get("chat_id") == data["chat_id"]]
-            if done:
-                last = max(done, key=lambda j: j["finished"])
-                reply["previous"] = {"protocol": last["protocol"], "code": last["code"]}
+    if reply["state"] != "done" and data.get("chat_id"):
+        # The chat's last generated code, so the user can go back to its protocol.
+        last = _saved_export(user_id, chat_id=data["chat_id"])
+        if last:
+            reply["previous"] = {"protocol": last["protocol"], "code": last["code"]}
     return jsonify(reply)
 
 

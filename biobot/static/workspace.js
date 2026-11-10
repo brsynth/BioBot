@@ -12,9 +12,17 @@
   const chats = new Map();
   let selectedDevice = "", protocolName = "", sourceProtocol = null, creating = null, deviceRequest = null, pageVersion = 0;
   let noticeTimer, libraryProtocol = null, exportRunning = false, exportReady = false;
+  let noticeChat = null;
   function showNotice(message, persist = false) {
     clearTimeout(noticeTimer);
+    noticeChat = typeof currentChatId !== "undefined" ? currentChatId : null;  // shown in this chat only
     notice.textContent = message;
+    if (message && persist) {  // errors and warnings stay until closed
+      const close = document.createElement("button");
+      close.type = "button"; close.className = "notice-close"; close.textContent = "×"; close.setAttribute("aria-label", "Dismiss");
+      close.addEventListener("click", () => showNotice(""));
+      notice.appendChild(close);
+    }
     if (message && !persist) noticeTimer = setTimeout(() => { notice.textContent = ""; }, 5000);
   }
 
@@ -245,6 +253,7 @@
     sendBtn.disabled = isTyping || !!libraryProtocol || !!deviceRequest || !!(protocol?.code && protocol.pending);
   }
   function deckChanged(state) {
+    if (noticeChat !== currentChatId && notice.textContent) showNotice("");
     if (window.getWorkspaceProtocol?.()?.code !== exportChecked) pollExport(false, false);
     if (state && !libraryProtocol) window.floatingChat?.attach();
     if (state?.platform) {
