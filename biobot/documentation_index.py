@@ -34,6 +34,28 @@ def get_text_embedding_with_retry(text, api_key=None, retries=5, delay=2):
             delay *= 2
 
 
+def embed_chunks(chunks, api_key, docs_path):
+    """Embeddings for passages, cached by their text across all devices (docs/_shared/embeddings.pkl)."""
+    import hashlib
+    shared = Path(docs_path).parent / "_shared"
+    shared.mkdir(parents=True, exist_ok=True)
+    cache_path = shared / "embeddings.pkl"
+    key = lambda chunk: hashlib.sha256(chunk.encode()).hexdigest()
+    with open(str(cache_path) + ".lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            cache = pickle.load(cache_path.open("rb"))
+        except (OSError, EOFError, pickle.UnpicklingError):
+            cache = {}
+        for chunk in dict.fromkeys(chunks):
+            if key(chunk) not in cache:
+                cache[key(chunk)] = get_text_embedding_with_retry(chunk, api_key)
+        with tempfile.NamedTemporaryFile(dir=shared, delete=False) as file:
+            pickle.dump(cache, file)
+        os.replace(file.name, cache_path)
+    return np.asarray([cache[key(chunk)] for chunk in chunks], dtype="float32")
+
+
 def load_or_build_index(handler_id, handler_config, chunk_size=3000, api_key=None):
     docs_path = SCRIPT_DIR / handler_config["docs_path"]
     store_path = docs_path / handler_config["store_path"]
@@ -60,7 +82,7 @@ def load_or_build_index(handler_id, handler_config, chunk_size=3000, api_key=Non
             if not chunks:
                 return [], [], None
             store = {"chunks": chunks, "chunk_sources": sources,
-                     "embeddings": np.asarray([get_text_embedding_with_retry(chunk, api_key) for chunk in chunks], dtype="float32")}
+                     "embeddings": embed_chunks(chunks, api_key, docs_path)}
             # A terminated build must never leave a partial cache for the next request.
             temporary = None
             try:
@@ -90,10 +112,8 @@ def refresh_index(handler_config, chunk_size=3000, api_key=None):
         fcntl.flock(lock, fcntl.LOCK_EX)
         with store_path.open("rb") as file:
             old = pickle.load(file)
-        known = dict(zip(old["chunks"], old["embeddings"]))
         chunks, sources = load_and_chunk_docs(str(docs_path), chunk_size)
-        store = {"chunks": chunks, "chunk_sources": sources, "embeddings": np.asarray(
-            [known[chunk] if chunk in known else get_text_embedding_with_retry(chunk, api_key) for chunk in chunks], dtype="float32")}
+        store = {"chunks": chunks, "chunk_sources": sources, "embeddings": embed_chunks(chunks, api_key, docs_path)}
         with tempfile.NamedTemporaryFile(dir=store_path.parent, delete=False) as file:
             pickle.dump(store, file)
         os.replace(file.name, store_path)

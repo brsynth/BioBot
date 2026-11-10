@@ -15,6 +15,9 @@ import re
 import time
 import json
 import requests
+import fcntl
+import shutil
+from contextlib import contextmanager
 from urllib.parse import urlparse, urljoin
 from openai import OpenAI
 from bs4 import BeautifulSoup
@@ -263,63 +266,129 @@ def crawl_docs_site(start_url, max_pages=MAX_PAGES_PER_SOURCE):
     return results
 
 
+# ---- Shared documentation store -------------------------------------------------------------
+# One copy per address in docs/_shared/files, listed in docs/_shared/index.json. Each device folder holds hard
+# links to the files it uses, so updating a shared file updates it for every device, and the loader is unchanged.
+
+def _shared_dir(docs_path):
+    shared = os.path.join(os.path.dirname(os.path.abspath(docs_path)), "_shared")
+    os.makedirs(os.path.join(shared, "files"), exist_ok=True)
+    return shared
+
+
+@contextmanager
+def _shared_entries(docs_path):
+    """The shared index, locked across processes, saved on exit."""
+    shared = _shared_dir(docs_path)
+    path = os.path.join(shared, "index.json")
+    with open(os.path.join(shared, "index.lock"), "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        try:
+            entries = json.load(open(path))
+        except (OSError, ValueError):
+            entries = {}
+        yield shared, entries
+        with open(path + ".tmp", "w") as f:
+            json.dump(entries, f, indent=1)
+        os.replace(path + ".tmp", path)
+
+
+def _device_filename(url, content_type, index=0):
+    parsed = urlparse(url)
+    part = parsed.path.strip("/").replace("/", "_") or parsed.netloc.replace(".", "_") or f"page_{index}"
+    if content_type == "pdf":
+        return part if part.endswith(".pdf") else f"{part}.pdf"
+    return part if part.endswith((".rst", ".md", ".txt")) else f"{part}.txt"
+
+
+def _link(source, target):
+    """Make target a hard link to source (a copy where links are not possible)."""
+    if os.path.exists(target) and os.path.samefile(source, target):
+        return
+    temporary = target + ".link"
+    try:
+        os.link(source, temporary)
+    except OSError:
+        shutil.copyfile(source, temporary)
+    os.replace(temporary, target)
+
+
+def shared_pages(docs_path, url):
+    """Pages already in the shared store at this address or under it (a site another device crawled)."""
+    prefix = url.rstrip("/") + "/"
+    with _shared_entries(docs_path) as (shared, entries):
+        found = [(u, e) for u, e in entries.items() if u == url or u.startswith(prefix)]
+    pages = []
+    for u, entry in found:
+        path = os.path.join(shared, "files", entry["file"])
+        try:
+            content = open(path, "rb").read() if entry["type"] == "pdf" else open(path, encoding="utf-8").read()
+        except OSError:
+            continue
+        pages.append({"url": u, "content": content, "type": entry["type"]})
+    return pages
+
+
 def save_fetched_docs(docs_path, fetched_pages):
-    """
-    Save fetched content to the docs folder as text/PDF files.
-    Returns the number of files saved.
-    """
+    """Store fetched pages once in the shared store and link them into the device's folder.
+    Returns the number of files saved."""
+    import hashlib
     os.makedirs(docs_path, exist_ok=True)
     saved = 0
-    saved_files = []
-
-    for i, page in enumerate(fetched_pages):
-        url = page["url"]
-        content = page["content"]
-        content_type = page["type"]
-
-        # Generate a clean filename from the URL
-        parsed = urlparse(url)
-        path_part = parsed.path.strip("/").replace("/", "_")
-        if not path_part:
-            path_part = f"page_{i}"
-
-        if content_type == "pdf":
-            filename = f"{path_part}.pdf" if not path_part.endswith(".pdf") else path_part
-            filepath = os.path.join(docs_path, filename)
+    with _shared_entries(docs_path) as (shared, entries):
+        for i, page in enumerate(fetched_pages):
+            url, content, content_type = page["url"], page["content"], page["type"]
+            if content_type not in ("pdf", "html", "text") or not content:
+                continue
+            name = _device_filename(url, content_type, i)
+            key = hashlib.sha256(url.encode()).hexdigest()[:20] + os.path.splitext(name)[1]
+            path = os.path.join(shared, "files", key)
             try:
-                with open(filepath, "wb") as f:
-                    f.write(content)
+                # Written in place, so every device linked to this file sees the new content.
+                if content_type == "pdf":
+                    with open(path, "wb") as f:
+                        f.write(content)
+                else:
+                    with open(path, "w", encoding="utf-8") as f:
+                        f.write(content)
+                entries[url] = {"file": key, "type": content_type, "fingerprint": _fingerprint(page)}
+                _link(path, os.path.join(docs_path, name))
                 saved += 1
-                saved_files.append({"file": filename, "source": url, "type": "PDF"})
-            except Exception as e:
-                _log(f"  Could not save {filename}: {e}")
-
-        elif content_type in ("html", "text"):
-            # Determine extension
-            if path_part.endswith((".rst", ".md", ".txt")):
-                filename = path_part
-            else:
-                filename = f"{path_part}.txt"
-
-            filepath = os.path.join(docs_path, filename)
-            size = len(content) if isinstance(content, str) else 0
-            try:
-                with open(filepath, "w", encoding="utf-8") as f:
-                    f.write(content)
-                saved += 1
-                saved_files.append({"file": filename, "source": url, "type": content_type.upper(), "size": size})
-            except Exception as e:
-                _log(f"  Could not save {filename}: {e}")
-
-    # Print summary
-    if saved_files:
-        _log(f"SAVED FILES TO: {docs_path}")
-        for sf in saved_files:
-            size_str = f" ({sf['size']} chars)" if sf.get('size') else ""
-            _log(f"  [{sf['type']}] {sf['file']}{size_str}")
-            _log(f"        from: {sf['source']}")
-
+                _log(f"  [{content_type.upper()}] {name} from: {url}")
+            except OSError as error:
+                _log(f"  Could not save {name}: {error}")
     return saved
+
+
+def migrate_to_shared(docs_path):
+    """Once per device: move its tracked files (sources.json) into the shared store; duplicates of a file another
+    device already shares become links to that copy. Untracked files are left as they are."""
+    marker = os.path.join(docs_path, ".shared")
+    if os.path.exists(marker):
+        return
+    import hashlib
+    try:
+        known = json.load(open(os.path.join(docs_path, "sources.json")))
+    except (OSError, ValueError):
+        known = {}
+    with _shared_entries(docs_path) as (shared, entries):
+        for url in known:
+            for content_type in ("pdf", "text"):
+                local = os.path.join(docs_path, _device_filename(url, content_type))
+                if not os.path.isfile(local) or os.stat(local).st_nlink > 1:
+                    continue
+                entry = entries.get(url)
+                if entry and os.path.isfile(os.path.join(shared, "files", entry["file"])):
+                    _link(os.path.join(shared, "files", entry["file"]), local)   # already shared: keep one copy
+                else:
+                    key = hashlib.sha256(url.encode()).hexdigest()[:20] + os.path.splitext(local)[1]
+                    os.replace(local, os.path.join(shared, "files", key))
+                    entries[url] = {"file": key, "type": "pdf" if content_type == "pdf" else "text",
+                                    "fingerprint": known[url].get("fingerprint")}
+                    _link(os.path.join(shared, "files", key), local)
+                break
+    open(marker, "w").close()
+    _log(f"Documentation in {docs_path} moved to the shared store")
 
 
 def verify_url(url, timeout=10):
@@ -374,7 +443,7 @@ def search_github_repos(handler_name, handler_keywords):
     return sources
 
 
-def gather_documentation(handler_name, handler_keywords, api_key):
+def gather_documentation(handler_name, handler_keywords, api_key, docs_path=None):
     """Find and fetch a device's documentation online. Returns (pages, urls that failed)."""
     all_fetched = []
     failed_urls = []
@@ -407,6 +476,11 @@ def gather_documentation(handler_name, handler_keywords, api_key):
                 source_type = source.get("type", "page")
                 desc = source.get("description", "")
 
+                reused = shared_pages(docs_path, url) if docs_path else []
+                if reused:  # already in the shared store (e.g. found for another device)
+                    _log(f"Reusing {len(reused)} shared pages for {url}")
+                    all_fetched.extend(reused)
+                    continue
                 _log(f"Fetching from {urlparse(url).netloc}: {desc}...")
                 time.sleep(2)
 
@@ -484,6 +558,7 @@ def update_documentation(handler_name, handler_keywords, docs_path, api_key):
     1. For each stored resource, a fast check (server change markers); download only if it may have changed,
        and keep it only if its content really differs.
     2. Search online for resources the database does not have yet, and fetch only those."""
+    migrate_to_shared(docs_path)
     try:
         known = json.load(open(os.path.join(docs_path, "sources.json")))
     except (OSError, ValueError):
@@ -498,7 +573,13 @@ def update_documentation(handler_name, handler_keywords, docs_path, api_key):
             changed.append({"url": url, "content": content, "type": kind})
     for source in discover_doc_urls(handler_name, handler_keywords, api_key) or []:
         url = source.get("url", "")
-        if not url or url in known or not verify_url(url):
+        if not url or url in known:
+            continue
+        reused = shared_pages(docs_path, url)
+        if reused:  # another device already has it: link, no download
+            changed.extend(page for page in reused if page["url"] not in known)
+            continue
+        if not verify_url(url):
             continue
         if source.get("type") in ("docs_site", "repo"):
             pages = crawl_docs_site(url, max_pages=MAX_PAGES_PER_SOURCE)
@@ -525,7 +606,7 @@ def fetch_documentation(handler_name, handler_keywords, docs_path, api_key):
     print("STEP:Checking available resources...", flush=True)
     time.sleep(2)
 
-    all_fetched, failed_urls = gather_documentation(handler_name, handler_keywords, api_key)
+    all_fetched, failed_urls = gather_documentation(handler_name, handler_keywords, api_key, docs_path)
 
     # --- No docs found at all ---
     if not all_fetched:
