@@ -1608,6 +1608,9 @@ function _renderApplyBar() {
   const apply = document.getElementById("deck-apply-btn");
   const disabled = !!window.workspace?.readOnly || _libraryEditing || _applyingChanges || _pendingChanges.length === 0;
   if (discard) discard.disabled = disabled;
+  // Visible on the deck whenever edits (deck or parameters) are waiting, even if the parameters pane is folded or absent.
+  const cancel = document.getElementById("deck-cancel-edits");
+  if (cancel) cancel.hidden = disabled;
   if (apply) {
     apply.disabled = disabled || !!document.getElementById("protocol-parameter-fields")?.querySelector("input:invalid");
     apply.textContent = _applyingChanges ? "Applying…" : "Apply";
@@ -2732,6 +2735,7 @@ function _ensureResizeHandle() {
 // Init
 document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("deck-discard-btn")?.addEventListener("click", _discardChanges);
+  document.getElementById("deck-cancel-edits")?.addEventListener("click", _discardChanges);
   document.getElementById("deck-apply-btn")?.addEventListener("click", _commitChanges);
   // Keep focus in a parameter box while pressing Discard/Apply: blurring it re-validates and can shift the buttons mid-click.
   for (const id of ["deck-apply-btn", "deck-discard-btn"]) document.getElementById(id)?.addEventListener("mousedown", event => event.preventDefault());
