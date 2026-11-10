@@ -493,4 +493,5 @@ body:not(.landing) .device-bubbles {display:none}
 .protocol-parameters.collapsed > :not(.parameters-toggle) {display:none}
 /* The button keeps its shape while the step text beside it grows or changes. */
 .code-actions .workspace-button {flex:none; white-space:nowrap}
-.code-actions .export-step {flex:1; min-width:0; max-width:none}
+.floating-chat .code-actions {flex-wrap:wrap}
+.code-actions .export-step {order:10; flex:0 0 100%; min-width:0; max-width:none}  /* progress on its own line, below the button */
