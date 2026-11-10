@@ -265,6 +265,7 @@
     sendBtn.disabled = isTyping || !!libraryProtocol || !!deviceRequest || !!(protocol?.code && protocol.pending);
   }
   function deckChanged(state) {
+    foldParameters?.(!!foldedChats()[currentChatId], false);
     if (noticeChat !== currentChatId) {
       const kept = chatNotices.get(currentChatId);
       clearTimeout(noticeTimer); notice.textContent = ""; noticeChat = currentChatId;
@@ -472,14 +473,19 @@
   const exportSpinner = document.getElementById("export-spinner");
   const exportLink = document.getElementById("export-download");
   const exportStep = document.getElementById("export-step");
-  // The parameters pane folds to its title; the choice is remembered in this browser.
+  // The parameters pane folds to its title, separately in each chat (remembered in this browser).
   const parametersPane = document.getElementById("protocol-parameters"), parametersToggle = document.getElementById("parameters-toggle");
-  function foldParameters(folded) {
+  function foldedChats() {
+    try { return JSON.parse(localStorage.getItem("biobot-parameters-folded-chats") || "{}"); } catch (_) { return {}; }
+  }
+  function foldParameters(folded, remember = true) {
     parametersPane?.classList.toggle("collapsed", folded);
     parametersToggle?.setAttribute("aria-expanded", String(!folded));
-    try { localStorage.setItem("biobot-parameters-folded", folded ? "1" : "0"); } catch (_) {}
+    if (!remember) return;
+    const chats = foldedChats();
+    if (folded) chats[currentChatId] = true; else delete chats[currentChatId];
+    try { localStorage.setItem("biobot-parameters-folded-chats", JSON.stringify(chats)); } catch (_) {}
   }
-  try { foldParameters(localStorage.getItem("biobot-parameters-folded") === "1"); } catch (_) {}
   parametersToggle?.addEventListener("click", () => foldParameters(!parametersPane.classList.contains("collapsed")));
   const debugLogs = document.getElementById("debug-logs");  // admins only
   // Admin access: users request it; admins approve or reject pending requests in Settings.
