@@ -508,3 +508,9 @@ body:not(.landing) .device-bubbles {display:none}
 .deck-history[hidden] {display:none}
 /* Plate cards centre their content; the well matrix must still fill the card instead of shrinking to its minimum. */
 .deck-plates .deck-plate-section .deck-plate-grid-wrapper {align-self:stretch; width:100%}
+/* Plate maps: spaced wells, and row/column labels aligned with them. */
+.deck-plates .deck-well-grid,.deck-plates .deck-plate-col-labels {gap:3px}
+.deck-plates .deck-plate-col-labels {margin-bottom:3px}
+.deck-plates .deck-plate-col-label {line-height:10px; height:10px}
+.deck-plates .deck-plate-row-labels {display:grid; grid-auto-rows:1fr; gap:3px; padding-top:13px; justify-content:stretch}
+.deck-plates .deck-plate-row-label {height:auto; flex:none}
