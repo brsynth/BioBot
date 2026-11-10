@@ -1173,12 +1173,13 @@ function _bindDeckArea(area, id, pos) {
     event.dataTransfer.setData("text/plain", String(id));
     event.dataTransfer.effectAllowed = "move";
     // The browser's own snapshot is clipped by the scaled deck: drag an unclipped copy at the on-screen size.
+    if (!area.getBoundingClientRect || !area.cloneNode || !event.dataTransfer.setDragImage) return;
     const box = area.getBoundingClientRect();
     const ghost = area.cloneNode(true);
     Object.assign(ghost.style, {position:"fixed", top:"-10000px", left:"0", width:`${box.width}px`, height:`${box.height}px`,
       margin:"0", transform:"none", pointerEvents:"none"});
     document.body.appendChild(ghost);
-    event.dataTransfer.setDragImage?.(ghost, event.clientX - box.left, event.clientY - box.top);
+    event.dataTransfer.setDragImage(ghost, event.clientX - box.left, event.clientY - box.top);
     setTimeout(() => ghost.remove(), 0);
   });
   area.addEventListener("dragend", () => {
