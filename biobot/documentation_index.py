@@ -14,7 +14,7 @@ import numpy as np
 from openai import OpenAI
 from config import get_api_key
 from doc_loader import load_and_chunk_docs, get_supported_extensions
-from doc_fetcher import fetch_documentation
+from doc_fetcher import fetch_documentation, update_documentation
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="documentation")
@@ -77,6 +77,29 @@ def load_or_build_index(handler_id, handler_config, chunk_size=3000, api_key=Non
         return store["chunks"], store["chunk_sources"], index
 
 
+def refresh_index(handler_config, chunk_size=3000, api_key=None):
+    """Fetch only new or changed documentation and re-embed only the passages whose text changed."""
+    docs_path = SCRIPT_DIR / handler_config["docs_path"]
+    store_path = docs_path / handler_config["store_path"]
+    if not store_path.exists():
+        return 0
+    changed = update_documentation(handler_config["name"], handler_config.get("keywords", []), str(docs_path), api_key or get_api_key())
+    if not changed:
+        return 0
+    with open(str(store_path) + ".lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        with store_path.open("rb") as file:
+            old = pickle.load(file)
+        known = dict(zip(old["chunks"], old["embeddings"]))
+        chunks, sources = load_and_chunk_docs(str(docs_path), chunk_size)
+        store = {"chunks": chunks, "chunk_sources": sources, "embeddings": np.asarray(
+            [known[chunk] if chunk in known else get_text_embedding_with_retry(chunk, api_key) for chunk in chunks], dtype="float32")}
+        with tempfile.NamedTemporaryFile(dir=store_path.parent, delete=False) as file:
+            pickle.dump(store, file)
+        os.replace(file.name, store_path)
+    return changed
+
+
 def preload_documentation(device, api_key=None):
     """Prepare only the selected public device, without delaying the deck response."""
     key = re.sub(r"[^a-z0-9]", "", device.casefold())
@@ -88,7 +111,10 @@ def preload_documentation(device, api_key=None):
         if handler_id is None:
             handler_id, handlers = detect_handler(device, [], api_key)
         if handler_id:
+            existed = (SCRIPT_DIR / handlers[handler_id]["docs_path"] / handlers[handler_id]["store_path"]).exists()
             load_or_build_index(handler_id, handlers[handler_id], api_key=api_key)
+            if existed:  # each request also checks online for new or changed documentation, in the background
+                refresh_index(handlers[handler_id], api_key=api_key)
     with _pending_lock:
         if key in _pending and not _pending[key].done():
             return _pending[key]

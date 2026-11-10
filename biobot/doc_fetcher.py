@@ -371,18 +371,8 @@ def search_github_repos(handler_name, handler_keywords):
     return sources
 
 
-def fetch_documentation(handler_name, handler_keywords, docs_path, api_key):
-    """
-    Main entry point: discover, fetch, and save documentation for a handler.
-    Uses a multi-strategy approach:
-    1. Try LLM-suggested URLs (verify accessibility first)
-    2. Fall back to GitHub API search
-    3. If still nothing, report what was attempted
-    Returns True if docs were successfully fetched and saved.
-    """
-    print(f"STEP:No local docs found — searching for {handler_name} official documentation...", flush=True)
-    time.sleep(2)
-
+def gather_documentation(handler_name, handler_keywords, api_key):
+    """Find and fetch a device's documentation online. Returns (pages, urls that failed)."""
     all_fetched = []
     failed_urls = []
 
@@ -455,6 +445,59 @@ def fetch_documentation(handler_name, handler_keywords, docs_path, api_key):
             if len(all_fetched) >= MAX_TOTAL_PAGES:
                 break
 
+    return all_fetched, failed_urls
+
+
+def _fingerprint(page):
+    import hashlib
+    content = page["content"]
+    return hashlib.sha256(content if isinstance(content, bytes) else str(content).encode()).hexdigest()
+
+
+def record_sources(docs_path, pages):
+    """Remember each fetched source's fingerprint, so later checks only take what is new or changed."""
+    import json
+    path = os.path.join(docs_path, "sources.json")
+    try:
+        known = json.load(open(path))
+    except (OSError, ValueError):
+        known = {}
+    for page in pages:
+        known[page["url"]] = {"fingerprint": _fingerprint(page), "fetched": time.strftime("%Y-%m-%d %H:%M:%S")}
+    with open(path, "w") as f:
+        json.dump(known, f, indent=1)
+
+
+def update_documentation(handler_name, handler_keywords, docs_path, api_key):
+    """Look online for new or changed documentation and save only that. Returns how many documents changed."""
+    import json
+    try:
+        known = json.load(open(os.path.join(docs_path, "sources.json")))
+    except (OSError, ValueError):
+        known = {}
+    pages, _ = gather_documentation(handler_name, handler_keywords, api_key)
+    changed = [page for page in pages if known.get(page["url"], {}).get("fingerprint") != _fingerprint(page)]
+    if changed:
+        save_fetched_docs(docs_path, changed)
+        record_sources(docs_path, changed)
+    _log(f"Documentation check for {handler_name}: {len(pages)} sources, {len(changed)} new or changed")
+    return len(changed)
+
+
+def fetch_documentation(handler_name, handler_keywords, docs_path, api_key):
+    """
+    Main entry point: discover, fetch, and save documentation for a handler.
+    Uses a multi-strategy approach:
+    1. Try LLM-suggested URLs (verify accessibility first)
+    2. Fall back to GitHub API search
+    3. If still nothing, report what was attempted
+    Returns True if docs were successfully fetched and saved.
+    """
+    print(f"STEP:No local docs found — searching for {handler_name} official documentation...", flush=True)
+    time.sleep(2)
+
+    all_fetched, failed_urls = gather_documentation(handler_name, handler_keywords, api_key)
+
     # --- No docs found at all ---
     if not all_fetched:
         print(f"STEP:Could not fetch documentation for {handler_name}", flush=True)
@@ -468,6 +511,7 @@ def fetch_documentation(handler_name, handler_keywords, docs_path, api_key):
     # --- Save fetched docs ---
     print(f"STEP:Saving {len(all_fetched)} documents to {docs_path}...", flush=True)
     saved_count = save_fetched_docs(docs_path, all_fetched)
+    record_sources(docs_path, all_fetched)
 
     if saved_count == 0:
         print(f"STEP:Failed to save any documents", flush=True)

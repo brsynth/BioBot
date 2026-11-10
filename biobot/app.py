@@ -768,6 +768,9 @@ def chat_stream(chat_id):
 
         if device:
             execute(conn, "UPDATE chat_names SET device_name = %s WHERE chat_id = %s AND user_id = %s", (device, chat_id, user_id))
+            # Each request on a device also checks online for new or changed documentation (background, next requests benefit).
+            from documentation_index import preload_documentation
+            preload_documentation(device, user_api_key)
 
         encrypted_prompt = encrypt_message(user_message)
         if edit_id is not None:
