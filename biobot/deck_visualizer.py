@@ -250,13 +250,19 @@ Rules:
 """
 
 
-def generate_device_layout(device_name, api_key=None):
+def generate_device_layout(device_name, api_key=None, previous=None):
+    """previous: an earlier layout whose position ids are kept wherever they match the real device."""
     import json
     from config import biobot_model
     client = OpenAI(api_key=api_key or get_api_key(), timeout=120, max_retries=0)
+    request = f"Device model: {device_name}"
+    if previous:
+        request += ("\nAn earlier layout of this device used these position ids: "
+                    + json.dumps([pos.get("id") for pos in previous.get("positions", []) if isinstance(pos, dict)])
+                    + ". Reuse an id for each position that corresponds to a real one; drop or add positions as the sources show.")
     response = client.responses.create(model=biobot_model, tools=[{"type": "web_search"}], input=[
         {"role": "system", "content": DEVICE_LAYOUT_PROMPT},
-        {"role": "user", "content": f"Device model: {device_name}"},
+        {"role": "user", "content": request},
     ])
     return json.loads(_clean_llm_json(response.output_text))
 

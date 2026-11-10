@@ -433,6 +433,34 @@ def request_admin():
     return jsonify({"status": "requested"})
 
 
+@app.route("/admin/devices", methods=["GET"])
+def admin_devices():
+    if not _admin_or_403():
+        return jsonify({"error": "Admins only"}), 403
+    conn = get_db_connection()
+    try:
+        rows = fetchall_dict(conn, "SELECT device_id, device_name, layout ? 'sources' AS sourced FROM deck_templates WHERE is_default ORDER BY device_name")
+    finally:
+        conn.close()
+    return jsonify([dict(row) for row in rows])
+
+
+@app.route("/admin/devices/<device_id>/regenerate", methods=["POST"])
+def admin_regenerate_device(device_id):
+    user_id = _admin_or_403()
+    if not user_id:
+        return jsonify({"error": "Admins only"}), 403
+    from deck_library import regenerate_default_deck
+    try:
+        api_key, _ = _deck_request_context({}, user_id)
+        return jsonify({"device": regenerate_default_deck(device_id, api_key)})
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+    except Exception:
+        app.logger.exception("Device layout regeneration failed")
+        return jsonify({"error": "Could not regenerate this device's layout. Please try again."}), 502
+
+
 @app.route("/admin/requests", methods=["GET"])
 def admin_requests():
     if not _admin_or_403():

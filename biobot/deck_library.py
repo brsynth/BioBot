@@ -292,6 +292,23 @@ def _default_deck(cursor, name, device_id, api_key):
     return default
 
 
+def regenerate_default_deck(device_id, api_key=None):
+    """Rebuild a device's default layout from its documentation, keeping matching position ids."""
+    conn = get_db_connection()
+    try:
+        with conn, conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            cursor.execute("SELECT * FROM deck_templates WHERE device_id = %s AND is_default FOR UPDATE", (device_id,))
+            default = cursor.fetchone()
+            if default is None:
+                raise ValueError("Unknown device.")
+            layout = clean_layout(generate_device_layout(default["device_name"], api_key, previous=default["layout"]))
+            layout["platform"] = default["device_name"]
+            cursor.execute("UPDATE deck_templates SET layout = %s WHERE id = %s", (Json(layout), default["id"]))
+            return default["device_name"]
+    finally:
+        conn.close()
+
+
 def get_device_deck(name, user_id, api_key=None, template_id=None, identified_device=None):
     """Open shared physical geometry before a protocol exists."""
     conn = get_db_connection()

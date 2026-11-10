@@ -490,7 +490,31 @@
   }
   refreshAdminRequests();
   const adminModal = document.getElementById("admin-modal");
-  document.getElementById("admin-btn")?.addEventListener("click", () => { adminModal?.classList.remove("hidden"); refreshAdminRequests(); });
+  // Device decks: regenerate a layout from the documentation (previous chats then show the new deck).
+  async function refreshAdminDevices() {
+    const box = document.getElementById("admin-devices");
+    if (!box) return;
+    let devices;
+    try { devices = await json("/admin/devices"); } catch (error) { box.textContent = error.message; return; }
+    box.replaceChildren();
+    for (const device of devices) {
+      const row = document.createElement("div"); row.className = "admin-request";
+      const name = document.createElement("span");
+      name.textContent = `${device.device_name}${device.sourced ? "" : " · no sources"}`;
+      const button = document.createElement("button"); button.type = "button"; button.className = "btn"; button.textContent = "Regenerate";
+      button.addEventListener("click", async () => {
+        button.disabled = true; button.textContent = "Regenerating…";
+        try {
+          await json(`/admin/devices/${encodeURIComponent(device.device_id)}/regenerate`, post({}));
+          showNotice(`${device.device_name}: deck regenerated. Reopen a chat to see it.`);
+          refreshAdminDevices();
+        } catch (error) { showNotice(error.message); button.disabled = false; button.textContent = "Regenerate"; }
+      });
+      row.append(name, button); box.appendChild(row);
+    }
+    if (!devices.length) box.innerHTML = '<p class="admin-status">No device decks yet.</p>';
+  }
+  document.getElementById("admin-btn")?.addEventListener("click", () => { adminModal?.classList.remove("hidden"); refreshAdminRequests(); refreshAdminDevices(); });
   for (const close of [document.getElementById("close-admin"), adminModal?.querySelector(".modal-backdrop")]) {
     close?.addEventListener("click", () => adminModal.classList.add("hidden"));
   }
