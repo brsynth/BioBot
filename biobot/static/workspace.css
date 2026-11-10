@@ -506,3 +506,5 @@ body:not(.landing) .device-bubbles {display:none}
 .notice-close {position:absolute; top:6px; right:8px; padding:2px 4px; border:0; background:none; color:inherit; font-size:16px; line-height:1; cursor:pointer}
 .deck-history {position:absolute; top:12px; right:16px; z-index:25; display:flex; gap:6px}
 .deck-history[hidden] {display:none}
+/* Plate cards centre their content; the well matrix must still fill the card instead of shrinking to its minimum. */
+.deck-plates .deck-plate-section .deck-plate-grid-wrapper {align-self:stretch; width:100%}
