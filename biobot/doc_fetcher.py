@@ -454,33 +454,59 @@ def _fingerprint(page):
     return hashlib.sha256(content if isinstance(content, bytes) else str(content).encode()).hexdigest()
 
 
+def _validators(url):
+    """The server's cheap change markers for a resource (ETag, Last-Modified), without downloading it."""
+    try:
+        resp = requests.head(url, timeout=REQUEST_TIMEOUT, allow_redirects=True, headers={"User-Agent": "Mozilla/5.0"})
+        return {"etag": resp.headers.get("ETag"), "last_modified": resp.headers.get("Last-Modified")} if resp.ok else {}
+    except requests.RequestException:
+        return {}
+
+
 def record_sources(docs_path, pages):
-    """Remember each fetched source's fingerprint, so later checks only take what is new or changed."""
-    import json
+    """Remember each fetched source's fingerprint and change markers, so later checks stay cheap."""
     path = os.path.join(docs_path, "sources.json")
     try:
         known = json.load(open(path))
     except (OSError, ValueError):
         known = {}
     for page in pages:
-        known[page["url"]] = {"fingerprint": _fingerprint(page), "fetched": time.strftime("%Y-%m-%d %H:%M:%S")}
+        known[page["url"]] = {"fingerprint": _fingerprint(page), "fetched": time.strftime("%Y-%m-%d %H:%M:%S"), **_validators(page["url"])}
     with open(path, "w") as f:
         json.dump(known, f, indent=1)
 
 
 def update_documentation(handler_name, handler_keywords, docs_path, api_key):
-    """Look online for new or changed documentation and save only that. Returns how many documents changed."""
-    import json
+    """Keep a device's documentation current. Returns how many documents were new or changed.
+    1. For each stored resource, a fast check (server change markers); download only if it may have changed,
+       and keep it only if its content really differs.
+    2. Search online for resources the database does not have yet, and fetch only those."""
     try:
         known = json.load(open(os.path.join(docs_path, "sources.json")))
     except (OSError, ValueError):
         known = {}
-    pages, _ = gather_documentation(handler_name, handler_keywords, api_key)
-    changed = [page for page in pages if known.get(page["url"], {}).get("fingerprint") != _fingerprint(page)]
+    changed = []
+    for url, info in known.items():
+        now = _validators(url)
+        if any(info.get(key) and now.get(key) == info[key] for key in ("etag", "last_modified")):
+            continue  # unchanged: nothing downloaded
+        content, _, kind = fetch_page_content(url)
+        if content and _fingerprint({"content": content}) != info.get("fingerprint"):
+            changed.append({"url": url, "content": content, "type": kind})
+    for source in discover_doc_urls(handler_name, handler_keywords, api_key) or []:
+        url = source.get("url", "")
+        if not url or url in known or not verify_url(url):
+            continue
+        if source.get("type") in ("docs_site", "repo"):
+            pages = crawl_docs_site(url, max_pages=MAX_PAGES_PER_SOURCE)
+        else:
+            content, _, kind = fetch_page_content(url)
+            pages = [{"url": url, "content": content, "type": kind}] if content else []
+        changed.extend(page for page in pages if page["url"] not in known)
     if changed:
         save_fetched_docs(docs_path, changed)
         record_sources(docs_path, changed)
-    _log(f"Documentation check for {handler_name}: {len(pages)} sources, {len(changed)} new or changed")
+    _log(f"Documentation check for {handler_name}: {len(known)} stored, {len(changed)} new or changed")
     return len(changed)
 
 
