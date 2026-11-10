@@ -398,7 +398,7 @@ body.workspace-app.floating-chat-workspace:has(.sidebar.collapsed) > .container 
 .floating-chat .input-disclaimer,.floating-chat #device-select {display:none}
 .floating-chat .composer-footer {justify-content:flex-end}
 .workspace-app .floating-chat .input-wrapper {padding:10px 12px; gap:4px; border-radius:8px; box-shadow:none}
-.workspace-app .chat-window.floating-chat.chat-collapsed {width:210px; height:52px}
+.workspace-app .chat-window.floating-chat.chat-collapsed {height:52px}
 .floating-chat.chat-collapsed #chat-history,.floating-chat.chat-collapsed .input-area {display:none}
 .chat-collapsed #chat-collapse-btn svg {transform:rotate(180deg)}
 @media(max-width:680px) {
@@ -519,3 +519,4 @@ body:not(.landing) .device-bubbles {display:none}
 .workspace-app .deck-panel .deck-device-frame > .deck-plates {width:fit-content; max-width:100%; margin-inline:auto}
 /* Centred on the deck, but never above the pane: a short deck (e.g. empty plates) must not push the card's top out of view. */
 .workspace-app .chat-window.floating-chat {top:max(var(--deck-center-y, 50%), calc(min(560px, 100% - 16px) / 2 + 8px))}
+.floating-chat .code-actions {width:max-content; right:auto}
