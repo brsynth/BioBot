@@ -217,6 +217,17 @@ def compose_state(layout, binding):
             pos["aspect_ratio"] = ratio
     if "instruments" in binding:
         state["instruments"] = copy.deepcopy(binding["instruments"])
+    # Plate-style decks draw their source/destination plates from state["plates"]: give each role the geometry
+    # of the loaded position the renderer matches to it (by "source"/"dest" in its id, variable or labware).
+    if state.get("layout_type") == "plates" and not binding.get("plates"):
+        for role, plate in (state.get("plates") or {}).items():
+            key = "dest" if role.startswith("dest") else role
+            match = next((pos for pos in state.get("positions", []) if pos.get("well_rows") and key in
+                          " ".join(str(pos.get(k) or "") for k in ("id", "variable", "labware", "labware_display")).lower()), None)
+            if isinstance(plate, dict) and match:
+                plate.update(well_rows=match["well_rows"], well_columns=match.get("well_columns"),
+                             format=match.get("well_count"), type=match.get("labware"),
+                             name=match.get("labware_display") or plate.get("name"))
     for role in ("source", "destination"):
         plate = (binding.get("plates") or {}).get(role)
         if isinstance(plate, dict):
