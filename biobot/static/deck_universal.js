@@ -1806,7 +1806,9 @@ function _fitDeck() {
   if (!wrapper) return;
   if (!panel || panel.classList.contains("hidden")) return;
   const width = Math.max(1, container.clientWidth - 24);
-  const height = Math.max(1, container.clientHeight - 24);
+  // Keep room for the playback bar even before it appears, so the deck does not have to shrink later.
+  const reserve = wrapper.querySelector?.("#anim-playback-bar") ? 0 : 96;
+  const height = Math.max(1, container.clientHeight - 24 - reserve);
   wrapper.style.width = `${Math.max(320, width)}px`;
   const naturalWidth = wrapper.scrollWidth, naturalHeight = wrapper.scrollHeight;
   if (!naturalWidth || !naturalHeight) return;
