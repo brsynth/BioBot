@@ -254,7 +254,7 @@
     // The code must match the deck: unapplied edits make it stale (Generate enabled, its icons greyed); undoing them restores both.
     downloadButton.disabled = !protocol?.code || isTyping || exportRunning || protocol.invalid
       || (protocol.pending && !protocol.edited) || (exportReady && !protocol.edited);
-    const stale = !exportCurrent || !!protocol?.edited;
+    const stale = !exportCurrent || !!protocol?.edited || !protocol?.code || !!deviceRequest;  // nothing usable while a device opens
     for (const id of ["export-copy", "export-save"]) { const icon = document.getElementById(id); if (icon) icon.disabled = stale; }
     document.getElementById("export-download")?.classList.toggle("is-disabled", stale);
     saveButton.hidden = !!libraryProtocol;
