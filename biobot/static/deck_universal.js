@@ -1139,7 +1139,9 @@ function _movableDeckArea(pos) {
 
 function _bindDeckArea(area, id, pos) {
   if (window.workspace?.readOnly) return;
-  const empty = !pos.labware && !_fixedDeckArea(pos);
+  // A fixed position (e.g. a built-in plate stage) can still receive labware while empty; only built-in hardware
+  // (modules, trash) cannot. This is shared by every device.
+  const empty = !pos.labware && !pos.module && !["trash", "module"].includes(_deckAreaType(pos.type, pos.labware));
   const movable = _movableDeckArea(pos);
   if (movable) {
     const remove = document.createElement("button");
