@@ -517,3 +517,5 @@ body:not(.landing) .device-bubbles {display:none}
 .deck-plates .deck-well-grid .deck-well {aspect-ratio:auto; width:100%; height:100%; box-sizing:border-box}
 /* The device area hugs its plates instead of spanning the whole pane. */
 .workspace-app .deck-panel .deck-device-frame > .deck-plates {width:fit-content; max-width:100%; margin-inline:auto}
+/* Centred on the deck, but never above the pane: a short deck (e.g. empty plates) must not push the card's top out of view. */
+.workspace-app .chat-window.floating-chat {top:max(var(--deck-center-y, 50%), calc(min(560px, 100% - 16px) / 2 + 8px))}
