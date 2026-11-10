@@ -485,7 +485,7 @@ body:not(.landing) .device-bubbles {display:none}
 .deck-plates.facing .plate-source {order:0}
 .deck-plates.facing .deck-plates-extras {order:1}
 .deck-plates.facing .plate-dest .deck-plate-header::after {content:"held above · facing down"; margin-left:auto; font-size:11px; color:var(--text-muted)}
-.deck-plates.facing .deck-plate-section {width:min(100%, 520px); flex:none}
+.deck-plates.facing .deck-plate-section {width:520px; max-width:100%; flex:none}
 .parameters-toggle {display:flex; align-items:center; gap:6px; padding:0 0 8px; border:0; background:none; color:var(--protocol-accent); font:600 13px var(--font-sans); cursor:pointer}
 .parameters-toggle svg {transition:transform .2s}
 .protocol-parameters.collapsed .parameters-toggle {padding-bottom:0}
