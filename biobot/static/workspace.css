@@ -494,7 +494,10 @@ body:not(.landing) .device-bubbles {display:none}
 /* The button keeps its shape while the step text beside it grows or changes. */
 .code-actions .workspace-button {flex:none; white-space:nowrap}
 .floating-chat .code-actions {flex-wrap:wrap}
-.code-actions .export-step {order:10; flex:0 0 100%; min-width:0; max-width:none}  /* progress on its own line, below the button */
+/* Progress (spinner and current step) on its own line, below the button. */
+.code-actions .export-progress {order:10; flex:0 0 100%; display:flex; align-items:center; gap:8px; min-width:0}
+.code-actions .export-progress:not(:has(> :not([hidden]))) {display:none}
+.code-actions .export-step {flex:1; min-width:0; max-width:none}
 /* Contactless (facing plates) playback: a droplet rises from the source well to the destination well. */
 .workspace-app .anim-tip-overlay.anim-droplet {width:auto; display:flex; flex-direction:column; align-items:center; gap:3px; transform:translate(-50%, -50%); transition:transform .6s ease-in}
 .anim-droplet .droplet {width:12px; height:12px; border-radius:50% 50% 50% 0; transform:rotate(-45deg); box-shadow:0 0 8px var(--anim-glow, rgba(0,0,0,.25))}
