@@ -12,10 +12,14 @@
   const chats = new Map();
   let selectedDevice = "", protocolName = "", sourceProtocol = null, creating = null, deviceRequest = null, pageVersion = 0;
   let noticeTimer, libraryProtocol = null, exportRunning = false, exportReady = false;
+  // Errors and warnings belong to their chat: kept per chat until closed, shown again on return.
   let noticeChat = null;
+  const chatNotices = new Map();
   function showNotice(message, persist = false) {
     clearTimeout(noticeTimer);
-    noticeChat = typeof currentChatId !== "undefined" ? currentChatId : null;  // shown in this chat only
+    noticeChat = typeof currentChatId !== "undefined" ? currentChatId : null;
+    if (persist && message) chatNotices.set(noticeChat, message);
+    else if (!message) chatNotices.delete(noticeChat);
     notice.textContent = message;
     if (message && persist) {  // errors and warnings stay until closed
       const close = document.createElement("button");
@@ -253,7 +257,11 @@
     sendBtn.disabled = isTyping || !!libraryProtocol || !!deviceRequest || !!(protocol?.code && protocol.pending);
   }
   function deckChanged(state) {
-    if (noticeChat !== currentChatId && notice.textContent) showNotice("");
+    if (noticeChat !== currentChatId) {
+      const kept = chatNotices.get(currentChatId);
+      clearTimeout(noticeTimer); notice.textContent = ""; noticeChat = currentChatId;
+      if (kept) showNotice(kept, true);
+    }
     if (window.getWorkspaceProtocol?.()?.code !== exportChecked) pollExport(false, false);
     if (state && !libraryProtocol) window.floatingChat?.attach();
     if (state?.platform) {
