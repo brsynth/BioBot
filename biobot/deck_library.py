@@ -320,6 +320,15 @@ def regenerate_default_deck(device_id, api_key=None):
         conn.close()
 
 
+def known_device(known, name):
+    """The known device with this name, or the only one whose name contains it or is contained in it."""
+    norm = lambda value: re.sub(r"[^a-z0-9]", "", str(value or "").lower())
+    key = norm(name)
+    exact = [item for item in known if key and norm(item["device_name"]) == key]
+    near = [item for item in known if key and norm(item["device_name"]) and (norm(item["device_name"]) in key or key in norm(item["device_name"]))]
+    return (exact or (near if len(near) == 1 else [None]))[0]
+
+
 def get_device_deck(name, user_id, api_key=None, template_id=None, identified_device=None):
     """Open shared physical geometry before a protocol exists."""
     conn = get_db_connection()
@@ -327,8 +336,10 @@ def get_device_deck(name, user_id, api_key=None, template_id=None, identified_de
         with conn, conn.cursor(cursor_factory=RealDictCursor) as cursor:
             cursor.execute("SELECT DISTINCT device_id, device_name FROM deck_templates")
             known = [dict(row) for row in cursor.fetchall()]
-            match = next((item for item in known if item["device_name"].casefold() == name.casefold()), None)
-            device = {"device_id": match["device_id"], "name": match["device_name"]} if match else identified_device or identify_device(name, [], known, api_key)
+            # The picked device is locked: a known deck by (near) name, the validated device, or the picked name itself.
+            match = known_device(known, name)
+            device = ({"device_id": match["device_id"], "name": match["device_name"]} if match else identified_device
+                      or {"device_id": re.sub(r"[^a-z0-9]+", "_", name.casefold()).strip("_")[:64] or "device", "name": name.strip()})
             default = _default_deck(cursor, device["name"], device["device_id"], api_key)
             selected = _visible(cursor, user_id, template_id) if template_id else default
             if selected["device_id"] != device["device_id"]:
@@ -362,13 +373,7 @@ def get_deck(code, user_id, api_key=None, history=None, template_id=None, refres
                 import protocol_lang
                 cursor.execute("SELECT DISTINCT device_id, device_name FROM deck_templates")
                 known, structured = [dict(row) for row in cursor.fetchall()], protocol_lang.parse(code)
-                def same(name):
-                    """The known device with this name, or the only one whose name contains it or is contained in it."""
-                    norm = lambda value: re.sub(r"[^a-z0-9]", "", str(value or "").lower())
-                    key = norm(name)
-                    exact = [item for item in known if key and norm(item["device_name"]) == key]
-                    near = [item for item in known if key and norm(item["device_name"]) and (norm(item["device_name"]) in key or key in norm(item["device_name"]))]
-                    return (exact or (near if len(near) == 1 else [None]))[0]
+                same = lambda name: known_device(known, name)
                 device = same(device_name) or (structured and same(structured.get("device"))) \
                     or identify_device(code, history or [], known, api_key)
                 device_id, name = device["device_id"], device["name"]
