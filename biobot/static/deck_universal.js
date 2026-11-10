@@ -1618,13 +1618,24 @@ function _renderApplyBar() {
 // Undo/redo of unapplied edits (deck and parameters). Each entry is a snapshot of the pending changes and the
 // deck state; quick successive changes (typing) form one step. Loading another deck or protocol starts afresh.
 let _editUndo = [], _editRedo = [], _editLast = null, _editDeck = null, _editTime = 0, _editRestoring = false;
+const _editHistories = new Map();  // each chat keeps its own history
 function _editSnapshot() {
   return {pending: JSON.stringify(_pendingChanges), state: JSON.stringify(_currentState)};
 }
 function _trackEditHistory() {
-  const deck = `${_currentCode}\u0000${_currentState?.platform}`;
+  const chat = typeof currentChatId !== "undefined" ? currentChatId : null;
+  const deck = `${chat}\u0000${_currentCode}\u0000${_currentState?.platform}`;
   if (deck !== _editDeck || !_currentState) {
-    _editUndo = []; _editRedo = []; _editDeck = deck; _editLast = _currentState ? _editSnapshot() : null;
+    if (_editDeck) _editHistories.set(_editDeck.split("\u0000")[0], {deck:_editDeck, undo:_editUndo, redo:_editRedo, last:_editLast});
+    const kept = _editHistories.get(String(chat));
+    _editDeck = deck; _editLast = _currentState ? _editSnapshot() : null;
+    if (kept?.deck === deck) {
+      // Back in this chat: its history returns; unapplied edits left behind can be brought back with redo.
+      _editUndo = kept.undo;
+      _editRedo = kept.last && kept.last.pending !== _editLast?.pending ? [...kept.redo, kept.last] : kept.redo;
+    } else {
+      _editUndo = []; _editRedo = [];
+    }
   } else if (!_editRestoring) {
     const now = _editSnapshot();
     if (now.pending !== _editLast?.pending) {
