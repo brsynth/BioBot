@@ -362,7 +362,13 @@ def get_deck(code, user_id, api_key=None, history=None, template_id=None, refres
                 import protocol_lang
                 cursor.execute("SELECT DISTINCT device_id, device_name FROM deck_templates")
                 known, structured = [dict(row) for row in cursor.fetchall()], protocol_lang.parse(code)
-                same = lambda name: next((item for item in known if name and str(item["device_name"]).casefold() == str(name).casefold()), None)
+                def same(name):
+                    """The known device with this name, or the only one whose name contains it or is contained in it."""
+                    norm = lambda value: re.sub(r"[^a-z0-9]", "", str(value or "").lower())
+                    key = norm(name)
+                    exact = [item for item in known if key and norm(item["device_name"]) == key]
+                    near = [item for item in known if key and norm(item["device_name"]) and (norm(item["device_name"]) in key or key in norm(item["device_name"]))]
+                    return (exact or (near if len(near) == 1 else [None]))[0]
                 device = same(device_name) or (structured and same(structured.get("device"))) \
                     or identify_device(code, history or [], known, api_key)
                 device_id, name = device["device_id"], device["name"]
