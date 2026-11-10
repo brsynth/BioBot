@@ -97,7 +97,9 @@
 
   async function json(url, options = {}) {
     const response = await fetch(url, options);
-    const data = await response.json();
+    let data;
+    try { data = await response.json(); }
+    catch (_) { throw new Error(`Server error (${response.status}). Please try again.`); }  // e.g. an HTML error page
     if (!response.ok) throw new Error(data.error || "Please try again.");
     return data;
   }

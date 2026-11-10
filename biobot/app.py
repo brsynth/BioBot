@@ -1409,7 +1409,7 @@ _exports, _exports_lock = {}, __import__("threading").Lock()  # (user, protocol 
 
 def _protocol_hash(protocol):
     """Same key for the same protocol, whatever its formatting."""
-    import hashlib, protocol_lang
+    import hashlib, json, protocol_lang
     parsed = protocol_lang.parse(protocol)
     text = json.dumps(parsed, sort_keys=True, ensure_ascii=False) if parsed else protocol.strip()
     return hashlib.sha256(text.encode()).hexdigest()
