@@ -21,6 +21,7 @@ from handlers import detect_handler, load_handlers_config
 # ---------------------
 app = Flask(__name__)
 app.config["TEMPLATES_AUTO_RELOAD"] = os.environ.get("BIOBOT_DEV") == "1"
+app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0  # browsers revalidate static files, so an edited script is never served stale
 app.secret_key = get_flask_secret_key()
 app.config["SESSION_PERMANENT"] = True
 app.config["PERMANENT_SESSION_LIFETIME"] = 86400  # 24 hours in seconds
