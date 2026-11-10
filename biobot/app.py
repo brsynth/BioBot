@@ -766,8 +766,13 @@ def chat_stream(chat_id):
         execute(conn, """INSERT INTO chat_runs (chat_id, id, user_id) VALUES (%s, %s, %s)
             ON CONFLICT (chat_id) DO UPDATE SET id = EXCLUDED.id, message_id = NULL, status = 'running', output = '', seen = FALSE, updated_at = NOW()""", (chat_id, run_id, user_id))
 
+        # A chat's device is locked: set once, never overwritten by what the page sends.
+        stored = fetchone_dict(conn, "SELECT device_name FROM chat_names WHERE chat_id = %s AND user_id = %s", (chat_id, user_id))
+        if stored and stored["device_name"]:
+            device = stored["device_name"]
+        elif device:
+            execute(conn, "UPDATE chat_names SET device_name = %s WHERE chat_id = %s AND user_id = %s AND device_name IS NULL", (device, chat_id, user_id))
         if device:
-            execute(conn, "UPDATE chat_names SET device_name = %s WHERE chat_id = %s AND user_id = %s", (device, chat_id, user_id))
             # Each request on a device also checks online for new or changed documentation (background, next requests benefit).
             from documentation_index import preload_documentation
             preload_documentation(device, user_api_key)
@@ -1317,6 +1322,10 @@ def select_device(chat_id):
             previous = fetchone_dict(conn, "SELECT device_name FROM chat_names WHERE chat_id = %s AND user_id = %s AND deleted_at IS NULL", (chat_id, user_id))
             if not previous:
                 return jsonify({"error": "Chat not found"}), 404
+            from deck_library import known_device
+            if previous["device_name"] and not known_device([{"device_name": state["platform"]}], previous["device_name"]):
+                # The chat's device is locked: another device needs a new chat.
+                return jsonify({"error": f"This chat works with {previous['device_name']}. Start a new chat for another device."}), 400
             if previous["device_name"] != state["platform"]:
                 execute(conn, "UPDATE chat_names SET device_name = %s WHERE chat_id = %s AND user_id = %s", (state["platform"], chat_id, user_id))
                 execute(conn, "INSERT INTO chat_history (user_id, chat_id, role, content) VALUES (%s, %s, 'assistant', %s)",
