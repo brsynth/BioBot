@@ -447,6 +447,15 @@
   const exportSpinner = document.getElementById("export-spinner");
   const exportLink = document.getElementById("export-download");
   const exportStep = document.getElementById("export-step");
+  // The parameters pane folds to its title; the choice is remembered in this browser.
+  const parametersPane = document.getElementById("protocol-parameters"), parametersToggle = document.getElementById("parameters-toggle");
+  function foldParameters(folded) {
+    parametersPane?.classList.toggle("collapsed", folded);
+    parametersToggle?.setAttribute("aria-expanded", String(!folded));
+    try { localStorage.setItem("biobot-parameters-folded", folded ? "1" : "0"); } catch (_) {}
+  }
+  try { foldParameters(localStorage.getItem("biobot-parameters-folded") === "1"); } catch (_) {}
+  parametersToggle?.addEventListener("click", () => foldParameters(!parametersPane.classList.contains("collapsed")));
   const debugLogs = document.getElementById("debug-logs");  // admins only
   // Admin access: users request it; admins approve or reject pending requests in Settings.
   document.getElementById("admin-request-btn")?.addEventListener("click", async event => {
