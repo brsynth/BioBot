@@ -749,7 +749,7 @@ async function trashChat(chatId, row) {
       setTrashView(false);
       const chats = await refreshChatList();
       if (chats.length) await loadChatHistory(chats[0].chat_id);
-      else await createNewChat();
+      else await createNewChat({persist:false});
     } else {
       await refreshChatList();
       selectChatListItem(currentChatId);
@@ -1189,7 +1189,9 @@ userInputElem.addEventListener("keydown", (e) => {
   }
 });
 
-newChatBtn.addEventListener("click", createNewChat);
+// New chat and the BioBot header open the landing page; the chat itself is created once a device is validated.
+newChatBtn.addEventListener("click", () => createNewChat({persist:false}));
+document.querySelector(".app-banner .brand")?.addEventListener("click", event => { event.preventDefault(); createNewChat({persist:false}); });
 document.getElementById("trash-btn")?.addEventListener("click", async () => {
   setTrashView(!showingTrash);
   await refreshChatList();
