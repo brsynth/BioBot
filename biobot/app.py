@@ -849,7 +849,7 @@ def chat_stream(chat_id):
         
         try:
             result = process_user_query(user_message, messages, biobot_model, api_key=user_api_key, debug=debug_logs,
-                                        device=device or _chat_device({"chat_id": chat_id}, user_id))
+                                        device=device or _chat_device({"chat_id": chat_id}, user_id), run_key=chat_id)
             if result is None:
                 raise RuntimeError("Couldn't process your request. Please try again.")
             for chunk in result:
@@ -991,8 +991,13 @@ def chat_stream(chat_id):
             finally:
                 conn.close()
         with app.app_context():
+            chunks = generate()
             try:
-                for chunk in generate():
+                for chunk in chunks:
+                    if stop.is_set():  # stopped by the user: discard the rest
+                        output += "__FAILED_CODE__:Stopped by the user."
+                        status = "error"
+                        break
                     output += chunk
                     if "__FAILED_CODE__:" in chunk:
                         status = "error"
@@ -1004,10 +1009,37 @@ def chat_stream(chat_id):
                 output += "__FAILED_CODE__:The response could not be saved. Please retry."
                 app.logger.exception("Chat task failed: %s", error)
             finally:
+                chunks.close()
+                _chat_stops.pop(chat_id, None)
                 save(status)
-    from threading import Thread
+    from threading import Thread, Event
+    stop = _chat_stops[chat_id] = Event()
     Thread(target=run_task, name=f"chat-{chat_id}", daemon=False).start()
     return chat_run_response(chat_id, user_id, run_id, message_id)
+
+
+_chat_stops = {}  # chat id -> stop signal of its running answer
+
+
+@app.route("/chat/<chat_id>/stop", methods=["POST"])
+def stop_chat(chat_id):
+    """Stop the chat's running answer: end the server task and its generation process."""
+    user_id = session.get("user")
+    if not user_id:
+        return jsonify({"error": "Not logged in"}), 403
+    conn = get_db_connection()
+    try:
+        if not fetchone_dict(conn, "SELECT 1 FROM chat_names WHERE chat_id = %s AND user_id = %s", (chat_id, user_id)):
+            return jsonify({"error": "Chat not found"}), 404
+    finally:
+        conn.close()
+    from engine import RUNNING
+    if chat_id in _chat_stops:
+        _chat_stops[chat_id].set()
+    proc = RUNNING.pop(chat_id, None)
+    if proc and proc.poll() is None:
+        proc.kill()
+    return jsonify({"stopped": True})
 
 
 @app.route("/chat/<chat_id>", methods=["GET"])

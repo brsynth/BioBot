@@ -24,6 +24,8 @@ function syncChatActivity() {
   chatRequestController = isTyping ? job.controller : null;
   chatRequestDone = isTyping ? job.done : Promise.resolve();
   sendBtn.disabled = isTyping;
+  const stopBtn = document.getElementById("stop-btn");
+  if (stopBtn) stopBtn.hidden = !isTyping;  // stop is offered while this chat is answering
   window.workspace?.syncActions();
   for (const row of chatListElem.children) {
     row.querySelector(".chat-status")?.remove();
@@ -1182,6 +1184,10 @@ async function sendMessage(edit = {}) {
 
 // --- Event Listeners ---
 sendBtn.addEventListener("click", sendMessage);
+document.getElementById("stop-btn")?.addEventListener("click", async () => {
+  if (!currentChatId) return;
+  try { await fetch(`/chat/${currentChatId}/stop`, {method: "POST"}); } catch (_) {}
+});
 userInputElem.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();

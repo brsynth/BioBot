@@ -180,7 +180,10 @@ FAILED_CODE_MARKER = "__FAILED_CODE__:"
 FORMAT_MARKER = "__FORMAT__:"
 QUESTIONS_MARKER = "__QUESTIONS__:"
 
-def process_user_query(user_query, chat_history, model, api_key=None, export=False, debug=False, device=None):
+RUNNING = {}  # run key (chat id) -> generation process, so a run can be stopped
+
+
+def process_user_query(user_query, chat_history, model, api_key=None, export=False, debug=False, device=None, run_key=None):
     history = [msg for msg in chat_history]
     if export:
         classification = "code"
@@ -220,6 +223,8 @@ def process_user_query(user_query, chat_history, model, api_key=None, export=Fal
                     bufsize=1,
                     env=env
                 )
+                if run_key:
+                    RUNNING[run_key] = proc
 
                 final_code_lines = []
                 failed_code_content = None

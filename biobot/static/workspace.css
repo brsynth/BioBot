@@ -522,3 +522,6 @@ body:not(.landing) .device-bubbles {display:none}
 .floating-chat .code-actions {width:max-content; right:auto}
 /* Empty plate positions (no plate loaded yet): dashed slots sized like a plate. */
 .deck-plates .deck-plate-empty {width:520px; max-width:100%; aspect-ratio:1.5; height:auto}
+#stop-btn {display:grid; place-items:center; width:40px; height:40px; margin-left:auto; border:1px solid var(--border-light); border-radius:50%; background:var(--bg-elevated); color:var(--danger); cursor:pointer}
+#stop-btn[hidden] {display:none}
+#stop-btn:not([hidden]) + #send-btn {margin-left:6px}
