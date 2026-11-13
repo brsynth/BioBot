@@ -1,0 +1,80 @@
+{% from "_brand.html" import liquid_handler %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="/static/theme.js" data-default-appearance="daylight"></script>
+  <title>BioBot — Survey</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='auth.css') }}">
+  <link rel="stylesheet" href="/static/theme.css">
+  <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    .survey-page .auth-container { max-width: 640px; }
+    .survey-q { border: 0; margin: 0 0 1.4rem; padding: 0; }
+    .survey-q legend { font-weight: 600; margin-bottom: .5rem; }
+    .survey-q .opts { display: flex; flex-wrap: wrap; gap: .4rem 1rem; align-items: center; }
+    .survey-q .opts label { display: inline-flex; gap: .3rem; align-items: center; font-weight: 400; }
+    .survey-q .opts input { width: auto; margin: 0; }
+    .survey-q textarea { width: 100%; min-height: 5rem; box-sizing: border-box; font: inherit; }
+    .survey-progress { font-weight: 600; opacity: .75; }
+    .survey-nav { display: flex; gap: .75rem; justify-content: center; }
+    .survey-nav .auth-btn { width: auto; padding: .45rem 1.1rem; }
+    .survey-nav .auth-btn:disabled { opacity: .4; cursor: not-allowed; }
+    .survey-q .hint { font-size: .85em; opacity: .7; }
+  </style>
+</head>
+<body class="auth-login survey-page">
+  <main class="login-page">
+    <header class="login-brand"><a href="/" title="Back to BioBot">{{ liquid_handler() }}</a><h1>BioBot</h1></header>
+    <div class="auth-container">
+      <h2>{{ form.title }}</h2>
+      {% if form.intro and page == 1 %}<p>{{ form.intro }}</p>{% endif %}
+      <p class="survey-progress">Page {{ page }} of {{ n_pages }} — {{ current.title }}</p>
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}<div class="flash-messages">{% for category, message in messages %}<p class="flash {{ category }}">{{ message }}</p>{% endfor %}</div>{% endif %}
+      {% endwith %}
+      <form method="POST">
+        {% for q in current.questions %}
+        {% set a = answers.get(q.id, "") %}
+        <fieldset class="survey-q" data-id="{{ q.id }}"{% if not q.optional %} data-required{% endif %}{% if q.unless %} data-unless='{{ q.unless|tojson }}'{% endif %}>
+          <legend>{{ first + loop.index }}. {{ q.text }}{% if q.optional %} <span class="hint">(optional)</span>{% endif %}</legend>
+          {% if q.type == "text" %}
+            <textarea name="{{ q.id }}">{{ a }}</textarea>
+          {% elif q.type == "scale" %}
+            <div class="opts">
+              {% if q.labels %}<span class="hint">{{ q.labels[0] }}</span>{% endif %}
+              {% for v in range(q.min, q.max + 1) %}<label><input type="radio" name="{{ q.id }}" value="{{ v }}" {{ "checked" if a == v|string }}>{{ v }}</label>{% endfor %}
+              {% if q.labels %}<span class="hint">{{ q.labels[1] }}</span>{% endif %}
+            </div>
+          {% else %}
+            {% set picked = a.split("; ") %}
+            <div class="opts">
+              {% for o in q.options %}<label><input type="{{ 'checkbox' if q.type == 'multi' else 'radio' }}" name="{{ q.id }}" value="{{ o }}" {{ "checked" if o in picked }}>{{ o }}</label>{% endfor %}
+            </div>
+          {% endif %}
+        </fieldset>
+        {% endfor %}
+        <div class="survey-nav">
+          {% if page > 1 %}<button type="submit" name="go" value="back" class="auth-btn" formnovalidate>← Previous</button>{% endif %}
+          <button type="submit" name="go" value="next" class="auth-btn">{{ "Next →" if page < n_pages else "Finish" }}</button>
+        </div>
+      </form>
+      <p class="auth-footer"><a href="/">← Back to BioBot</a></p>
+    </div>
+  </main>
+  <script>
+    // Hide questions whose "unless" answer is picked; Next stays disabled until every shown required question is answered.
+    const form = document.querySelector("form");
+    const value = id => [...form.querySelectorAll(`[name="${id}"]`)].filter(i => i.type === "textarea" || i.checked || i.tagName === "TEXTAREA").map(i => i.value.trim()).filter(Boolean).join("; ");
+    const sets = [...form.querySelectorAll(".survey-q")];
+    const next = form.querySelector('button[value="next"]');
+    const refresh = () => {
+      sets.forEach(f => { f.hidden = Object.entries(JSON.parse(f.dataset.unless || "{}")).some(([k, v]) => value(k) === v); });
+      next.disabled = sets.some(f => !f.hidden && "required" in f.dataset && !value(f.dataset.id));
+    };
+    form.addEventListener("input", refresh);
+    refresh();
+  </script>
+</body>
+</html>

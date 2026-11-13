@@ -131,6 +131,15 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS survey_responses (
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                question_id TEXT NOT NULL,
+                answer TEXT,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                PRIMARY KEY (user_id, question_id)
+            );
+        """)
         from deck_library import init_deck_tables
         init_deck_tables(cur)
         conn.commit()

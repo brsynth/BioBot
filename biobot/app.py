@@ -4,6 +4,7 @@ from flask import Flask, request, jsonify, render_template, redirect, url_for, s
 import uuid
 import time
 import os
+import json
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -262,7 +263,8 @@ def login():
                 key = derive_key(password, user["encryption_salt"])
                 session["encryption_key"] = key.decode("utf-8")
 
-            return redirect("/")
+            nxt = request.args.get("next", "")
+            return redirect(nxt if nxt.startswith("/") and not nxt.startswith("//") else "/")
         else:
             flash("Incorrect email or password.", "error")
             return redirect("/login")
@@ -513,6 +515,47 @@ def index():
 
     session.setdefault("answer_session", uuid.uuid4().hex)
     return render_template("index.html", user=user, version=__version__, is_admin=is_admin(user))
+
+
+SURVEY_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "survey.json")
+
+
+@app.route("/survey", methods=["GET", "POST"])
+def survey():
+    """Survey page beside BioBot: pages of questions from survey.json, answers saved per user."""
+    user_id = session.get("user")
+    if not user_id:
+        return redirect("/login?next=/survey")
+    with open(SURVEY_PATH, encoding="utf-8") as f:
+        form = json.load(f)
+    pages = form["pages"]
+    page = min(max(request.args.get("page", 1, type=int), 1), len(pages))
+    hidden = lambda q, answers: any(answers.get(k) == v for k, v in q.get("unless", {}).items())
+    conn = get_db_connection()
+    try:
+        if request.method == "POST":
+            sent = {q["id"]: "; ".join(request.form.getlist(q["id"])).strip() for q in pages[page - 1]["questions"]}
+            for q in pages[page - 1]["questions"]:
+                answer = "" if hidden(q, sent) else sent[q["id"]]
+                execute(conn, """INSERT INTO survey_responses (user_id, question_id, answer) VALUES (%s, %s, %s)
+                                 ON CONFLICT (user_id, question_id) DO UPDATE SET answer = EXCLUDED.answer, updated_at = NOW()""",
+                        (user_id, q["id"], answer))
+            conn.commit()
+            if request.form.get("go") == "back":
+                return redirect(f"/survey?page={page - 1}")
+            if any(not sent[q["id"]] and not q.get("optional") and not hidden(q, sent) for q in pages[page - 1]["questions"]):
+                flash("Please answer every question before going on.", "error")
+                return redirect(f"/survey?page={page}")
+            if page < len(pages):
+                return redirect(f"/survey?page={page + 1}")
+            flash("Thank you, your answers are saved. You can change them at any time.", "success")
+            return redirect(f"/survey?page={page}")
+        rows = fetchall_dict(conn, "SELECT question_id, answer FROM survey_responses WHERE user_id = %s", (user_id,))
+    finally:
+        conn.close()
+    answers = {r["question_id"]: r["answer"] or "" for r in rows}
+    return render_template("survey.html", form=form, current=pages[page - 1], page=page, n_pages=len(pages),
+                           first=sum(len(p["questions"]) for p in pages[:page - 1]), answers=answers)
 
 
 @app.route("/chat", methods=["POST"])
