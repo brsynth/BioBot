@@ -238,6 +238,13 @@
           <label for="profile-country">Country</label>
           <input id="profile-country" type="text" />
         </div>
+        <details class="form-group password-section">
+          <summary>Change password</summary>
+          <input id="current-password" type="password" placeholder="Current password" autocomplete="current-password" />
+          <input id="new-password" type="password" placeholder="New password (6+ characters)" autocomplete="new-password" />
+          <input id="confirm-password" type="password" placeholder="Confirm new password" autocomplete="new-password" />
+          <button type="button" id="change-password-btn" class="btn">Change password</button>
+        </details>
         {% if not is_admin %}
         <div class="form-group admin-section">
           {% if user.admin_status == 'requested' %}

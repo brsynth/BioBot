@@ -3492,3 +3492,6 @@ button.copy-btn:hover {
 @media (max-width: 680px) {
   .sidebar-collapse-btn { display: none; }
 }
+
+.password-section summary { cursor: pointer; font-weight: 600; margin-bottom: .5rem; }
+.password-section input { margin-bottom: .5rem; }

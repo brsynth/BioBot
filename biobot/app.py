@@ -1258,6 +1258,38 @@ def update_user_profile():
     return jsonify({"success": True})
 
 
+@app.route("/user/password", methods=["POST"])
+def change_password():
+    """Change the password; the API key is re-encrypted with a key derived from the new one."""
+    user_id = session.get("user")
+    if not user_id:
+        return jsonify({"error": "Not logged in"}), 403
+    data = request.get_json(silent=True) or {}
+    current, new = data.get("current_password", ""), data.get("new_password", "")
+    if len(new) < 6:
+        return jsonify({"error": "Password must be at least 6 characters."}), 400
+    conn = get_db_connection()
+    try:
+        user = fetchone_dict(conn, "SELECT password, api_key, encryption_salt FROM users WHERE id = %s", (user_id,))
+        if not user or not check_password_hash(user["password"], current):
+            return jsonify({"error": "Current password is incorrect."}), 400
+        api_key = user["api_key"]
+        if _is_encrypted(api_key) and user["encryption_salt"]:
+            try:
+                api_key = decrypt(api_key, derive_key(current, user["encryption_salt"]))
+            except Exception:
+                api_key = None
+        new_salt = generate_salt()
+        new_key = derive_key(new, new_salt)
+        execute(conn, "UPDATE users SET password = %s, api_key = %s, encryption_salt = %s WHERE id = %s",
+                (generate_password_hash(new), encrypt(api_key, new_key) if api_key else api_key, new_salt, user_id),
+                commit=True)
+    finally:
+        conn.close()
+    session["encryption_key"] = new_key.decode("utf-8")
+    return jsonify({"success": True})
+
+
 # ---------------------
 # Deck visualizer route
 # ---------------------

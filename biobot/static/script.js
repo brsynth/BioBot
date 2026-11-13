@@ -1364,5 +1364,24 @@ function showRejectModal(code, rejectBtn) {
     }
   });
 
+  document.getElementById("change-password-btn").addEventListener("click", async () => {
+    const fields = ["current-password", "new-password", "confirm-password"].map(id => document.getElementById(id));
+    const [current, next, confirm] = fields.map(f => f.value);
+    if (next !== confirm) return alert("New passwords do not match.");
+    try {
+      const res = await fetch("/user/password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ current_password: current, new_password: next })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Password change failed");
+      fields.forEach(f => f.value = "");
+      showNotification("Your password has been changed.");
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+
   closeBtn.addEventListener("click", () => modal.classList.add("hidden"));
 })();
