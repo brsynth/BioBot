@@ -19,7 +19,7 @@
     .survey-q textarea { width: 100%; min-height: 5rem; box-sizing: border-box; font: inherit; }
     .survey-progress { font-weight: 600; opacity: .75; }
     .survey-nav { display: flex; gap: .75rem; justify-content: center; }
-    .survey-nav .auth-btn { width: auto; padding: .45rem 1.1rem; }
+    .survey-nav .auth-btn { width: auto; text-decoration: none; padding: .45rem 1.1rem; }
     .survey-nav .auth-btn:disabled { opacity: .4; cursor: not-allowed; }
     .survey-q .hint { font-size: .85em; opacity: .7; }
   </style>
@@ -28,6 +28,10 @@
   <main class="login-page">
     <header class="login-brand"><a href="/" title="Back to BioBot">{{ liquid_handler() }}</a><h1>BioBot</h1></header>
     <div class="auth-container">
+      {% if done %}
+      <p>Thank you, your answers are saved. You can change them at any time.</p>
+      <div class="survey-nav"><a href="/" class="auth-btn">Back to BioBot</a></div>
+      {% else %}
       <h2>{{ form.title }}</h2>
       {% if form.intro and page == 1 %}<p>{{ form.intro }}</p>{% endif %}
       <p class="survey-progress">Page {{ page }} of {{ n_pages }} — {{ current.title }}</p>
@@ -61,6 +65,7 @@
         </div>
       </form>
       <p class="auth-footer"><a href="/">← Back to BioBot</a></p>
+      {% endif %}
     </div>
   </main>
   <script>

@@ -522,17 +522,29 @@ SURVEY_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "survey.j
 
 @app.route("/survey", methods=["GET", "POST"])
 def survey():
-    """Survey page beside BioBot: pages of questions from survey.json, answers saved per user."""
+    """Survey page beside BioBot: pages of questions from survey.json, answers saved per user.
+    A page opens only once every earlier page is complete."""
     user_id = session.get("user")
     if not user_id:
         return redirect("/login?next=/survey")
     with open(SURVEY_PATH, encoding="utf-8") as f:
         form = json.load(f)
     pages = form["pages"]
-    page = min(max(request.args.get("page", 1, type=int), 1), len(pages))
     hidden = lambda q, answers: any(answers.get(k) == v for k, v in q.get("unless", {}).items())
+    incomplete = lambda p, answers: any(not answers.get(q["id"]) and not q.get("optional") and not hidden(q, answers)
+                                        for q in pages[p - 1]["questions"])
     conn = get_db_connection()
     try:
+        rows = fetchall_dict(conn, "SELECT question_id, answer FROM survey_responses WHERE user_id = %s", (user_id,))
+        answers = {r["question_id"]: r["answer"] or "" for r in rows}
+        reachable = next((p for p in range(1, len(pages) + 1) if incomplete(p, answers)), len(pages) + 1)
+        if request.args.get("done"):
+            if reachable <= len(pages):
+                return redirect(f"/survey?page={reachable}")
+            return render_template("survey.html", form=form, done=True)
+        page = min(max(request.args.get("page", 1, type=int), 1), len(pages))
+        if page > reachable:
+            return redirect(f"/survey?page={reachable}")
         if request.method == "POST":
             sent = {q["id"]: "; ".join(request.form.getlist(q["id"])).strip() for q in pages[page - 1]["questions"]}
             for q in pages[page - 1]["questions"]:
@@ -543,17 +555,12 @@ def survey():
             conn.commit()
             if request.form.get("go") == "back":
                 return redirect(f"/survey?page={page - 1}")
-            if any(not sent[q["id"]] and not q.get("optional") and not hidden(q, sent) for q in pages[page - 1]["questions"]):
+            if incomplete(page, {**answers, **sent}):
                 flash("Please answer every question before going on.", "error")
                 return redirect(f"/survey?page={page}")
-            if page < len(pages):
-                return redirect(f"/survey?page={page + 1}")
-            flash("Thank you, your answers are saved. You can change them at any time.", "success")
-            return redirect(f"/survey?page={page}")
-        rows = fetchall_dict(conn, "SELECT question_id, answer FROM survey_responses WHERE user_id = %s", (user_id,))
+            return redirect(f"/survey?page={page + 1}" if page < len(pages) else "/survey?done=1")
     finally:
         conn.close()
-    answers = {r["question_id"]: r["answer"] or "" for r in rows}
     return render_template("survey.html", form=form, current=pages[page - 1], page=page, n_pages=len(pages),
                            first=sum(len(p["questions"]) for p in pages[:page - 1]), answers=answers)
 
