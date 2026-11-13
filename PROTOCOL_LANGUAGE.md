@@ -84,9 +84,9 @@ working volume, dead volume) and the LLM must declare every documented limit.
 ![BioBot simulator-centred workflow](docs/protocol_workflow.png)
 
 **Figure — Simulator-centred workflow.** (A) *Design.* BioBot identifies the device and
-opens its empty deck from the shared deck library, asks for missing values, and the LLM
+opens its empty deck, drawn from the device documentation (kept in the shared deck library), asks for missing values, and the LLM
 writes the protocol in the BioBot language from the device documentation. Deterministic
-code expands and checks it (wells, volumes, pipette range, tips), then compares its final
+code expands and checks it (deck positions, wells, volumes, pipette range, tips), then compares its final
 well volumes with an expected state that the LLM wrote from the request alone, without
 seeing the program. Failures go back to the LLM (≤ 3 attempts). (B) *Simulate.* The saved
 protocol is expanded into the deck and playback. A parameter change re-expands it instantly,
@@ -95,7 +95,7 @@ LLM generates device code from the user's request and questionnaire answers, enr
 with the parameters and deck set in the simulator (no BioBot code is given), which is validated by the vendor simulator when one exists,
 otherwise by LLM review (≤ 5 repairs). The code is then translated back into the BioBot
 language, and its liquid movements must match the protocol's; if not, it is regenerated
-once with the difference. Device code is generated only at export: the simulator plays,
+once with the difference, and any remaining difference is shown as a warning. Device code is generated only at export: the simulator plays,
 and the system saves, the protocol.
 
 Sources: `docs/protocol_workflow.svg` (editable), `.pdf` (vector) and `.png` (400 dpi),
