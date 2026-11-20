@@ -115,7 +115,9 @@ def clean_layout(state):
     if state.get("arrangement") in {"side_by_side", "facing"}:
         layout["arrangement"] = state["arrangement"]
     if isinstance(state.get("sources"), list):  # what the layout is based on
-        layout["sources"] = [{"claim": str(s.get("claim", ""))[:300], "source": str(s.get("source", ""))[:500]}
+        # Free-text provenance (URLs, quoted excerpts): not a label, so only markup and control characters go.
+        text = lambda value, limit: re.sub(r"[<>\x00-\x1f]+", " ", str(value))[:limit]
+        layout["sources"] = [{"claim": text(s.get("claim", ""), 300), "source": text(s.get("source", ""), 500)}
                              for s in state["sources"][:40] if isinstance(s, dict)]
     mounts = state.get("mounts", [])
     if not isinstance(mounts, list) or any(not isinstance(mount, str) or not mount for mount in mounts):
@@ -147,7 +149,7 @@ def clean_layout(state):
             for child in value:
                 plain_values(child)
 
-    plain_values(layout)
+    plain_values({key: value for key, value in layout.items() if key != "sources"})
     def text_fields(item, keys):
         if any(item.get(key) is not None and not isinstance(item[key], str) for key in keys):
             raise ValueError("Hardware names and identifiers must be text.")

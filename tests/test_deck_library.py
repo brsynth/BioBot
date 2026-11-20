@@ -124,6 +124,11 @@ class DeckGeometryTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 library.clean_layout(state)
 
+    def test_layout_sources_keep_urls_and_quoted_excerpts(self):
+        state = {**layout(), "sources": [{"claim": 'deck has "54 tracks"\nper manual', "source": "https://x.org/a?b=1&c=<2>"}]}
+        source = library.clean_layout(state)["sources"][0]
+        self.assertEqual(source, {"claim": 'deck has "54 tracks" per manual', "source": "https://x.org/a?b=1&c= 2 "})
+
     def test_plate_format_cannot_allocate_unbounded_cells(self):
         state = {"platform": "Device", "layout_type": "plates", "plates": {"source": {"format": 100000000}}}
         with self.assertRaises(ValueError):
