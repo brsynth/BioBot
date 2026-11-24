@@ -12,7 +12,7 @@ import re
 LANGUAGE_SPEC = """BioBot protocol language (JSON). Return ONE JSON object:
 {"device": "device model", "description": "aim of the experiment",
  "labware": [{"id": "short name", "position": "documented deck position id", "identifier": "documented hardware identifier",
-              "type": "plate | tiprack | reservoir | tuberack | module | trash", "rows": 8, "columns": 12, "max_volume_ul": 360, "dead_volume_ul": 0}],
+              "type": "documented sample holder or hardware type", "rows": 8, "columns": 12, "max_volume_ul": 360, "dead_volume_ul": 0}],
  "instruments": [{"id": "short name", "model": "documented model", "mount": null, "tips": ["tiprack id"], "min_volume_ul": 20, "max_volume_ul": 300, "volume_step_ul": null}],
  "liquids": [{"name": "diluent", "at": "res:A1", "volume_ul": 10000}],
  "parameters": {"n_points": 6, "volume_ul": 100},
@@ -23,21 +23,23 @@ Instructions (exactly one key each):
  {"incubate": {"at": "labware id", "temperature_c": 37, "minutes": 30}}
  {"wait": {"minutes": 5}}
  {"move": {"labware": "labware id", "to": "position id"}}
- {"device_op": {"name": "documented operation", "description": "what it does"}}
+ {"device_op": {"name": "documented operation", "at": "optional labware id", "with": "optional instrument id", "parameters": {"documented_setting": "value or {parameter}"}, "description": "what it does"}}
  {"for": "i", "in": "1..{n_points}-1", "do": [instructions]}
 WELLS is "labware_id:A1", a list "plate:A1,A2", or a range along a row or a column "plate:B2..B6" / "plate:A1..H1".
 {expr} inserts arithmetic (+ - * / // %) on parameters and loop variables, e.g. "plate:B{i+1}"; V may be a number or "2*{volume_ul}".
 Volumes are in µL. A transfer from one well to several dispenses into each; equal-length lists pair up.
+Use device_op for any documented programmable biology operation beyond the built-in actions. Include actual settings and units, targets and instruments; do not force imaging, thermal cycling, separation or cultivation into liquid transfers. Labware, instruments and liquids may be empty when the operation does not use them.
 Tips are implicit: an instrument with "tips" takes the next unused tip (racks in order, column by column) for each transfer or mix
 ("new_tip": "once" keeps one tip for the whole instruction) and drops it in the labware of type "trash", which you must declare.
 Labware are only the items placed on deck positions; built-in parts of the device (heads, transducers, pipettes, grippers) are instruments.
 Use the device's documented positions, identifiers and capabilities only. Put adopted defaults in parameters and reference them rather than repeating values.
 "constraints": every specificity or limit of this device stated in its documentation (volumes, resolution, capacities,
 dead volumes, compatible labware, positions, speeds, …), each as a rule the simulator checks:
- {"applies_to": "transfer | mix | step | well", "rule": "expression that must be true", "message": "what the limit is", "source": "documentation excerpt"}
+ {"applies_to": "transfer | mix | device_op | step | well", "rule": "expression that must be true", "message": "what the limit is", "source": "documentation excerpt"}
  A transfer or mix rule sees volume_ul, instrument, source_/destination_ labware, type, identifier, before_ul and after_ul
  (e.g. "volume_ul / 0.0025 == round(volume_ul / 0.0025)", "destination_after_ul <= 65 or destination_type != 'plate'");
- "step" rules apply to every transfer and mix; a "well" rule sees labware, type, identifier, well and well_volume_ul after each change.
+ device_op rules see action, operation, instrument and the scalar operation parameters.
+ "step" rules apply to transfer, mix and device_op; a "well" rule sees labware, type, identifier, well and well_volume_ul after each change.
  Rules use numbers, strings, + - * / // %, comparisons, and/or/not, abs, round, min, max. Declare only documented limits.
 The following fields are shortcuts for common limits; give them too when documented:
 labware rows, columns, max_volume_ul (well capacity or working volume) and dead_volume_ul (volume a source well cannot be drawn below);
@@ -348,6 +350,31 @@ class _Run:
                         self.check_rules({"action": "mix", "volume_ul": volume, "instrument": self.instrument(op.get("with")).get("id", ""),
                                           **self.where("source", lab_id), "source_before_ul": self.volume_of((lab_id, well)),
                                           "source_after_ul": self.volume_of((lab_id, well))}, [(lab_id, well)])
+                elif action == "device_op":
+                    if not isinstance(op.get("name"), str) or not op["name"].strip():
+                        raise ProtocolError("device_op requires a documented operation name.")
+                    settings = op.get("parameters", {})
+                    if not isinstance(settings, dict):
+                        raise ProtocolError("device_op parameters must be an object.")
+                    resolved = {}
+                    for key, value in settings.items():
+                        if isinstance(value, str):
+                            value = render(value, scope)
+                            try:
+                                value = evaluate(value, scope)
+                            except ProtocolError:
+                                pass  # Named modes and quantities with units remain text.
+                        if type(value) not in (int, float, str, bool):
+                            raise ProtocolError("Operation settings must be scalar values.")
+                        resolved[key] = value
+                    instrument = self.instrument(op.get("with"))
+                    step.update(name=op["name"], parameters=resolved)
+                    if op.get("at") is not None:
+                        if op["at"] not in self.labware:
+                            raise ProtocolError(f"Unknown labware {op['at']}.")
+                        step["source"] = {"slot": self.slot(op["at"]), "wells": []}
+                    self.check_rules({**resolved, "action": action, "operation": op["name"],
+                                      "instrument": instrument.get("id", "")})
                 elif action == "incubate" and op.get("at") not in self.labware:
                     raise ProtocolError(f"Unknown labware {op.get('at')}.")
                 elif action == "move":
@@ -495,3 +522,22 @@ def movement_difference(got, want):
         i, a, b = pairs[0]
         parts.append(f"{len(pairs)} transfer(s) differ, first at #{i + 1}: script {show(a)}, protocol {show(b)}")
     return "; ".join(parts)
+
+
+def execution_difference(got, want):
+    """Compare transfers and general instrument operations, including their relative order."""
+    liquid_difference = movement_difference(movements(got), movements(want))
+    if liquid_difference:
+        return liquid_difference
+
+    def operations(protocol):
+        steps = [step for step in expand(protocol)['steps'] if step['action'] not in ('pickup_tip', 'drop_tip')]
+        return [(index, step.get('name'), step.get('parameters', {}), step.get('source'))
+                for index, step in enumerate(steps) if step['action'] == 'device_op']
+
+    actual, expected = operations(got), operations(want)
+    if actual == expected:
+        return ''
+    if len(actual) != len(expected):
+        return f'the script makes {len(actual)} instrument operations, the protocol {len(expected)}'
+    return 'instrument operation names, settings, targets or execution order differ from the protocol'

@@ -1,0 +1,259 @@
+const {test} = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const source = fs.readFileSync(`${__dirname}/../biobot/static/admin_console.js`, 'utf8');
+const tick = () => new Promise(setImmediate);
+
+function setup({users = [{id:1,first_name:'First',email:'admin@example.test',admin_status:'approved'}], devices = []} = {}) {
+  class Element {
+    constructor(tag='div') {this.tagName=tag;this.children=[];this.events={};this.attributes={};this.value='';this.dataset={};this.textContent='';
+      this.classList={toggle(){}};}
+    append(...nodes) {for(const node of nodes)this.appendChild(node);}
+    appendChild(node) {node.remove();this.children.push(node);node.parentElement=this;}
+    replaceChildren(...nodes) {for(const child of this.children)child.parentElement=null;this.children=[];this.append(...nodes);}
+    remove() {if(this.parentElement){const parent=this.parentElement;parent.children.splice(parent.children.indexOf(this),1);this.parentElement=null;}}
+    contains(node) {return this===node || this.children.some(child=>child.contains(node));}
+    addEventListener(name,fn) {this.events[name]=fn;}
+    setAttribute(key,value) {this.attributes[key]=value;}
+  }
+  const elements=new Map();
+  const get=id=>{if(!elements.has(id)) elements.set(id,new Element());return elements.get(id);};
+  get('admin-csrf-token').value='csrf';
+  get('admin-panel-devices').append(get('admin-devices'),get('admin-device-deck'));
+  const timers=new Map(), calls=[];
+  let serial=0;
+  const state={devices};
+  const context=vm.createContext({document:{getElementById:get,createElement:tag=>new Element(tag)},window:{},AbortController,
+    setTimeout:fn=>{timers.set(++serial,fn);return serial;},clearTimeout:id=>timers.delete(id),
+    fetch:async(url,options)=>{
+      calls.push({url,options});
+      const data=url==='/admin/users' ? users : state.devices;
+      if(data==='pending') return new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')),{once:true}));
+      return {ok:!data.error,json:async()=>data};
+    }});
+  vm.runInContext(source,context);
+  const text=node=>node.textContent+' '+node.children.map(text).join(' ');
+  return {context,get,timers,calls,state,text};
+}
+
+test('users display even when the device request hangs; timeout offers retry',async()=>{
+  const w=setup({devices:'pending'});
+  const opening=w.context.window.adminConsole.open();
+  await tick();
+  assert.match(w.text(w.get('admin-users')),/First/);
+  assert.match(w.text(w.get('admin-devices')),/Loading devices/);
+  assert.equal(w.timers.size,1);
+  [...w.timers.values()][0]();
+  await opening;
+  assert.match(w.text(w.get('admin-devices')),/timed out/);
+  assert.match(w.text(w.get('admin-devices')),/Retry devices/);
+  assert.doesNotMatch(w.get('admin-feedback').textContent,/Loading administration/);
+  assert.equal(w.get('admin-devices').attributes['aria-busy'],'false');
+  w.state.devices=[];
+  await w.get('admin-devices').children[1].events.click();
+  assert.match(w.text(w.get('admin-devices')),/No matching devices/);
+  assert.equal(w.get('admin-feedback').textContent,'');
+});
+
+test('a failed user request does not hide the available device records',async()=>{
+  const w=setup({users:{error:'Users are temporarily unavailable'},devices:[{key:'device',device_id:'device',device_name:'Saved instrument',status:'ready',features:['measurement'],constraints:[]}]});
+  await w.context.window.adminConsole.open();
+  assert.match(w.text(w.get('admin-users')),/Users are temporarily unavailable/);
+  assert.match(w.text(w.get('admin-devices')),/Saved instrument/);
+  assert.match(w.text(w.get('admin-devices')),/measurement/);
+  assert.equal(w.get('admin-users').attributes['aria-busy'],'false');
+});
+
+test('successful administration clears loading and sends requests with abort signals',async()=>{
+  const w=setup();
+  await w.context.window.adminConsole.open();
+  assert.equal(w.get('admin-feedback').textContent,'');
+  assert.equal(w.timers.size,0);
+  assert.match(w.text(w.get('admin-users')),/admin@example.test/);
+  for(const {options} of w.calls) {
+    assert.ok(options.signal);
+    assert.equal(options.headers['X-CSRF-Token'],'csrf');
+  }
+});
+
+test('category cloud expands devices and multi-category selections keep unique result cards',async()=>{
+  const w=setup({devices:[
+    {key:'a',device_id:'a',device_name:'Combined instrument',status:'ready',categories:['Liquid handling','Analysis & detection']},
+    {key:'b',device_id:'b',device_name:'Microscope',status:'ready',categories:['Imaging & microscopy']},
+    {key:'c',device_id:'c',device_name:'New device',status:'queued',categories:[]}
+  ]});
+  await w.context.window.adminConsole.open();
+  const cloud=w.get('admin-category-cloud');
+  assert.equal(cloud.children.length,4);
+  const group=name=>cloud.children.find(group=>group.children[0].children[0].textContent===name);
+  const analysis=group('Analysis & detection');
+  assert.equal(analysis.children[1].hidden,true);
+  analysis.children[0].events.click();
+  assert.equal(analysis.children[1].hidden,false);
+  assert.equal(analysis.children[0].attributes['aria-expanded'],'true');
+  assert.equal(w.get('admin-devices').children.length,1);
+  group('Liquid handling').children[0].events.click();
+  assert.equal(w.get('admin-devices').children.length,1);
+  w.get('admin-category-reset').events.click();
+  assert.equal(w.get('admin-devices').children.length,3);
+});
+
+test('search automatically expands matching categories and highlights literal device text',async()=>{
+  const w=setup({devices:[
+    {key:'a',device_id:'a',device_name:'Scope [X]',status:'ready',categories:['Imaging'],features:['fluorescence']},
+    {key:'b',device_id:'b',device_name:'Pipette',status:'ready',categories:['Liquid handling']}
+  ]});
+  await w.context.window.adminConsole.open();
+  w.get('admin-device-search').value='[X]';w.get('admin-device-search').events.input();
+  assert.equal(w.get('admin-devices').children.length,1);
+  const title=w.get('admin-devices').children[0].children[0];
+  assert.equal(title.children.find(child=>child.tagName==='mark').textContent,'[X]');
+  const cloud=w.get('admin-category-cloud');
+  assert.equal(cloud.children[0].children[0].attributes['aria-expanded'],'true');
+  assert.equal(cloud.children[1].children[0].attributes['aria-expanded'],'false');
+  w.get('admin-device-search').value='FLUORESCENCE';w.get('admin-device-search').events.input();
+  assert.equal(w.get('admin-devices').children.length,1);
+  assert.match(w.get('admin-device-results').textContent,/1 of 2/);
+  w.get('admin-device-search').value='missing';w.get('admin-device-search').events.input();
+  assert.match(w.text(w.get('admin-devices')),/No matching devices/);
+  w.get('admin-category-reset').events.click();
+  assert.equal(w.get('admin-devices').children.length,2);
+});
+
+for (const resetId of ['admin-reset-db']) test(`${resetId} requires confirmation and starts the same protected rebuild`,async()=>{
+  const w=setup();await w.context.window.adminConsole.open();
+  const before=w.calls.length;
+  w.context.confirm=()=>false;
+  await w.get(resetId).events.click();
+  assert.equal(w.calls.length,before);
+  const requests=[];
+  w.context.confirm=()=>true;
+  w.context.fetch=async(url,options)=>{
+    requests.push({url,options});
+    return {ok:true,json:async()=>url==='/admin/devices/reset' ? {message:'Rebuild started'} :
+      url==='/devices/catalog' ? {status:'complete',counts:{ready:3}} : []};
+  };
+  await w.get(resetId).events.click();
+  const reset=requests.find(call=>call.url==='/admin/devices/reset');
+  assert.equal(reset.options.method,'POST');
+  assert.deepEqual(JSON.parse(reset.options.body),{confirm:'RESET DB'});
+  assert.equal(reset.options.headers['X-CSRF-Token'],'csrf');
+  assert.match(w.get('admin-catalog-progress').textContent,/3 ready/);
+  assert.equal(w.get('admin-reset-db').disabled,false);
+});
+
+for (const updateId of ['admin-update-db']) test(`${updateId} checks online without resetting the database`,async()=>{
+  const w=setup();await w.context.window.adminConsole.open();
+  const requests=[];
+  w.context.fetch=async(url,options)=>{
+    requests.push({url,options});
+    return {ok:true,json:async()=>url==='/admin/devices/update' ? {message:'Checking online'} :
+      url==='/devices/catalog' ? {status:'complete',counts:{ready:3},updating:0,update_errors:1} : []};
+  };
+  await w.get(updateId).events.click();
+  const update=requests.find(call=>call.url==='/admin/devices/update');
+  assert.equal(update.options.method,'POST');
+  assert.equal(update.options.headers['X-CSRF-Token'],'csrf');
+  assert.equal(requests.some(call=>call.url==='/admin/devices/reset'),false);
+  assert.match(w.get('admin-catalog-progress').textContent,/1 need retry/);
+  assert.equal(w.get('admin-update-db').disabled,false);
+});
+
+test('selecting a device opens its deck without changing the category-filtered list',async()=>{
+  const w=setup({devices:[
+    {key:'a',device_id:'a',device_name:'Instrument A',status:'ready',categories:['Liquid handling']},
+    {key:'b',device_id:'b',device_name:'Instrument B',status:'ready',categories:['Liquid handling']}
+  ]});
+  await w.context.window.adminConsole.open();
+  const calls=[];let accepted=false;
+  w.context.window.adminDeckEditor={open:async key=>{calls.push(key);return accepted;}};
+  const category=w.get('admin-category-cloud').children[0];
+  category.children[0].events.click();
+  await category.children[1].children[0].events.click();
+  assert.equal(w.get('admin-devices').children.length,2);
+  accepted=true;
+  await category.children[1].children[0].events.click();
+  assert.equal(w.get('admin-devices').children.length,2);
+  assert.match(w.text(w.get('admin-devices')),/Instrument A/);
+  assert.deepEqual(calls,['a','a']);
+  assert.equal(typeof w.get('admin-tab-devices').events.click,'function');
+});
+
+test('editor buttons expose pressed states and preserve device drafts when hidden and shown',async()=>{
+  const w=setup({devices:[{key:'a',device_id:'a',device_name:'Instrument A',status:'ready',categories:['Liquid handling']}]});
+  await w.context.window.adminConsole.open();
+  let detailReads=0;
+  w.context.fetch=async()=>{detailReads++;return {ok:true,json:async()=>({profile:{features:['Pipetting'],categories:['Liquid handling'],constraints:[]}})};};
+  let deckOpen=false;
+  w.context.window.adminDeckEditor={toggle:async()=>{deckOpen=!deckOpen;},isOpen:()=>deckOpen};
+  const row=w.get('admin-devices').children[0];
+  const edit=row.children.find(child=>child.textContent==='Edit device');
+  const deck=row.children.find(child=>child.textContent==='Edit deck');
+  assert.equal(edit.attributes['aria-pressed'],'false');assert.equal(deck.attributes['aria-pressed'],'false');
+  await edit.events.click();
+  const form=row.children.find(child=>child.className==='admin-editor');
+  assert.equal(edit.attributes['aria-pressed'],'true');assert.equal(form.hidden,false);
+  const input=form.children[0].children[0];input.value='Draft custom category';
+  await edit.events.click();
+  assert.equal(edit.attributes['aria-pressed'],'false');assert.equal(form.hidden,true);
+  await edit.events.click();
+  assert.equal(edit.attributes['aria-pressed'],'true');assert.equal(input.value,'Draft custom category');assert.equal(detailReads,1);
+  const currentButton=name=>w.get('admin-devices').children[0].children.find(child=>child.textContent===name);
+  await deck.events.click();assert.equal(currentButton('Edit deck').attributes['aria-pressed'],'true');
+  assert.equal(w.get('admin-device-deck').parentElement,w.get('admin-devices').children[0]);
+  await currentButton('Edit deck').events.click();assert.equal(currentButton('Edit deck').attributes['aria-pressed'],'false');
+  assert.equal(currentButton('Edit device').attributes['aria-pressed'],'true');
+  assert.equal(input.value,'Draft custom category');
+});
+
+test('opening a deck from the full list mounts it inside the selected card and survives refresh',async()=>{
+  const w=setup({devices:[
+    {key:'a',device_id:'a',device_name:'Instrument A',status:'ready',categories:['Liquid handling']},
+    {key:'b',device_id:'b',device_name:'Instrument B',status:'ready',categories:['Liquid handling']}
+  ]});
+  await w.context.window.adminConsole.open();
+  const panel=w.get('admin-device-deck');let openKey=null;
+  w.context.window.adminDeckEditor={toggle:async key=>{openKey=openKey===key ? null : key;panel.hidden=!openKey;return true;},isOpen:key=>key===openKey};
+  const first=w.get('admin-devices').children[0];
+  const toggle=first.children.find(child=>child.textContent==='Edit deck');
+  await toggle.events.click();
+  assert.equal(w.get('admin-devices').children.length,2);
+  await toggle.events.click();
+  assert.equal(w.get('admin-devices').children.length,2);
+  assert.equal(panel.hidden,true);
+  await toggle.events.click();
+  assert.equal(panel.parentElement,w.get('admin-devices').children[0]);
+  assert.equal(panel.hidden,false);
+  await w.context.window.adminConsole.open();
+  assert.equal(panel.parentElement,w.get('admin-devices').children[0]);
+  assert.equal(panel.hidden,false);
+});
+
+test('only search and category choices filter the list while deck toggles leave both filters intact',async()=>{
+  const w=setup({devices:[
+    {key:'a',device_id:'a',device_name:'Instrument A',status:'ready',categories:['Liquid handling']},
+    {key:'b',device_id:'b',device_name:'Instrument B',status:'ready',categories:['Imaging']},
+    {key:'c',device_id:'c',device_name:'Instrument C',status:'ready',categories:['Liquid handling']}
+  ]});
+  await w.context.window.adminConsole.open();
+  const search=w.get('admin-device-search');
+  search.value='instrument';search.events.input();
+  const category=()=>w.get('admin-category-cloud').children.find(group=>w.text(group.children[0].children[0]).trim()==='Liquid handling');
+  category().children[0].events.click();
+  assert.equal(w.get('admin-devices').children.length,2);
+  assert.equal(category().children[0].attributes['aria-pressed'],'true');
+  let open=false;
+  w.context.window.adminDeckEditor={toggle:async()=>{open=!open;return true;},isOpen:key=>key==='a' && open};
+  const toggle=w.get('admin-devices').children[0].children.find(child=>child.textContent==='Edit deck');
+  await toggle.events.click();await toggle.events.click();
+  assert.equal(w.get('admin-devices').children.length,2);
+  assert.equal(search.value,'instrument');
+  assert.equal(category().children[0].attributes['aria-pressed'],'true');
+  search.value='Instrument B';search.events.input();
+  assert.match(w.text(w.get('admin-devices')),/No matching devices/);
+  search.value='';search.events.input();
+  assert.equal(w.get('admin-devices').children.length,2);
+  category().children[0].events.click();
+  assert.equal(w.get('admin-devices').children.length,3);
+});

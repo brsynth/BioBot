@@ -1,5 +1,5 @@
 """One persistent documentation index shared by preloading and generation."""
-from concurrent.futures import ThreadPoolExecutor
+from background_jobs import BackgroundExecutor
 import fcntl
 import os
 from pathlib import Path
@@ -17,9 +17,16 @@ from doc_loader import load_and_chunk_docs, get_supported_extensions
 from doc_fetcher import fetch_documentation, update_documentation
 
 SCRIPT_DIR = Path(__file__).resolve().parent
-_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="documentation")
+_executor = BackgroundExecutor(max_workers=2, thread_name_prefix="documentation")
 _pending = {}
 _pending_lock = threading.Lock()
+
+
+def _pdf_recovered_since_index(docs_path, store_path):
+    try:
+        return (docs_path / ".pdf-recovered").stat().st_mtime_ns > store_path.stat().st_mtime_ns
+    except FileNotFoundError:
+        return False
 
 
 def get_text_embedding_with_retry(text, api_key=None, retries=5, delay=2):
@@ -68,7 +75,7 @@ def load_or_build_index(handler_id, handler_config, chunk_size=3000, api_key=Non
         except BlockingIOError:
             print("STEP:Checking available resources...", flush=True)
             fcntl.flock(lock, fcntl.LOCK_EX)
-        if store_path.exists():
+        if store_path.exists() and not _pdf_recovered_since_index(docs_path, store_path):
             print("STEP:Checking available resources...", flush=True)
             with store_path.open("rb") as file:
                 store = pickle.load(file)
@@ -106,7 +113,7 @@ def refresh_index(handler_config, chunk_size=3000, api_key=None):
     if not store_path.exists():
         return 0
     changed = update_documentation(handler_config["name"], handler_config.get("keywords", []), str(docs_path), api_key or get_api_key())
-    if not changed:
+    if not changed and not _pdf_recovered_since_index(docs_path, store_path):
         return 0
     with open(str(store_path) + ".lock", "a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)

@@ -1,6 +1,7 @@
 """Offline discovery checks; no API key, database, or robot SDK required."""
 import importlib.util
 import json
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import sys
 import tempfile
@@ -70,6 +71,12 @@ class HandlerDiscoveryTests(unittest.TestCase):
         self.outputs("unknown")
         self.assertEqual(handlers.detect_handler("Make a dilution", [], "test-key"), (None, registry))
         self.assertEqual(handlers.load_handlers_config(), registry)
+
+    def test_parallel_profile_updates_do_not_erase_other_devices(self):
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            saved = list(pool.map(lambda i: handlers._save_handlers({f"device_{i}": {"name": f"Device {i}"}}), range(12)))
+        self.assertTrue(all(saved))
+        self.assertEqual(len(handlers.load_handlers_config()), 12)
 
     def test_unsafe_platform_id_cannot_create_runtime_paths(self):
         self.outputs("../../outside")

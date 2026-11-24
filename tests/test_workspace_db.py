@@ -14,6 +14,7 @@ class WorkspaceTests(unittest.TestCase):
         import config
         import app
         import deck_library
+        import device_catalog
         self.server, self.library = app, deck_library
         preloader = patch("documentation_index.preload_documentation")
         self.preload = preloader.start()
@@ -25,10 +26,16 @@ class WorkspaceTests(unittest.TestCase):
             cursor.execute(f'CREATE SCHEMA "{self.schema}"')
         conn.close()
         self.addCleanup(self.drop_schema)
-        for module in (config, app, deck_library):
+        for module in (config, app, deck_library, device_catalog):
             p = patch.object(module, "get_db_connection", side_effect=self.connection)
             p.start(); self.addCleanup(p.stop)
         config.init_db()
+        for name, replacement in {
+            'start_catalog': lambda *args: None,
+            'request_device': lambda name, *args: {'status':'ready','device_id':'xyz','name':name},
+        }.items():
+            p = patch.object(device_catalog, name, side_effect=replacement)
+            p.start(); self.addCleanup(p.stop)
         conn = self.connection()
         with conn, conn.cursor() as cursor:
             cursor.execute("INSERT INTO users (id, first_name) VALUES (1, 'First'), (2, 'Second')")
@@ -154,7 +161,7 @@ class WorkspaceTests(unittest.TestCase):
                 response = self.client.post(f"/chat/{chat}/device", json={"device": "Robot XYZ"})
                 self.assertEqual(response.status_code, 200)
                 self.assertEqual(response.get_json()["steps"], [])
-            self.assertEqual(identify.call_count, 1)
+            self.assertEqual(identify.call_count, 0)
             self.assertEqual(generate.call_count, 1)
         self.assertEqual(self.preload.call_args.args[0], "Robot XYZ")
         self.assertEqual(self.client.get("/devices").get_json(), ["Robot XYZ"])
@@ -177,7 +184,8 @@ class WorkspaceTests(unittest.TestCase):
         with patch.object(self.server, "dispatch_device", return_value=device) as dispatch, \
              patch.object(self.library, "identify_device") as identify, \
              patch.object(self.library, "generate_device_layout", return_value=base):
-            self.assertEqual(self.client.post("/devices/validate", json={"device": "robot xyz"}).get_json(), device)
+            result = self.client.post("/devices/validate", json={"device": "robot xyz"}).get_json()
+            self.assertEqual({key:result[key] for key in device}, device)
             chat = self.client.post("/chat").get_json()["chat_id"]
             response = self.client.post(f"/chat/{chat}/device", json={"device": "Robot XYZ"})
             self.assertEqual(response.status_code, 200)

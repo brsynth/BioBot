@@ -14,7 +14,7 @@ def strip_code_fences(text):
 
 
 # ----------- SUFFICIENCY CHECK -------------
-SUFFICIENCY_PROMPT = """You are BioBot, an expert assistant in lab automation and liquid handling robots.
+SUFFICIENCY_PROMPT = """You are BioBot, an expert assistant in lab automation and programmable biology instruments.
  
 Your job is to identify the MINIMUM experimental information the user must supply to design their requested protocol. BioBot is responsible for selecting routine implementation details from documentation during generation.
  

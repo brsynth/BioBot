@@ -27,7 +27,7 @@ function setup() {
   const elements = new Map();
   const get = id => {if (!elements.has(id)) elements.set(id, new Element()); return elements.get(id);};
   const calls = [], state = {code:null, pending:false, layout:null};
-  let deviceResult, validationResult;
+  let deviceResult, validationResult, catalogResults = [];
   const saved = [], trashed = []; 
   const context = vm.createContext({
     document: {getElementById:get, body:get('body'), querySelector:selector=>selector==='.parameters-hint' ? null : get('logo'), createElement:()=>new Element(), createTextNode:text=>({textContent:text})},
@@ -41,7 +41,9 @@ function setup() {
       const data = options.body ? JSON.parse(options.body) : null;
       calls.push({url,data,method:options.method});
       let value;
-      if (url === '/devices') value = ['Robot XYZ'];
+      if (url.startsWith('/devices/discovery/')) value = catalogResults.shift();
+      else if (url === '/devices/catalog') value = {status:'pending',counts:{}};
+      else if (url === '/devices') value = ['Robot XYZ'];
       else if (url === '/devices/validate') value = validationResult ? await validationResult : {name:data.device,device_id:'robot_xyz'};
       else if (url === '/protocols' && options.method === 'POST') {saved.push({...data,id:'saved'}); value = {id:'saved',name:data.name};}
       else if (url === '/chats?trashed=1') value = [{chat_id:'trashed-chat',name:'Old chat',deleted_at:'2026-11-08T12:00:00+00:00'}];
@@ -60,11 +62,11 @@ function setup() {
   context.createNewChat = async()=>{context.currentChatId = null; context.window.workspace.landing();};
   vm.runInContext(source, context);
   context.window.workspace.landing();
-  return {context, get, calls, state, saved, deferDevice:promise=>deviceResult=promise, deferValidation:promise=>validationResult=promise};
+  return {context, get, calls, state, saved, deferDevice:promise=>deviceResult=promise, deferValidation:promise=>validationResult=promise, deferCatalog:results=>catalogResults=results};
 }
 const tick = () => new Promise(setImmediate);
 
-test('device-first landing uses previous devices and opens the deck before sending a protocol request', async()=>{
+test('device-first landing opens the deck before sending a protocol request', async()=>{
   const w = setup(); await tick();
   assert.deepEqual(w.get('device-select').options.map(o=>o.value), ['', 'Robot XYZ']);
   assert.equal(await w.context.window.workspace.startDevice('Robot XYZ'), true);
@@ -134,13 +136,14 @@ test('saved protocols rename inline, move to combined Trash with type badges, an
 test('pending code edits disable exporting, and only physical deck data accompanies generation', async()=>{
   const w = setup(); await tick();
   w.state.code = 'protocol'; w.state.pending = true;
-  w.state.layout = {platform:'Robot XYZ',layout_type:'grid',positions:[],_protocol_code:'private code',_library:{author:'someone'},steps:[{volume:'10 uL'}]};
+  w.state.layout = {platform:'Robot XYZ',layout_type:'spatial',workspace:{width:100,height:80,label:'Discovered context'},positions:[],_protocol_code:'private code',_library:{author:'someone'},steps:[{volume:'10 uL'}]};
   w.context.window.workspace.syncActions();
   assert.equal(w.get('protocol-copy-btn').disabled, true);
   assert.equal(w.get('protocol-save-btn').disabled, true);
   assert.equal(w.context.window.workspace.busy, true);
   const layout = w.context.window.workspace.generationLayout();
   assert.equal(layout.platform, 'Robot XYZ');
+  assert.equal(layout.workspace.label, 'Discovered context');
   for (const key of ['_protocol_code','_library','steps']) assert.equal(key in layout, false);
 });
 
@@ -158,9 +161,9 @@ test('a slow device response cannot reopen a deck after starting a new chat', as
 });
 
 
-test('choosing a previous device opens its empty workspace without sending a prompt', async()=>{
+test('choosing a cached device opens its empty workspace without sending a prompt', async()=>{
   const w=setup(); await tick();
-  assert.equal(w.get('device-select').options[0].textContent,'Your previous devices');
+  assert.equal(w.get('device-select').options[0].textContent,'Selected device');
   w.get('device-select').value='Robot XYZ'; w.get('device-select').events.change();
   await tick();
   assert.equal(w.context.currentChatId,'new-chat');
@@ -268,4 +271,27 @@ test('only an empty chat without a device or a running task needs device choice 
   assert.equal(w.context.window.workspace.needsDevice('empty'),true);
   assert.equal(w.context.window.workspace.needsDevice('configured'),false);
   assert.equal(w.context.window.workspace.needsDevice('started'),false);
+});
+
+
+test('a device already being built is awaited before creating its chat', async()=>{
+  const w=setup(); await tick();
+  w.context.setTimeout=(callback,delay)=>delay===1000 ? setImmediate(callback) : 1;
+  w.deferValidation(Promise.resolve({catalog_job:'robotxyz',status:'building',name:'Robot XYZ'}));
+  w.deferCatalog([{catalog_job:'robotxyz',status:'building',name:'Robot XYZ'},
+    {catalog_job:'robotxyz',status:'ready',name:'Robot XYZ',device_id:'robot_xyz'}]);
+  await w.context.window.workspace.chooseDevice('Robot XYZ');
+  const polls=w.calls.map((call,index)=>({call,index})).filter(({call})=>call.url.startsWith('/devices/discovery/'));
+  assert.equal(polls.length,2);
+  assert.ok(w.calls.findIndex(call=>call.url==='/chat')>polls[1].index);
+  assert.equal(w.state.layout.platform,'Robot XYZ');
+});
+
+test('a failed catalog entry displays its error and creates no chat', async()=>{
+  const w=setup(); await tick();
+  w.deferValidation(Promise.resolve({catalog_job:'robotxyz',status:'failed',error:'Programmability could not be verified.'}));
+  await w.context.window.workspace.chooseDevice('Robot XYZ');
+  assert.match(w.get('device-choice-status').textContent,/could not be verified/);
+  assert.equal(w.calls.some(call=>call.url==='/chat'),false);
+  assert.equal(w.get('send').disabled,false);
 });

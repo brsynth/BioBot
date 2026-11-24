@@ -87,15 +87,14 @@ def _parse_pdf(filepath: str, filename: str) -> list[dict]:
 
     try:
         import fitz  # PyMuPDF
-        doc = fitz.open(filepath)
-        for page_num, page in enumerate(doc):
-            text = page.get_text()
-            if text.strip():
-                text_pages.append({
-                    "text": text.strip(),
-                    "source": f"{filename} (page {page_num + 1})"
-                })
-        doc.close()
+        with fitz.open(filepath) as doc:
+            for page_num, page in enumerate(doc):
+                text = page.get_text()
+                if text.strip():
+                    text_pages.append({
+                        "text": text.strip(),
+                        "source": f"{filename} (page {page_num + 1})"
+                    })
     except ImportError:
         try:
             import pdfplumber
@@ -127,7 +126,7 @@ PARSERS = {
 }
 
 
-def load_and_chunk_docs(base_path: str, chunk_size: int = 3000) -> tuple[list[str], list[str]]:
+def load_and_chunk_docs(base_path: str, chunk_size: int = 3000, exclude_dirs=()) -> tuple[list[str], list[str]]:
     """
     Walk a documentation folder, parse all supported files,
     and return (chunks, chunk_sources) ready for embedding.
@@ -137,6 +136,7 @@ def load_and_chunk_docs(base_path: str, chunk_size: int = 3000) -> tuple[list[st
     all_sections = []
 
     for root, dirs, files in os.walk(base_path):
+        dirs[:] = sorted(name for name in dirs if name not in exclude_dirs)
         for file in sorted(files):
             ext = os.path.splitext(file)[1].lower()
             parser_type = PARSERS.get(ext)
@@ -147,7 +147,18 @@ def load_and_chunk_docs(base_path: str, chunk_size: int = 3000) -> tuple[list[st
             full_path = os.path.join(root, file)
 
             if parser_type == "pdf":
-                sections = _parse_pdf(full_path, file)
+                try:
+                    sections = _parse_pdf(full_path, file)
+                except Exception as error:
+                    print(f"WARNING: Could not parse PDF {full_path}: {error}", file=sys.stderr, flush=True)
+                    try:
+                        from doc_fetcher import recover_pdf
+                        if not recover_pdf(base_path, full_path):
+                            continue
+                        sections = _parse_pdf(full_path, file)
+                    except Exception as retry_error:
+                        print(f"WARNING: Could not recover PDF {full_path}: {retry_error}", file=sys.stderr, flush=True)
+                        continue
             else:
                 try:
                     with open(full_path, "r", encoding="utf-8", errors="ignore") as f:

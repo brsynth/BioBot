@@ -114,3 +114,17 @@ Sources: `docs/protocol_workflow.svg` (editable), `.pdf` (vector) and `.png` (40
 | Other deck edits | `deck_visualizer.update_code_from_changes` | yes |
 | Device code, validation | `main_rag.run_query_and_fix` (via `/protocol/export`) | yes |
 | Read-back comparison | `main_rag.read_back_difference`, `protocol_lang.movements` | read-back only |
+
+## General instrument operations
+
+A protocol may contain `device_op` instructions for any documented operation of a programmable biology instrument. It does not need liquid transfers, pipettes, wells or sample holders when those are irrelevant:
+
+```json
+{"device":"Selected physical model","parameters":{"exposure_ms":25},"program":[
+  {"device_op":{"name":"documented acquisition operation","parameters":{"exposure_ms":"{exposure_ms}","mode":"documented mode"},"description":"Acquire the requested measurement"}}
+]}
+```
+
+Operation names, settings and limits come from the selected model's documentation. `at` optionally references a declared labware ID; `with` optionally references a declared instrument ID. Parameters are scalar values, with expressions expanded from protocol parameters. `device_op` constraints can check the resolved setting names plus `action`, `operation` and `instrument`. This checks declared constraints, not the device's physical or scientific behavior.
+
+Physical workspace context is discovered from references and stored as data. New layouts use coordinates and drawing primitives with source attribution, rather than selecting a predefined physical context. Existing saved layouts remain available.

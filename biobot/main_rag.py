@@ -112,7 +112,7 @@ def run_gpt(user_message, model=biobot_model):
     messages = [
         {
             "role": "system",
-            "content": "You are an expert assistant specialized in lab automation with every kind of liquid handler. Generate full, clean and functional file for lab automation protocols. You assist the user, don't let him finish your job or fill something. Don't let anything empty, you should be sure that you completed anything no matter the file type or liquid handler."
+            "content": "You are an expert assistant specialized in lab automation with every kind of programmable biology instrument. Generate full, clean and functional file for lab automation protocols. You assist the user, don't let him finish your job or fill something. Don't let anything empty, you should be sure that you completed anything no matter the file type or biology instrument."
         },
         {
             "role": "user",
@@ -203,13 +203,13 @@ def validate_llm_review(code, handler_config, context_chunks, question):
         input=[
             {
                 "role": "system",
-                "content": f"""You are a specialized reviewer in {handler_name} liquid handling protocol automation.
+                "content": f"""You are a specialized reviewer in {handler_name} biology instrument protocol automation.
 
 Your task is to analyze and compare a generated {output_type} script for a {handler_name} robot with similar existing protocols, files and references in order to determine if it is correct and functional.
 
 You have access to web search. USE IT to look up the official {handler_name} documentation, verify function signatures, check valid labware names, and confirm correct usage patterns.
 
-Note that sometimes, the generated output can be a script to generate another file usable for the liquid handler (example: python script to generate csv file that will be used). Make sure to make the difference and analyze the logic of the usable file.
+Note that sometimes, the generated output can be a script to generate another file usable for the instrument (example: python script to generate csv file that will be used). Make sure to make the difference and analyze the logic of the usable file.
 
 RESPONSE FORMAT:
 - If the code is correct and would work: respond with exactly and only "PASS".
@@ -292,6 +292,7 @@ def run_query_and_fix(question, chunks, chunk_sources, index, handler_config, ma
     retrieved_sources = [chunk_sources[i] for i in I.tolist()[0]]
 
     context = "\n\n".join(retrieved_chunks)
+    context += "\nCurrent local device profile (including administrator corrections):\n" + json.dumps({key: handler_config.get(key) for key in ("features", "constraints", "output_type", "output_format", "programming_interface")})
     handler_name = handler_config["name"]
     log("REQUEST", question)
     log("HANDLER", json.dumps({k: handler_config.get(k) for k in ("name", "validation_strategy", "simulate_cmd", "output_type", "file_extension")}, indent=2))
@@ -414,6 +415,7 @@ def design_protocol(question, chunks, index, handler_config, max_attempts=3, pos
     limits = f"{handler_config['name']} specifications, limits, requirements and compatible labware"
     found = [i for query in (question, limits) for i in index.search(np.array([get_text_embedding_with_retry(query)]), k=5)[1].tolist()[0]]
     context = "\n\n".join(chunks[i] for i in dict.fromkeys(found))
+    context += "\nCurrent local device profile (including administrator corrections):\n" + json.dumps({key: handler_config.get(key) for key in ("features", "constraints", "output_type", "output_format", "programming_interface")})
     prompt = (f"Documentation for {handler_config['name']}:\n---\n{context}\n---\n"
               f"Write this request as a protocol for BioBot's simulator; device code is generated later.\n{protocol_lang.LANGUAGE_SPEC}\n"
               + (f"\nThe deck's positions are exactly: {json.dumps(positions)}. Labware must use these ids.\n" if positions else "")
@@ -426,6 +428,14 @@ def design_protocol(question, chunks, index, handler_config, max_attempts=3, pos
             protocol = json.loads(text)
             if os.environ.get("BIOBOT_DEVICE") and isinstance(protocol, dict):
                 protocol["device"] = os.environ["BIOBOT_DEVICE"]  # the chat's locked device
+            if not isinstance(protocol, dict):
+                raise ValueError("A protocol must be a JSON object.")
+            declared = protocol.setdefault("constraints", [])
+            if not isinstance(declared, list):
+                raise ValueError("Protocol constraints must be a list.")
+            for rule in handler_config.get("constraints") or []:
+                if rule.get("rule") and rule.get("applies_to") in {"transfer", "mix", "step", "well", "device_op"} and rule not in declared:
+                    declared.append(rule)
             protocol_lang.expand(protocol, positions)
             if expected is None:
                 expected = _expected_end_state(question, protocol)
@@ -439,17 +449,16 @@ def design_protocol(question, chunks, index, handler_config, max_attempts=3, pos
 
 
 def read_back_difference(code, handler_config, protocol):
-    """Translate exported code back into the BioBot language; describe how its liquid movements differ."""
+    """Translate exported code back into the BioBot language; compare liquid movements and general instrument operations."""
     print("STEP:Checking that the code reproduces the protocol...", flush=True)
     try:
         back = _json_answer(
             f"Translate this {handler_config['name']} script into the BioBot protocol language, describing only what the script does. "
             f"Reuse these labware and liquids declarations: {json.dumps({k: protocol.get(k) for k in ('labware', 'instruments', 'liquids')})}.\n"
             f"{protocol_lang.LANGUAGE_SPEC}\n\nScript:\n{code}")
-        got, want = protocol_lang.movements(back), protocol_lang.movements(protocol)
+        return protocol_lang.execution_difference(back, protocol)
     except ValueError as error:
         return f"the script could not be read back: {error}"
-    return protocol_lang.movement_difference(got, want)
 
 
 # ============================================================
@@ -551,7 +560,7 @@ consolidated_query += (f"\n\nWrite the output in the {handler_config['name']}'s 
                        + ", exactly as the device's software imports it, as described in the documentation. "
                        "Never answer in BioBot's own JSON protocol language.")
 
-# Export: the code, read back into the BioBot language, should make the same liquid movements.
+# Export read-back checks liquid movements and general instrument operations.
 # A validated script is kept even if the read-back still differs; the difference is reported as a warning.
 source_protocol = protocol_lang.parse(user_query)
 for attempt in range(2):

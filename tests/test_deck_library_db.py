@@ -23,9 +23,11 @@ class DeckLibraryDatabaseTests(unittest.TestCase):
         with conn, conn.cursor() as cur:
             cur.execute(f'CREATE SCHEMA "{self.schema}"')
             cur.execute(f'SET search_path TO "{self.schema}"')
-            cur.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, api_key TEXT)")
-            cur.execute("INSERT INTO users VALUES (1, 'First', 'User', NULL), (2, 'Second', 'User', NULL), (3, 'Third', 'User', NULL)")
+            cur.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, first_name TEXT, last_name TEXT, api_key TEXT, session_version INTEGER NOT NULL DEFAULT 0)")
+            cur.execute("INSERT INTO users (id,first_name,last_name,api_key) VALUES (1, 'First', 'User', NULL), (2, 'Second', 'User', NULL), (3, 'Third', 'User', NULL)")
             deck_library.init_deck_tables(cur)
+            from device_catalog import init_catalog_tables
+            init_catalog_tables(cur)
         conn.close()
         self.addCleanup(self.drop_schema)
         self.base = {"platform": "Robot XYZ", "layout_type": "grid", "grid": {"rows": 1, "cols": 2},
@@ -64,6 +66,23 @@ class DeckLibraryDatabaseTests(unittest.TestCase):
         layout = copy.deepcopy(state["_library"]["layout"])
         layout["positions"][0]["col"], layout["positions"][1]["col"] = 1, 0
         return self.library.save_copy(1, state["_library"]["selected"]["id"], "Alternative", layout)
+
+    def test_new_protocol_reuses_chat_device_from_existing_library(self):
+        self.library.get_device_deck("Robot XYZ", 1, "test-key", identified_device={"device_id": "robot_xyz", "name": "Robot XYZ"})
+        state = self.library.get_deck("new protocol", 1, "test-key", device_name="Robot XYZ")
+        self.assertEqual(state["platform"], "Robot XYZ")
+        self.mocks["identify_device"].assert_not_called()
+        self.assertEqual(self.mocks["generate_device_layout"].call_count, 1)
+
+    def test_structured_protocol_reuses_its_named_device_from_existing_library(self):
+        self.library.get_device_deck("Robot XYZ", 1, "test-key", identified_device={"device_id": "robot_xyz", "name": "Robot XYZ"})
+        code = json.dumps({"device": "Robot XYZ", "program": [{"device_op": {"name": "documented operation"}}]})
+        state = self.library.get_deck(code, 1, "test-key")
+        self.assertEqual(state["platform"], "Robot XYZ")
+        self.assertEqual(state["steps"][0]["action"], "device_op")
+        self.mocks["identify_device"].assert_not_called()
+        self.mocks["bind_protocol"].assert_not_called()
+        self.assertEqual(self.mocks["generate_device_layout"].call_count, 1)
 
     def test_same_code_never_calls_models_again(self):
         first, second = self.get(), self.get()

@@ -413,6 +413,7 @@ body.workspace-app.floating-chat-workspace:has(.sidebar.collapsed) > .container 
 #device-choice-status {margin-top:10px; font-size:12px; color:var(--chat-accent)}
 #device-choice-status.is-error {color:var(--danger)}
 #device-choice-status:empty,body:not(.landing) #device-choice-status {display:none}
+#device-catalog-status:empty,body:not(.landing) #device-catalog-status {display:none}
 
 /* Playback pipette: large enough to print the volume inside. */
 .workspace-app .anim-tip-overlay {width:72px}
@@ -526,3 +527,48 @@ body:not(.landing) .device-bubbles {display:none}
 #stop-btn[hidden] {display:none}
 #stop-btn:not([hidden]) + #send-btn {margin-left:6px}
 #send-btn:disabled {opacity:.4; cursor:default}
+
+/* Account and discovered-device administration. */
+#admin-modal .admin-console {width:min(960px,94vw); max-width:960px; max-height:90vh; overflow:auto}
+.admin-tabs {display:flex; gap:8px; border-bottom:1px solid var(--border-color); margin:8px 0 14px}
+.admin-tabs [role=tab] {padding:10px 20px; border:0; border-bottom:3px solid transparent; background:transparent; color:var(--text-secondary); cursor:pointer; font:inherit}
+.admin-tabs [aria-selected=true] {color:var(--text-primary); border-bottom-color:var(--accent-color,#16a34a)}
+.admin-card {margin:12px 0; padding:16px; border:1px solid var(--border-color); border-radius:12px; background:var(--bg-secondary)}
+.admin-card h4 {margin:0 0 6px; font-size:15px}
+.admin-card p {margin:6px 0; overflow-wrap:anywhere}
+.admin-card > .btn {margin:8px 8px 0 0}
+.admin-card-summary,.admin-help {color:var(--text-secondary); font-size:12px}
+.admin-tags {font-size:12px; color:var(--text-secondary)}
+.admin-editor {display:grid; gap:12px; margin-top:16px; padding-top:16px; border-top:1px solid var(--border-color)}
+.admin-field,.admin-search {display:grid; gap:5px; font-size:13px; color:var(--text-primary)}
+.admin-field :is(input,textarea,select),.admin-search input {box-sizing:border-box; width:100%; padding:9px 10px; border:1px solid var(--border-color); border-radius:7px; color:var(--text-primary); background:var(--bg-primary); font:inherit}
+.admin-field textarea {min-height:75px; resize:vertical}
+.admin-field .admin-geometry {font-family:monospace; min-height:240px}
+.admin-actions {display:flex; gap:8px; flex-wrap:wrap}
+.admin-constraint {display:grid; gap:8px; padding:12px; margin:8px 0; border:1px solid var(--border-color); border-radius:8px}
+#admin-feedback {margin:8px 0; font-size:13px}
+#admin-feedback.is-error,.admin-card .is-error {color:var(--error-color,#dc2626)}
+[role=tabpanel][hidden] {display:none}
+
+.workspace-app .deck-linear.deck-linear-unloaded {display:block}
+.deck-position-caption {margin:0 0 12px; font-size:11px; color:var(--text-secondary)}
+.deck-track-map {display:grid; gap:1px; grid-auto-rows:minmax(180px,auto)}
+.workspace-app .deck-track-map .deck-slot {box-sizing:border-box; position:relative; border-radius:3px; gap:6px; justify-content:flex-start}
+.deck-track-map .slot-number {position:static; font-size:9px; padding:0; min-width:0}
+.deck-track-map .slot-empty-label {display:none}
+.deck-track-map .slot-icon {font-size:12px; margin:auto}
+.deck-track-map [data-fixed=true] .slot-icon {display:none}
+.track-fixed-label {writing-mode:vertical-rl; font-size:10px; margin:auto}
+
+.library-section {flex-shrink:0}
+.admin-workspace-link {display:flex;flex-shrink:0;gap:3px;margin-left:auto;padding:4px;border:1px solid var(--border-light);border-radius:8px;background:var(--chat-soft);font:500 12px var(--font-sans);white-space:nowrap}
+.admin-workspace-link a {width:70px;padding:6px 12px;border-radius:5px;text-align:center;text-decoration:none;color:var(--text-secondary)}
+.admin-workspace-link a:hover {color:var(--accent)}
+.admin-workspace-link [aria-current] {background:var(--bg-primary);color:var(--accent);box-shadow:0 1px 4px #19352a16;font-weight:600}
+@media(max-width:640px) {.admin-workspace-link a {width:62px}}
+.admin-workspace-link[hidden],#admin-btn[hidden],#chat-list-status[hidden] {display:none!important}
+.account-menu-content #admin-btn {text-decoration:none}
+.app-banner:has(> .admin-workspace-link:not([hidden])) .account-menu {margin-left:0}
+.recent-chat-count {font-size:11px;opacity:.7;margin-left:4px}
+.refresh-chats-btn {margin-left:auto;border:0;background:transparent;color:inherit;font:18px/1 var(--font-sans);cursor:pointer;padding:2px 6px;border-radius:5px}
+.refresh-chats-btn:hover {background:var(--chat-soft)}

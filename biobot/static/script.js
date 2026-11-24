@@ -783,15 +783,21 @@ document.querySelectorAll('.modal-backdrop').forEach(backdrop => {
 // --- Refresh chat list ---
 async function refreshChatList() {
   const trashView = showingTrash;
-  const res = await fetch(trashView ? "/chats?trashed=1" : "/chats");
-  if (!res.ok) return [];
-
-  const chatList = await res.json();
+  const status = document.getElementById("chat-list-status");
+  let chatList;
+  try {
+    const res = await fetch(trashView ? "/chats?trashed=1" : "/chats", {cache:"no-store"});
+    if (!res.ok) throw new Error("Could not load your conversations. Use Refresh recent chats to retry.");
+    chatList = await res.json();
+    if (!Array.isArray(chatList)) throw new Error("The conversation list could not be read. Please retry.");
+  } catch (error) {
+    if (status) {status.hidden=false;status.textContent=error.message;}
+    return [];
+  }
   if (trashView !== showingTrash) return [];
-  chatListElem.innerHTML = "";
+  const rows = [];
 
   for (const chat of chatList) {
-    window.workspace?.rememberChat(chat);
     if (!trashView && chat.run?.status === "running") resumeChatRun(chat);
     const li = document.createElement("li");
     li.dataset.chatId = chat.chat_id;
@@ -834,7 +840,7 @@ async function refreshChatList() {
         event.stopPropagation();
         restoreChat(chat.chat_id);
       };
-      chatListElem.appendChild(li);
+      rows.push(li);
       continue;
     }
 
@@ -892,20 +898,31 @@ async function refreshChatList() {
       });
     };
 
-    chatListElem.appendChild(li);
+    rows.push(li);
   }
 
   if (trashView && !chatList.length) {
     const empty = document.createElement("li");
     empty.className = "chat-list-empty";
     empty.textContent = "Trash is empty";
-    chatListElem.appendChild(empty);
+    rows.push(empty);
+  }
+  chatListElem.replaceChildren(...rows);
+  if (status) {status.hidden=true;status.textContent="";}
+  const count = document.getElementById("recent-chat-count");
+  if (count && !trashView) count.textContent = String(chatList.length);
+  for (const chat of chatList) {
+    try {window.workspace?.rememberChat(chat);} catch (error) {console.error("Chat metadata update failed:",error);}
   }
   syncChatActivity();
   selectChatListItem(currentChatId);
   window.workspace?.refreshTrash();
   return chatList;
 }
+
+document.getElementById("refresh-chats")?.addEventListener("click", event => {
+  event.preventDefault(); event.stopPropagation(); refreshChatList();
+});
 
 // --- Select chat in sidebar ---
 function selectChatListItem(chatId) {
@@ -1197,16 +1214,10 @@ userInputElem.addEventListener("keydown", (e) => {
 
 // New chat and the BioBot header open the landing page; the chat itself is created once a device is validated.
 newChatBtn.addEventListener("click", () => createNewChat({persist:false}));
-document.querySelector(".app-banner .brand")?.addEventListener("click", event => { event.preventDefault(); createNewChat({persist:false}); });
 document.getElementById("trash-btn")?.addEventListener("click", async () => {
   setTrashView(!showingTrash);
   await refreshChatList();
   selectChatListItem(currentChatId);
-});
-
-document.getElementById("logout-btn").addEventListener("click", () => {
-  try { sessionStorage.removeItem("biobot-questionnaire-answers"); } catch (_) {}
-  window.location.href = "/logout";
 });
 
 // --- Reject Modal ---
@@ -1278,110 +1289,18 @@ function showRejectModal(code, rejectBtn) {
 
 // --- Init ---
 (async function init() {
+  const navigation = new URLSearchParams(window.location.search);
   const chats = await refreshChatList();
+  if (navigation.get('landing') === '1') {
+    await createNewChat({persist:false});
+    window.history.replaceState(window.history.state, '', '/');
+    if (navigation.get('device')) await window.workspace?.chooseDevice(navigation.get('device'));
+    return;
+  }
   const lastChatId = localStorage.getItem("lastChatId");
   if (await window.workspace?.restoreProtocol()) { /* Reopen the fixed library snapshot. */ }
   else if (lastChatId && chats.some(chat=>chat.chat_id === lastChatId)) await loadChatHistory(lastChatId);
   else await createNewChat({persist:false});
 
-  // --- Settings Modal ---
-  const settingsBtn = document.getElementById("settings-btn");
-  const modal = document.getElementById("settings-modal");
 
-  const firstNameInput = document.getElementById("profile-first-name");
-  const lastNameInput = document.getElementById("profile-last-name");
-  const emailInput = document.getElementById("profile-email");
-  const apiKeyInput = document.getElementById("api_key");
-  const countryInput = document.getElementById("profile-country");
-  const editBtn = document.getElementById("edit-profile");
-  const saveBtn = document.getElementById("save-profile");
-  const closeBtn = document.getElementById("close-profile");
-  const notificationModal = document.getElementById("notification-modal");
-  const notificationText = document.getElementById("notification-text");
-  const notificationOkBtn = document.getElementById("notification-ok-btn");
-
-  function showNotification(message) {
-    notificationText.textContent = message;
-    notificationModal.classList.remove("hidden");
-  }
-
-  notificationOkBtn.addEventListener("click", () => {
-    notificationModal.classList.add("hidden");
-  });
-
-  settingsBtn.addEventListener("click", async () => {
-    modal.classList.remove("hidden");
-
-    try {
-      const res = await fetch("/user/profile");
-      if (!res.ok) throw new Error("Error loading profile");
-
-      const data = await res.json();
-      firstNameInput.value = data.first_name;
-      lastNameInput.value = data.last_name;
-      emailInput.value = data.email;
-      apiKeyInput.value = data.api_key || "";
-      countryInput.value = data.country;
-
-      [firstNameInput, lastNameInput, emailInput, countryInput, apiKeyInput].forEach(i => i.disabled = true);
-      saveBtn.classList.add("hidden");
-      editBtn.classList.remove("hidden");
-    } catch (err) {
-      alert(err.message);
-    }
-  });
-
-  editBtn.addEventListener("click", () => {
-    [firstNameInput, lastNameInput, emailInput, countryInput, apiKeyInput].forEach(i => i.disabled = false);
-    editBtn.classList.add("hidden");
-    saveBtn.classList.remove("hidden");
-  });
-
-  saveBtn.addEventListener("click", async () => {
-    const payload = {
-      first_name: firstNameInput.value,
-      last_name: lastNameInput.value,
-      email: emailInput.value,
-      country: countryInput.value,
-      api_key: apiKeyInput.value || ""
-    };
-    localStorage.setItem("userApiKey", payload.api_key);
-
-    try {
-      const res = await fetch("/user/profile", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Update failed");
-
-      showNotification("Your profile has been updated!");
-      modal.classList.add("hidden");
-    } catch (err) {
-      alert(err.message);
-    }
-  });
-
-  document.getElementById("change-password-btn").addEventListener("click", async () => {
-    const fields = ["current-password", "new-password", "confirm-password"].map(id => document.getElementById(id));
-    const [current, next, confirm] = fields.map(f => f.value);
-    if (next !== confirm) return alert("New passwords do not match.");
-    try {
-      const res = await fetch("/user/password", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ current_password: current, new_password: next })
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Password change failed");
-      fields.forEach(f => f.value = "");
-      showNotification("Your password has been changed.");
-    } catch (err) {
-      alert(err.message);
-    }
-  });
-
-  closeBtn.addEventListener("click", () => modal.classList.add("hidden"));
 })();

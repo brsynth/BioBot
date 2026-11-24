@@ -17,13 +17,14 @@ from config import get_api_key, light_functions_model
 # ------------------------------------------------------------------ #
 FEASIBILITY_PROMPT = """\
 You are a lab-automation feasibility reviewer.  You will receive a
-consolidated protocol request that a user wants to execute on a liquid
-handling robot.
+consolidated protocol request that a user wants to execute on a programmable biology instrument.
 
 Your job is to determine whether the described protocol is **physically
 and logically feasible** given standard lab-automation constraints.
 
-Check the following categories:
+Derive the relevant feasibility checks from the selected instrument and requested operations. Do not require liquid-handling hardware, wells, tips or volumes for operations that do not use them. Check documented operation settings, timing, capacities, targets and instrument compatibility. The categories below are examples to use when relevant, not requirements for every device.
+
+Check the following categories when applicable:
 
 ### 1. Volume feasibility
 - Are requested aspiration / dispense volumes within the specified instrument's range?
@@ -38,7 +39,7 @@ Check the following categories:
 - If a tiprack is mentioned, is its volume range correct for the pipette?
 
 ### 3. Operation feasibility
-- Are the described liquid-handling steps logically sound?
+- Are the described instrument operations logically sound?
   (e.g. you cannot aspirate from an empty well; you cannot dispense more
   than you aspirated; you cannot mix 0 µL.)
 - Is the order of operations correct?  (e.g. distribute diluent before

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>BioBot Administration</title>
+  <script src="{{ asset_url('theme.js') }}" data-default-appearance="daylight"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Quicksand:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ asset_url('style.css') }}">
+  <link rel="stylesheet" href="{{ asset_url('theme.css') }}">
+  <link rel="stylesheet" href="{{ asset_url('workspace.css') }}">
+  <link rel="stylesheet" href="{{ asset_url('admin.css') }}">
+</head>
+<body class="workspace-app admin-app" data-user-id="{{ user_id }}">
+  {% include "_app_header.html" %}
+  <div class="admin-shell" id="admin-modal">
+    <aside class="admin-sidebar">
+      <p class="admin-nav-label">Manage your installation</p>
+      <nav class="admin-nav" role="tablist" aria-label="Administration" aria-orientation="vertical">
+        <button id="admin-tab-users" role="tab" aria-selected="true" aria-controls="admin-panel-users" tabindex="0"><span>Users</span><span id="admin-count-users" class="admin-count">—</span></button>
+        <button id="admin-tab-devices" role="tab" aria-selected="false" aria-controls="admin-panel-devices" tabindex="-1"><span>Devices</span><span id="admin-count-devices" class="admin-count">—</span></button>
+      </nav>
+      <p class="admin-sidebar-note">Shared device knowledge and physical layouts.<br>BioBot {{ version }}</p>
+    </aside>
+    <main class="admin-main">
+      <input id="admin-csrf-token" type="hidden" value="{{ session.get('admin_csrf', '') }}">
+      <p id="admin-feedback" role="status" aria-live="polite"></p>
+      <p id="admin-catalog-progress" class="admin-help" role="status" aria-live="polite"></p>
+      <section id="admin-panel-users" role="tabpanel" aria-labelledby="admin-tab-users">
+        <div class="admin-page-heading"><div><p class="admin-eyebrow">Access & accounts</p><h1>Users</h1><p>Manage accounts, administrator access and password resets.</p></div><button id="admin-refresh-users" class="btn" type="button">Refresh users</button></div>
+        <div class="admin-section"><h2>Access requests</h2><div id="admin-requests"></div></div>
+        <div id="admin-users" class="admin-record-list"></div>
+        <details class="admin-section"><summary>Diagnostic settings</summary><label class="admin-toggle"><input id="debug-logs" type="checkbox"> Keep logs for successful runs</label></details>
+      </section>
+      <section id="admin-panel-devices" role="tabpanel" aria-labelledby="admin-tab-devices" hidden>
+        <div class="admin-page-heading"><div><p class="admin-eyebrow">Shared knowledge</p><h1>Devices</h1><p>Manage equipment capabilities, instruction languages and physical decks.</p></div><div class="admin-actions"><button id="admin-refresh-devices" class="btn" type="button">Refresh devices</button><button id="admin-update-db" class="btn" type="button" title="Check existing devices online and discover new programmable instruments">Update</button><button id="admin-reset-db" class="btn btn-danger" type="button">RESET DB</button></div></div>
+        <div class="admin-catalog-filters">
+          <label class="admin-search">Search the catalog<input id="admin-device-search" type="search" placeholder="Device name, category, feature or instruction format"></label>
+          <button id="admin-category-reset" class="btn" type="button">Reset view</button>
+        </div>
+        <p class="admin-help">Expand equipment families to explore their devices. Search opens matching categories automatically.</p>
+        <div id="admin-category-cloud" class="admin-category-cloud" role="group" aria-label="Equipment categories"></div>
+        <p id="admin-device-results" class="admin-help" role="status" aria-live="polite"></p>
+        <div id="admin-devices" class="admin-record-list"></div>
+        <section id="admin-device-deck" class="admin-device-deck" aria-labelledby="admin-selected-device" hidden>
+          <h2 id="admin-selected-device">Deck</h2>
+          <p id="admin-deck-status" role="status" aria-live="polite">Select a device to inspect its saved geometry.</p>
+          <div id="admin-deck-editor" hidden>
+            <div class="admin-deck-actions"><span id="admin-deck-dirty">Saved layout</span><button id="admin-deck-discard" class="btn" type="button">Discard edits</button><button id="admin-deck-save" class="btn btn-primary" type="button">Save shared deck</button></div>
+            <div class="admin-deck-workbench"><div class="admin-deck-canvas"><div class="admin-deck-canvas-bar"><span id="admin-deck-caption">Saved geometry</span><label>Zoom <input id="admin-deck-zoom" type="range" min="1" max="4" step="0.25" value="1"></label></div><div id="admin-deck-stage" class="admin-deck-stage"></div></div><aside id="admin-deck-properties" class="admin-deck-properties"></aside></div>
+            <div class="admin-deck-position-bar"><h2>Positions</h2><button id="admin-deck-add" class="btn" type="button">Add position</button><button id="admin-deck-coordinates" class="btn" type="button">Use coordinate geometry</button></div>
+            <p class="admin-help">Keep position IDs when preserving compatibility with existing protocols. Changes apply when a device workspace is reopened.</p>
+            <div id="admin-deck-positions" class="admin-position-list"></div>
+            <details class="admin-section"><summary>Layout sources</summary><div id="admin-deck-sources"></div></details>
+          </div>
+        </section>
+      </section>
+    </main>
+  </div>
+  {% include "_account_dialogs.html" %}
+  <script src="{{ asset_url('account.js') }}"></script>
+  <script src="{{ asset_url('admin_console.js') }}"></script>
+  <script src="{{ asset_url('admin_decks.js') }}"></script>
+</body>
+</html>

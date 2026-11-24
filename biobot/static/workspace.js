@@ -154,16 +154,28 @@
     }).finally(() => {if (version === pageVersion) creating = null;});
     return creating;
   }
+  async function refreshCatalogStatus() {
+    const status = document.getElementById("device-catalog-status");
+    if (!status) return;
+    try {
+      const catalog = await json("/devices/catalog");
+      const counts = catalog.counts || {}, ready = counts.ready || 0;
+      const pending = (counts.queued || 0) + (counts.building || 0);
+      status.textContent = pending || ["discovering", "building"].includes(catalog.status)
+        ? `Building local device database · ${ready} ready${pending ? ` · ${pending} being prepared` : ""}. You can request a device now.`
+        : catalog.status === "complete" ? `Local device database · ${ready} ready. Other devices are discovered on request.`
+        : catalog.status === "failed" ? `Device database build interrupted · ${ready} ready. You can still request a device.`
+        : "The local device database will start building when an API key is available.";
+      if (catalog.status !== "complete" || pending) setTimeout(refreshCatalogStatus, 3000);
+    } catch (_) { /* Catalog progress must not prevent opening a device. */ }
+  }
   async function refreshDevices() {
     const devices = await json("/devices");
-    deviceSelect.replaceChildren(new Option("Your previous devices", ""));
+    deviceSelect.replaceChildren(new Option("Selected device", ""));
     for (const device of devices) deviceSelect.appendChild(new Option(device, device));
     if (selectedDevice && !devices.includes(selectedDevice)) deviceSelect.appendChild(new Option(selectedDevice, selectedDevice));
     deviceSelect.value = selectedDevice;
-    // Previous devices as bubbles, spread above and below the text box.
-    const above = document.getElementById("device-bubbles-above"), below = document.getElementById("device-bubbles-below");
-    above?.replaceChildren(); below?.replaceChildren();
-    devices.forEach((device, i) => (i % 2 ? below : above)?.appendChild(deviceBubble(device, true)));
+
   }
   // Bubbles hold devices already known to be valid (used before, or proposed by the model search): they open at once.
   function deviceBubble(device, trusted = true) {
@@ -176,6 +188,24 @@
     const box = document.getElementById("device-model-choices");
     box?.replaceChildren(...(options || []).map(option => deviceBubble(option, true)));
   }
+  async function resolveDevice(url, options, onProgress) {
+    let result = await json(url, options);
+    if (!result.catalog_job) return result;
+    const job = result.catalog_job;
+    while (result.status !== "ready") {
+      if (result.status === "failed") throw Error(result.error || "Could not prepare this device. Please retry.");
+      onProgress(result.message || "This device is being added to the local database…");
+      await new Promise((resolve, reject) => {
+        if (options.signal.aborted) return reject(new DOMException("Aborted", "AbortError"));
+        const abort = () => {clearTimeout(timer); reject(new DOMException("Aborted", "AbortError"));};
+        const timer = setTimeout(() => {options.signal.removeEventListener("abort", abort); resolve();}, 1000);
+        options.signal.addEventListener("abort", abort, {once:true});
+      });
+      result = await json(`/devices/discovery/${encodeURIComponent(job)}`, {signal:options.signal});
+    }
+    return url.endsWith("/device") ? json(url, options) : result;
+  }
+
   async function chooseDevice(device, templateId = null, trusted = false) {
     if (isTyping && !templateId) return;
     deviceRequest?.abort();
@@ -190,7 +220,10 @@
     try {
       if (fromLanding) showModelChoices([]);
       if (fromLanding && !trusted) {
-        const validated = await json("/devices/validate", {...post({device}), signal:controller.signal});
+        const validated = await resolveDevice("/devices/validate", {...post({device}), signal:controller.signal}, message => {
+          clearTimeout(timeout);
+          if (deviceRequest === controller) status.textContent = message;
+        });
         if (deviceRequest !== controller) return;
         if (validated.incomplete) {
           status.textContent = validated.options?.length ? `${validated.message} Choose one below, or type it.` : validated.message;
@@ -210,7 +243,10 @@
       chatHistoryElem.appendChild(progress);
       const chatId = await ensureChat();
       if (deviceRequest !== controller) return;
-      const state = await json(`/chat/${chatId}/device`, {...post({device, template_id:templateId}), signal:controller.signal});
+      const state = await resolveDevice(`/chat/${chatId}/device`, {...post({device, template_id:templateId}), signal:controller.signal}, message => {
+        clearTimeout(timeout);
+        if (deviceRequest === controller) progress.replaceChildren(analyzingIcon(), document.createTextNode(message));
+      });
       if (currentChatId !== chatId || deviceRequest !== controller) return;
       selectedDevice = state.platform;
       window.showDeviceDeck(state);
@@ -520,35 +556,6 @@
     }
   }
   refreshAdminRequests();
-  const adminModal = document.getElementById("admin-modal");
-  // Device decks: regenerate a layout from the documentation (previous chats then show the new deck).
-  async function refreshAdminDevices() {
-    const box = document.getElementById("admin-devices");
-    if (!box) return;
-    let devices;
-    try { devices = await json("/admin/devices"); } catch (error) { box.textContent = error.message; return; }
-    box.replaceChildren();
-    for (const device of devices) {
-      const row = document.createElement("div"); row.className = "admin-request";
-      const name = document.createElement("span");
-      name.textContent = `${device.device_name}${device.sourced ? "" : " · no sources"}`;
-      const button = document.createElement("button"); button.type = "button"; button.className = "btn"; button.textContent = "Regenerate";
-      button.addEventListener("click", async () => {
-        button.disabled = true; button.textContent = "Regenerating…";
-        try {
-          await json(`/admin/devices/${encodeURIComponent(device.device_id)}/regenerate`, post({}));
-          showNotice(`${device.device_name}: deck regenerated. Reopen a chat to see it.`);
-          refreshAdminDevices();
-        } catch (error) { showNotice(error.message); button.disabled = false; button.textContent = "Regenerate"; }
-      });
-      row.append(name, button); box.appendChild(row);
-    }
-    if (!devices.length) box.innerHTML = '<p class="admin-status">No device decks yet.</p>';
-  }
-  document.getElementById("admin-btn")?.addEventListener("click", () => { adminModal?.classList.remove("hidden"); refreshAdminRequests(); refreshAdminDevices(); });
-  for (const close of [document.getElementById("close-admin"), adminModal?.querySelector(".modal-backdrop")]) {
-    close?.addEventListener("click", () => adminModal.classList.add("hidden"));
-  }
   if (debugLogs) {
     try { debugLogs.checked = localStorage.getItem("biobot-debug-logs") === "1"; } catch (_) {}
     debugLogs.addEventListener("change", () => {
@@ -591,7 +598,7 @@
     if (exportRevert) exportRevert.hidden = true;
     if (!protocol) return;
     let job;
-    try { job = await json("/protocol/export", post({protocol, chat_id: currentChatId, start, debug: debugLogs?.checked === true})); }
+    try { job = await json("/protocol/export", post({protocol, chat_id: currentChatId, start, debug: debugLogs?.checked === true || localStorage.getItem("biobot-debug-logs") === "1"})); }
     catch (error) { if (deliver) showNotice(`Code generation failed: ${error.message}`, true); return; }
     if (window.getWorkspaceProtocol?.()?.code !== protocol) return;  // the user moved on; checked again on return
     showExportProgress(job);
@@ -659,13 +666,6 @@
     } catch (error) {document.getElementById("protocol-save-error").textContent = error.message;}
     finally {button.disabled = false;}
   });
-  const accountMenu = document.getElementById("account-menu");
-  document.addEventListener?.("click", event => {
-    if (accountMenu && (!accountMenu.contains(event.target) || event.target.closest("#settings-btn, #logout-btn, #admin-btn"))) accountMenu.open = false;
-  });
-  document.addEventListener?.("keydown", event => {
-    if (event.key === "Escape" && accountMenu) accountMenu.open = false;
-  });
   window.workspace = { async restoreProtocol() {
       let id;
       try {id = localStorage.getItem("lastProtocolId");} catch (_) {}
@@ -689,11 +689,12 @@
     generationLayout() {
       const state = window.getWorkspaceProtocol?.().layout;
       if (!state) return undefined;
-      const {platform, layout_type, grid, positions, instruments, plates, carriers} = state;
-      return {platform, layout_type, grid, positions, instruments, plates, carriers};
+      const {platform, layout_type, workspace, grid, positions, instruments, plates, carriers} = state;
+      return {platform, layout_type, workspace, grid, positions, instruments, plates, carriers};
     },
     get readOnly() {return !!libraryProtocol;},
     get deviceContext() {return selectedDevice;},
     get busy() {const protocol = window.getWorkspaceProtocol?.(); return !!libraryProtocol || !!deviceRequest || !!(protocol?.code && protocol.pending);} };
   Promise.all([refreshDevices(), refreshProtocols()]).catch(error => {showNotice(error.message);});
+  refreshCatalogStatus();
 })();

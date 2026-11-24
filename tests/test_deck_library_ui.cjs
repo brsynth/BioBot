@@ -1021,3 +1021,46 @@ test('fullscreen shows the current protocol below the deck and restores the norm
   assert.equal(view.children[0].code, 'updated protocol');
   assert.equal(button.attributes['aria-pressed'], 'false');
 });
+
+test('discovered workspaces render physical coordinates and shapes without selecting a device context', () => {
+  const w = setup();
+  const state = { platform: 'Instrument', workspace: { width: 200, height: 100, label: 'Documented context', shape: 'ellipse' },
+    positions: [{id:'stage',x:20,y:15,width:80,height:25,shape:'ellipse'}] };
+  const deck = w.context._renderSpatial(state);
+  assert.equal(deck.style.aspectRatio, '2');
+  assert.equal(deck.style.borderRadius, '50%');
+  assert.equal(deck.attributes['aria-label'], 'Documented context');
+  const slot = deck.children[0];
+  assert.equal(slot.dataset.id, 'stage');
+  assert.equal(slot.style.left, '10%');
+  assert.equal(slot.style.top, '15%');
+  assert.equal(slot.style.width, '40%');
+  assert.equal(slot.style.height, '25%');
+  assert.equal(slot.style.borderRadius, '50%');
+});
+
+test('unknown physical geometry is explicit and does not invent positions', () => {
+  const w = setup();
+  const deck = w.context._renderSpatial({workspace:{width:100,height:100},positions:[]});
+  assert.match(deck.children[0].textContent, /Physical layout unavailable/);
+  assert.equal(deck.children.length, 1);
+});
+
+
+test('saved linear positions render even before any carriers are loaded', () => {
+  const w=setup();
+  const state={carriers:{items:[]},positions:[
+    {id:'track-a',row:0,col:0,type:'carrier_track'},
+    {id:'track-b',row:0,col:1,type:'carrier_track'},
+    {id:'fixed-station',row:0,col:2,fixed:true,module:'Fixed station'},
+  ]};
+  const before=JSON.stringify(state);
+  const deck=w.context._renderLinear(state);
+  const map=deck.children[1];
+  assert.equal(map.children.length,3);
+  assert.deepEqual(Array.from(map.children,slot=>slot.dataset.id),['track-a','track-b','fixed-station']);
+  assert.equal(map.children[2].dataset.fixed,'true');
+  assert.equal(map.children[2].children.at(-1).textContent,'Fixed station');
+  assert.match(deck.children[0].textContent,/schematic/);
+  assert.equal(JSON.stringify(state),before);
+});

@@ -47,7 +47,7 @@ class DocumentationIndexTests(unittest.TestCase):
         self.assertEqual(second[2].ntotal, 2)
         self.assertEqual(self.patches["get_text_embedding_with_retry"].call_count, 2)
         self.patches["fetch_documentation"].assert_not_called()
-        self.assertIn("Loading Robot XYZ", output.getvalue())
+        self.assertIn("Checking available resources", output.getvalue())
         self.assertNotIn("Building", output.getvalue())
 
     def test_existing_legacy_pickle_stores_are_reused(self):

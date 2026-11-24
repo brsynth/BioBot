@@ -298,12 +298,12 @@ function _renderLayoutEditor(parent, state) {
     const input = document.createElement("input");
     input.type = "number";
     input.min = min;
-    input.step = 1;
+    input.step = state.layout_type === "spatial" ? "any" : 1;
     input.value = value ?? "";
     input.addEventListener("change", () => {
       const next = Number(input.value);
-      if (!Number.isInteger(next) || next < min || next > (state.layout_type === "grid" ? 128 : 4096)) {
-        _libraryNotice("Enter a valid positive whole number within the layout's size limits.");
+      if (!(state.layout_type === "spatial" ? Number.isFinite(next) : Number.isInteger(next)) || next < min || next > (state.layout_type === "grid" ? 128 : state.layout_type === "spatial" ? 1000000 : 4096)) {
+        _libraryNotice("Enter a valid number within the layout's size limits.");
         input.value = value ?? "";
         return;
       }
@@ -323,6 +323,14 @@ function _renderLayoutEditor(parent, state) {
     for (const pos of state.positions || []) {
       field(`${pos.id} row`, pos.row + 1, value => pos.row = value - 1, 1);
       field(`${pos.id} column`, pos.col + 1, value => pos.col = value - 1, 1);
+    }
+  } else if (state.layout_type === "spatial") {
+    field("Workspace width", state.workspace.width, value => state.workspace.width = value, 1);
+    field("Workspace height", state.workspace.height, value => state.workspace.height = value, 1);
+    for (const pos of state.positions || []) {
+      for (const key of ["x", "y", "width", "height"]) {
+        field(`${pos.id} ${key}`, pos[key], value => pos[key] = value, key === "x" || key === "y" ? 0 : 0.000001);
+      }
     }
   } else if (state.layout_type === "linear") {
     for (const carrier of state.carriers?.items || []) {
@@ -410,7 +418,9 @@ function _renderDeck(state) {
   frame.dataset.layout = layoutType;
   wrapper.appendChild(frame);
 
-  if (layoutType === "grid") {
+  if (layoutType === "spatial") {
+    frame.appendChild(_renderSpatial(state));
+  } else if (layoutType === "grid") {
     frame.appendChild(_renderGrid(state));
   } else if (layoutType === "linear") {
     frame.appendChild(_renderLinear(state));
@@ -427,6 +437,27 @@ function _renderDeck(state) {
   info.innerHTML = '<span class="deck-info-hint">Drag hardware to rearrange · Select an empty position to add</span>';
   frame.appendChild(info);
 
+  if (state.sources?.length) {
+    const details = document.createElement("details");
+    details.className = "deck-layout-sources";
+    const summary = document.createElement("summary");
+    summary.textContent = "Layout sources and uncertainties";
+    details.appendChild(summary);
+    for (const source of state.sources) {
+      const line = document.createElement("p");
+      line.textContent = `${source.claim}: `;
+      const reference = document.createElement(/^https?:\/\//i.test(source.source) ? "a" : "span");
+      reference.textContent = source.source;
+      if (reference.tagName === "A") {
+        reference.href = source.source;
+        reference.target = "_blank";
+        reference.rel = "noopener noreferrer";
+      }
+      line.appendChild(reference);
+      details.appendChild(line);
+    }
+    wrapper.appendChild(details);
+  }
   container.appendChild(wrapper);
 
   // Animation system — init when steps exist
@@ -441,6 +472,34 @@ function _renderDeck(state) {
 // ============================================================
 // Grid Layout
 // ============================================================
+
+function _renderSpatial(state) {
+  const workspace = state.workspace;
+  const deck = document.createElement("div");
+  deck.className = "deck-spatial";
+  deck.dataset.view = workspace.view || "top";
+  deck.setAttribute("aria-label", workspace.label || state.platform || "Device workspace");
+  deck.style.aspectRatio = String(workspace.width / workspace.height);
+  deck.style.borderRadius = workspace.shape === "ellipse" ? "50%" : "12px";
+  for (const pos of state.positions || []) {
+    const slot = _createSlot(pos);
+    Object.assign(slot.style, {
+      position: "absolute", left: `${100 * pos.x / workspace.width}%`,
+      top: `${100 * pos.y / workspace.height}%`, width: `${100 * pos.width / workspace.width}%`,
+      height: `${100 * pos.height / workspace.height}%`, aspectRatio: "auto",
+      minWidth: "0", minHeight: "0", padding: "4px", borderRadius: pos.shape === "ellipse" ? "50%" : "6px",
+    });
+    deck.appendChild(slot);
+  }
+  if (!state.positions?.length) {
+    const empty = document.createElement("p");
+    empty.className = "deck-geometry-unavailable";
+    empty.textContent = "Physical layout unavailable in the available sources.";
+    deck.appendChild(empty);
+  }
+  return deck;
+}
+
 
 function _renderGrid(state) {
   const positions = state.positions ||= [];
@@ -534,7 +593,37 @@ function _renderLinear(state) {
   container.className = "deck-linear";
 
   if (carriers.length === 0) {
-    container.innerHTML = '<span class="deck-empty-msg">No carriers detected</span>';
+    const positions = state.positions || [];
+    if (!positions.length) {
+      container.innerHTML = '<span class="deck-empty-msg">Physical positions are not documented in this saved layout.</span>';
+      return container;
+    }
+    container.classList.add("deck-linear-unloaded");
+    const caption = document.createElement("p");
+    caption.className = "deck-position-caption";
+    caption.textContent = "Saved physical positions · no carriers loaded · schematic view";
+    container.appendChild(caption);
+    const map = document.createElement("div");
+    map.className = "deck-track-map";
+    const located = positions.every(pos => Number.isInteger(pos.row) && Number.isInteger(pos.col));
+    const columns = located ? Math.max(...positions.map(pos => pos.col)) + 1 : positions.length;
+    map.style.gridTemplateColumns = `repeat(${columns}, minmax(16px, 1fr))`;
+    map.style.minWidth = `${columns * 16}px`;
+    for (const [index, pos] of positions.entries()) {
+      const slot = _createSlot(pos);
+      Object.assign(slot.style, {width:"100%", height:"100%", minHeight:"0", aspectRatio:"auto", padding:"3px",
+        gridColumn:String((located ? pos.col : index) + 1), gridRow:String((located ? pos.row : 0) + 1)});
+      slot.title = [pos.id, pos.labware_display || pos.module || pos.labware].filter(Boolean).join(" · ");
+      if (pos.fixed || pos.module) {
+        slot.dataset.fixed = "true";
+        const label = document.createElement("span");
+        label.className = "track-fixed-label";
+        label.textContent = pos.labware_display || pos.module || pos.type || pos.id;
+        slot.appendChild(label);
+      }
+      map.appendChild(slot);
+    }
+    container.appendChild(map);
     return container;
   }
 
@@ -1827,7 +1916,7 @@ function _fitDeck() {
   wrapper.style.transform = `scale(${scale})`;
   wrapper.style.left = `${12 + (width - naturalWidth * scale) / 2}px`;
   wrapper.style.top = "0px";
-  const layout = wrapper.querySelector?.(".deck-grid, .deck-linear, .deck-plates");
+  const layout = wrapper.querySelector?.(".deck-grid, .deck-linear, .deck-plates, .deck-spatial");
   const workspace = container.parentElement;
   if (layout && workspace) {
     const box = layout.getBoundingClientRect(), bounds = workspace.getBoundingClientRect();

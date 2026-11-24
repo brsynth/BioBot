@@ -2,6 +2,7 @@
 import copy
 import hashlib
 import json
+import math
 import re
 import uuid
 
@@ -9,7 +10,7 @@ from psycopg2.extras import Json, RealDictCursor
 from config import get_db_connection
 from deck_visualizer import identify_device, generate_device_layout, bind_protocol
 
-BINDING_VERSION = 8  # BioBot-language protocols include tip moves.
+BINDING_VERSION = 9  # Generic instrument operations carry resolved settings and targets.
 CATALOG_VERSION = 4  # Broad catalogs with geometry and hardware schematics.
 
 
@@ -94,7 +95,7 @@ def merge_catalogs(previous, updated):
 # Only physical layout/default hardware is shared; protocol data never enters a template.
 FIELDS = {
     "grid": {"rows", "cols", "labels"},
-    "positions": {"fixed", "id", "labware", "labware_display", "type", "module", "row", "col", "aspect_ratio", "well_count", "well_rows", "well_columns", "visual"},
+    "positions": {"fixed", "id", "labware", "labware_display", "type", "module", "row", "col", "x", "y", "width", "height", "shape", "aspect_ratio", "well_count", "well_rows", "well_columns", "visual"},
     "instruments": {"name", "model", "mount", "tipracks"},
     "plate": {"name", "type", "format", "well_rows", "well_columns", "aspect_ratio"},
     "carrier": {"name", "type", "track", "positions"},
@@ -103,7 +104,7 @@ FIELDS = {
 
 
 def clean_layout(state):
-    if not isinstance(state, dict) or state.get("layout_type") not in {"grid", "linear", "plates"}:
+    if not isinstance(state, dict) or state.get("layout_type") not in {"grid", "linear", "plates", "spatial"}:
         raise ValueError("Choose a supported deck layout.")
 
     def take(value, fields):
@@ -176,6 +177,28 @@ def clean_layout(state):
             text_fields(pos, ("labware",))
             if type(pos.get("index")) is not int or not 0 <= pos["index"] < 4096:
                 raise ValueError("Invalid carrier position index.")
+    if layout["layout_type"] == "spatial":
+        workspace = take(state.get("workspace") or {}, {"width", "height", "shape", "view", "units", "label"})
+        def positive(value):
+            return type(value) in (int, float) and math.isfinite(value) and 0 < value <= 1000000
+        if not all(positive(workspace.get(key)) for key in ("width", "height")):
+            raise ValueError("Workspace dimensions must be finite positive numbers.")
+        if workspace.get("shape", "rectangle") not in {"rectangle", "ellipse"} or workspace.get("view", "top") not in {"top", "front"}:
+            raise ValueError("Invalid workspace shape or view.")
+        if workspace.get("units", "relative") not in {"mm", "relative"}:
+            raise ValueError("Workspace units must be mm or relative.")
+        for pos in layout["positions"]:
+            if not all(positive(pos.get(key)) for key in ("width", "height")):
+                raise ValueError("Physical positions need positive dimensions.")
+            for axis, size in (("x", "width"), ("y", "height")):
+                value = pos.get(axis)
+                if type(value) not in (int, float) or not math.isfinite(value) or value < 0 or value + pos[size] > workspace[size] + 1e-6:
+                    raise ValueError("Physical positions must fit inside the workspace.")
+            if pos.get("shape", "rectangle") not in {"rectangle", "ellipse"}:
+                raise ValueError("Invalid physical position shape.")
+        text_fields(workspace, ("label",))
+        plain_values(workspace)
+        layout["workspace"] = workspace
     positions = layout["positions"]
     ids = [pos.get("id") for pos in positions]
     if any(not isinstance(value, str) or not value for value in ids) or len(set(ids)) != len(ids):
@@ -302,6 +325,8 @@ def _default_deck(cursor, name, device_id, api_key):
                           VALUES (%s, %s, %s, %s, TRUE, %s) RETURNING *""",
                        (str(uuid.uuid4()), device_id, name, f"{name} default", Json(layout)))
         default = cursor.fetchone()
+        from device_identity import register_cached_device
+        register_cached_device(cursor,device_id,name)
     return default
 
 
@@ -323,12 +348,12 @@ def regenerate_default_deck(device_id, api_key=None):
 
 
 def known_device(known, name):
-    """The known device with this name, or the only one whose name contains it or is contained in it."""
+    """Match exact physical-model names; documented aliases are resolved through the catalog."""
     norm = lambda value: re.sub(r"[^a-z0-9]", "", str(value or "").lower())
     key = norm(name)
     exact = [item for item in known if key and norm(item["device_name"]) == key]
-    near = [item for item in known if key and norm(item["device_name"]) and (norm(item["device_name"]) in key or key in norm(item["device_name"]))]
-    return (exact or (near if len(near) == 1 else [None]))[0]
+    return exact[0] if exact else None
+
 
 
 def get_device_deck(name, user_id, api_key=None, template_id=None, identified_device=None):
@@ -338,10 +363,13 @@ def get_device_deck(name, user_id, api_key=None, template_id=None, identified_de
         with conn, conn.cursor(cursor_factory=RealDictCursor) as cursor:
             cursor.execute("SELECT DISTINCT device_id, device_name FROM deck_templates")
             known = [dict(row) for row in cursor.fetchall()]
-            # The picked device is locked: a known deck by (near) name, the validated device, or the picked name itself.
-            match = known_device(known, name)
+            # Resolve the selected model by exact name or verified alias before opening its saved deck.
+            match = (next((item for item in known if item["device_id"] == identified_device["device_id"]), None)
+                     if identified_device else known_device(known, name))
             device = ({"device_id": match["device_id"], "name": match["device_name"]} if match else identified_device
                       or {"device_id": re.sub(r"[^a-z0-9]+", "_", name.casefold()).strip("_")[:64] or "device", "name": name.strip()})
+            from device_identity import cached_device
+            device = cached_device(cursor,device)
             default = _default_deck(cursor, device["name"], device["device_id"], api_key)
             selected = _visible(cursor, user_id, template_id) if template_id else default
             if selected["device_id"] != device["device_id"]:
@@ -375,9 +403,16 @@ def get_deck(code, user_id, api_key=None, history=None, template_id=None, refres
                 import protocol_lang
                 cursor.execute("SELECT DISTINCT device_id, device_name FROM deck_templates")
                 known, structured = [dict(row) for row in cursor.fetchall()], protocol_lang.parse(code)
-                same = lambda name: known_device(known, name)
+                def same(name):
+                    if not name:
+                        return None
+                    from device_identity import lookup
+                    match = lookup(cursor,name) or known_device(known,name)
+                    return {"device_id": match["device_id"], "name": match["device_name"]} if match and match.get("device_id") else None
                 device = same(device_name) or (structured and same(structured.get("device"))) \
                     or identify_device(code, history or [], known, api_key)
+                from device_identity import cached_device
+                device = cached_device(cursor,device)
                 device_id, name = device["device_id"], device["name"]
                 if requested and requested["device_id"] != device_id:
                     raise ValueError("Choose a deck for the protocol's device.")

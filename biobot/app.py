@@ -5,6 +5,7 @@ import uuid
 import time
 import os
 import json
+import secrets
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -26,6 +27,27 @@ app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0  # browsers revalidate static files,
 app.secret_key = get_flask_secret_key()
 app.config["SESSION_PERMANENT"] = True
 app.config["PERMANENT_SESSION_LIFETIME"] = 86400  # 24 hours in seconds
+
+@app.context_processor
+def versioned_assets():
+    def asset_url(filename):
+        revision = os.stat(os.path.join(app.static_folder, filename)).st_mtime_ns
+        return url_for('static', filename=filename, v=revision)
+    return {'asset_url': asset_url}
+
+@app.before_request
+def check_session_version():
+    if not session.get("user") or request.endpoint == "static":
+        return None
+    conn = get_db_connection()
+    try:
+        user = fetchone_dict(conn, "SELECT session_version FROM users WHERE id = %s", (session["user"],))
+    finally:
+        conn.close()
+    if not user or session.get("session_version", 0) != user["session_version"]:
+        session.clear()
+        return jsonify({"error": "Your account was reset. Please sign in again."}), 401
+
 
 # ---------------------
 # Encryption helpers
@@ -152,12 +174,12 @@ def execute(conn, query, params=(), commit=False, returning=False):
 # ---------------------
 SYSTEM_PROMPT = {
     "role": "system",
-    "content": """You are BioBot 🤖, an expert assistant specialized in lab automation, particularly with liquid handling robots.
+    "content": """You are BioBot 🤖, an expert assistant specialized in lab automation, particularly with programmable biology instruments.
 Your tasks:
 - A chat history is provided to help you recall previous interactions, but **do not process the entire history as new instructions**; use it only if you need to reference something the user said before. To answer, focus primarily on the **latest user message**.
 - If the user asks for code/scripts/files for protocols, generate clean, error-free code/scripts/files for operating lab robots.
 - Ask for more informations if you assume that there are not enough informations in order to generate the code. You are specialized, you know what informations to ask.
-- Do not answer queries that have nohing to do with your specialization which is lab automation, liquid handlers and other related fields. DECLINE KINDLY NO MATTER WHAT."""
+- Do not answer queries that have nohing to do with your specialization which is biology laboratory automation and programmable instruments. DECLINE KINDLY NO MATTER WHAT."""
 }
 
 
@@ -230,6 +252,7 @@ def login():
 
         if user and check_password_hash(user["password"], password):
             session["user"] = user["id"]
+            session["session_version"] = user.get("session_version", 0)
             session["answer_session"] = uuid.uuid4().hex
 
             # Migrate legacy users who registered before encryption was added
@@ -436,16 +459,25 @@ def request_admin():
     return jsonify({"status": "requested"})
 
 
+@app.route("/admin")
+def admin_workspace():
+    if not session.get("user"):
+        return redirect("/login?next=/admin")
+    actor = _admin_or_403()
+    if not actor:
+        return "Administrator access required.", 403
+    session.setdefault("admin_csrf", secrets.token_urlsafe(32))
+    response = app.make_response(render_template("admin.html", user_id=actor, version=__version__, is_admin=True, admin_view=True))
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
 @app.route("/admin/devices", methods=["GET"])
 def admin_devices():
     if not _admin_or_403():
         return jsonify({"error": "Admins only"}), 403
-    conn = get_db_connection()
-    try:
-        rows = fetchall_dict(conn, "SELECT device_id, device_name, layout ? 'sources' AS sourced FROM deck_templates WHERE is_default ORDER BY device_name")
-    finally:
-        conn.close()
-    return jsonify([dict(row) for row in rows])
+    from admin_console import devices
+    return jsonify(devices())
 
 
 @app.route("/admin/devices/<device_id>/regenerate", methods=["POST"])
@@ -462,6 +494,144 @@ def admin_regenerate_device(device_id):
     except Exception:
         app.logger.exception("Device layout regeneration failed")
         return jsonify({"error": "Could not regenerate this device's layout. Please try again."}), 502
+
+
+def _admin_write():
+    actor = _admin_or_403()
+    if not actor:
+        return None, (jsonify({"error": "Admins only"}), 403)
+    token = session.get("admin_csrf")
+    if not token or not secrets.compare_digest(str(request.headers.get("X-CSRF-Token", "")), token):
+        return None, (jsonify({"error": "Please reload the page before saving administrator changes."}), 403)
+    if not request.is_json:
+        return None, (jsonify({"error": "Expected JSON data."}), 400)
+    return actor, None
+
+
+@app.route("/admin/users", methods=["GET"])
+def admin_users():
+    if not _admin_or_403():
+        return jsonify({"error": "Admins only"}), 403
+    from admin_console import users
+    return jsonify([{**row, "server_owner": is_owner(row["email"])} for row in users()])
+
+
+@app.route("/admin/users/<int:target>", methods=["PATCH"])
+def admin_edit_user(target):
+    actor, error = _admin_write()
+    if error:
+        return error
+    from admin_console import edit_user
+    try:
+        edit_user(target, request.get_json(silent=True), actor, is_owner)
+        return jsonify({"success": True})
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+
+
+@app.route("/admin/users/<int:target>/reset", methods=["POST"])
+def admin_reset_user(target):
+    actor, error = _admin_write()
+    if error:
+        return error
+    from admin_console import reset_user
+    try:
+        reset_user(target, (request.get_json(silent=True) or {}).get("password"), actor, is_owner)
+        return jsonify({"success": True, "sign_in_required": target == actor})
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+
+
+@app.route("/admin/devices/<key>", methods=["GET", "PATCH"])
+def admin_device_detail(key):
+    from admin_console import device_detail, save_device, Busy
+    if request.method == "GET":
+        if not _admin_or_403():
+            return jsonify({"error": "Admins only"}), 403
+        try:
+            return jsonify(device_detail(key))
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 404
+    actor, error = _admin_write()
+    if error:
+        return error
+    try:
+        save_device(key, request.get_json(silent=True), actor)
+        return jsonify({"success": True})
+    except Busy as error:
+        return jsonify({"error": str(error)}), 409
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+
+
+@app.route("/admin/devices/<key>/layout", methods=["PATCH"])
+def admin_save_device_layout(key):
+    actor, error = _admin_write()
+    if error:
+        return error
+    from admin_console import save_layout, Busy
+    try:
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict) or set(data) != {"layout"}:
+            raise ValueError("Provide the physical layout to save.")
+        save_layout(key, data["layout"], actor)
+        return jsonify({"success": True})
+    except Busy as error:
+        return jsonify({"error": str(error)}), 409
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+
+
+@app.route("/admin/devices/<key>/reset", methods=["POST"])
+def admin_reset_device(key):
+    actor, error = _admin_write()
+    if error:
+        return error
+    from admin_console import reset_device, Busy
+    try:
+        api_key, _ = _deck_request_context({}, actor)
+        reset_device(key, actor, api_key)
+        return jsonify({"success": True, "message": "Rediscovery queued. The saved entry will be replaced when ready."}), 202
+    except Busy as error:
+        return jsonify({"error": str(error)}), 409
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 400
+
+
+@app.route("/admin/devices/update", methods=["POST"])
+def admin_update_device_database():
+    actor, error = _admin_write()
+    if error:
+        return error
+    from admin_console import update_device_database, Busy
+    try:
+        api_key, _ = _deck_request_context({}, actor)
+        count = update_device_database(actor, api_key)
+        return jsonify({'success': True, 'queued': count,
+            'message': 'Checking existing equipment online and searching for new programmable instruments. Administrator corrections and saved decks are preserved.'}), 202
+    except Busy as error:
+        return jsonify({'error': str(error)}), 409
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 400
+
+
+@app.route("/admin/devices/reset", methods=["POST"])
+def admin_reset_device_database():
+    actor, error = _admin_write()
+    if error:
+        return error
+    if request.get_json(silent=True) != {'confirm': 'RESET DB'}:
+        return jsonify({'error': 'Confirm RESET DB before clearing the device catalog.'}), 400
+    from admin_console import reset_device_database, Busy
+    try:
+        api_key, _ = _deck_request_context({}, actor)
+        count = reset_device_database(actor, api_key)
+        return jsonify({'success': True, 'queued': count,
+            'message': 'Device profiles cleared. Rebuilding profiles, categories, instructions and shared decks from sources. Users, chats, saved protocols and personal decks are preserved.'}), 202
+    except Busy as error:
+        return jsonify({'error': str(error)}), 409
+    except ValueError as error:
+        return jsonify({'error': str(error)}), 400
 
 
 @app.route("/admin/requests", methods=["GET"])
@@ -514,7 +684,10 @@ def index():
         return redirect("/login")
 
     session.setdefault("answer_session", uuid.uuid4().hex)
-    return render_template("index.html", user=user, version=__version__, is_admin=is_admin(user))
+    session.setdefault("admin_csrf", secrets.token_urlsafe(32))
+    response = app.make_response(render_template("index.html", user=user, version=__version__, is_admin=is_admin(user)))
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 SURVEY_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "survey.json")
@@ -1207,7 +1380,7 @@ def get_user_profile():
     try:
         conn = get_db_connection()
         user = fetchone_dict(conn,
-            "SELECT id, first_name, last_name, email, api_key, role, country, created_at FROM users WHERE id = %s",
+            "SELECT id, first_name, last_name, email, api_key, role, country, admin_status, created_at FROM users WHERE id = %s",
             (user_id,)
         )
     finally:
@@ -1219,7 +1392,10 @@ def get_user_profile():
 
     user_dict = dict(user)
     user_dict["api_key"] = decrypt_text(user_dict.get("api_key", ""))
-    return jsonify(user_dict)
+    user_dict["is_admin"] = is_admin(user_dict)
+    response = jsonify(user_dict)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.route("/user/profile", methods=["POST"])
@@ -1376,6 +1552,9 @@ def used_devices():
     user_id = session.get("user")
     if not user_id:
         return jsonify({"error": "Not logged in"}), 403
+    from device_catalog import start_catalog
+    api_key, _ = _deck_request_context({}, user_id)
+    start_catalog(api_key)
     conn = get_db_connection()
     try:
         rows = fetchall_dict(conn, """SELECT device_name FROM chat_names WHERE user_id = %s AND device_name IS NOT NULL
@@ -1387,6 +1566,20 @@ def used_devices():
         conn.close()
 
 
+@app.route("/devices/equipment", methods=["GET"])
+def available_equipment():
+    if not session.get('user'):
+        return jsonify({'error': 'Not logged in'}), 403
+    from admin_console import devices
+    rows = [{'key': row['key'], 'name': row['device_name'],
+             'categories': row['categories'] or ['Other equipment'], 'status': row['status'],
+             'manufacturer': row['identity'].get('manufacturer', ''), 'model': row['identity'].get('model', '')}
+            for row in devices() if row['device_id'] and row['status'] == 'ready']
+    response = jsonify(rows)
+    response.headers['Cache-Control'] = 'no-store'
+    return response
+
+
 @app.route("/devices/validate", methods=["POST"])
 def validate_device():
     user_id = session.get("user")
@@ -1394,7 +1587,7 @@ def validate_device():
         return jsonify({"error": "Not logged in"}), 403
     name = (request.get_json(silent=True) or {}).get("device")
     if not isinstance(name, str) or not 1 <= len(name.strip()) <= 200:
-        return jsonify({"error": "Enter a liquid handler name and model."}), 400
+        return jsonify({"error": "Enter a biology device name and model."}), 400
     try:
         api_key, _ = _deck_request_context({}, user_id)
         conn = get_db_connection()
@@ -1402,9 +1595,17 @@ def validate_device():
             known = fetchall_dict(conn, "SELECT DISTINCT device_id, device_name AS name FROM deck_templates")
         finally:
             conn.close()
-        device = dispatch_device(name.strip(), [dict(row) for row in known], api_key)
-        session["validated_device"] = device
-        return jsonify(device)
+        from device_catalog import find_device, request_device
+        cached = find_device(name.strip())
+        if cached:
+            selected_name = cached["requested_name"]
+        else:
+            selected_name = dispatch_device(name.strip(), [dict(row) for row in known], api_key)["name"]
+        result = request_device(selected_name, api_key)
+        if result["status"] == "ready":
+            session["validated_device"] = {"name": result["name"], "device_id": result["device_id"]}
+        return jsonify(result), 200 if result["status"] == "ready" else 202
+
     except DeviceIncomplete as error:
         from engine import list_device_models
         return jsonify({"incomplete": True, "message": str(error), "options": list_device_models(error.query, api_key)})
@@ -1413,6 +1614,33 @@ def validate_device():
     except Exception:
         app.logger.exception("Device validation failed")
         return jsonify({"error": "Could not validate this device. Please try again."}), 502
+
+
+@app.route("/devices/catalog", methods=["GET"])
+def device_catalog_progress():
+    if not session.get("user"):
+        return jsonify({"error": "Not logged in"}), 403
+    from device_catalog import catalog_status
+    return jsonify(catalog_status())
+
+
+@app.route("/devices/discovery/<key>", methods=["GET"])
+def device_discovery_progress(key):
+    user_id = session.get("user")
+    if not user_id:
+        return jsonify({"error": "Not logged in"}), 403
+    from device_catalog import job_status, resume_device
+    try:
+        result = job_status(key)
+        if result["status"] == "ready":
+            session["validated_device"] = {"name": result["name"], "device_id": result["device_id"]}
+        elif result["status"] in {"queued", "building"}:
+            api_key, _ = _deck_request_context({}, user_id)
+            # Also resumes a worker interrupted by a server restart.
+            resume_device(key, api_key)
+        return jsonify(result)
+    except ValueError as error:
+        return jsonify({"error": str(error)}), 404
 
 
 @app.route("/chat/<chat_id>/device", methods=["POST"])
@@ -1427,6 +1655,12 @@ def select_device(chat_id):
     from deck_library import get_device_deck
     try:
         api_key, _ = _deck_request_context({"chat_id": chat_id}, user_id)
+        from device_catalog import request_device
+        entry = request_device(name.strip(), api_key)
+        if entry["status"] != "ready":
+            return jsonify(entry), 202
+        name = entry["name"]
+        session["validated_device"] = {"name": entry["name"], "device_id": entry["device_id"]}
         validated = session.get("validated_device")
         if not isinstance(validated, dict) or validated.get("name") != name.strip():
             validated = None
@@ -1909,6 +2143,12 @@ def _invalidate_rag_cache(platform):
         if os.path.exists(store):
             os.remove(store)
 
+
+# The schema is initialized by init_db.py before the web server starts.
+# Without a deployment key, the first authenticated device-list request starts it.
+if os.environ.get("BIOBOT_TEST_DB") != "1":
+    from device_catalog import start_catalog
+    start_catalog()
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

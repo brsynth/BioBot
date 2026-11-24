@@ -1,5 +1,7 @@
 """Discover platform settings on demand; a fresh install has no robot registry."""
 import json
+import fcntl
+import tempfile
 import os
 import re
 import shutil
@@ -36,17 +38,27 @@ def load_handlers_config():
 
 
 def _save_handlers(handlers):
-    """Persist handlers dict to handlers.json, creating data/ dir if needed."""
+    """Atomically merge profiles so parallel device discovery cannot erase entries."""
+    temporary = None
     try:
         HANDLERS_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-        with open(HANDLERS_CONFIG_PATH, "w") as f:
-            json.dump(handlers, f, indent=4)
-        _log(f"[handlers] Saved {len(handlers)} handler(s) to {HANDLERS_CONFIG_PATH}")
+        with open(str(HANDLERS_CONFIG_PATH) + ".lock", "a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            current = load_handlers_config()
+            for identifier, profile in handlers.items():
+                current[identifier] = {**current.get(identifier, {}), **profile}
+            with tempfile.NamedTemporaryFile(mode="w", dir=HANDLERS_CONFIG_PATH.parent, delete=False) as file:
+                temporary = file.name
+                json.dump(current, file, indent=4)
+            os.replace(temporary, HANDLERS_CONFIG_PATH)
         return True
     except Exception as e:
-        # Save failures are important — always show them
         print(f"STEP:WARNING — Could not save handlers.json: {e}", flush=True)
         return False
+    finally:
+        if temporary and os.path.exists(temporary):
+            os.unlink(temporary)
+
 
 
 def _find_tool(tool_name):
@@ -288,7 +300,7 @@ def _discover_simulate_tool(cfg, client):
             input=[
                 {
                     "role": "system",
-                    "content": "You are an expert in lab automation. Given a liquid handling platform name, "
+                    "content": "You are an expert in lab automation. Given a programmable biology platform name, "
                                "return ONLY the exact CLI command name (single word, no arguments) that can "
                                "simulate/validate protocols for this platform. If no well-known official simulation tool exists, "
                                "return exactly: none"
@@ -338,7 +350,7 @@ def _discover_protocol_format(cfg, client):
 
 def detect_handler(query, history, api_key):
     """
-    Detect which liquid handler the user is referring to using LLM classification.
+    Detect which programmable biology device the user is referring to using LLM classification.
     If the handler isn't in handlers.json, creates a dynamic entry via LLM discovery.
     On every call, re-checks whether the simulation tool is installed (no LLM needed).
     """
@@ -367,16 +379,16 @@ def detect_handler(query, history, api_key):
         input=[
             {
                 "role": "system",
-                "content": f"""You are an expert in lab automation and liquid handling robots.
+                "content": f"""You are an expert in lab automation and programmable biology instruments.
 
-Your task: identify which liquid handling PLATFORM (robot/instrument) the user is requesting a protocol for.
+Your task: identify which programmable biology PLATFORM (robot/instrument) the user is requesting a protocol for.
 
 Here are the platforms already configured in our system:
 {known_list}
 
 INSTRUCTIONS:
 1. Read the user's latest message AND the conversation history carefully.
-2. Identify the liquid handling platform they are referring to.
+2. Identify the programmable biology platform they are referring to.
 3. If the platform matches one already configured, return its exact ID (the text in quotes above).
 4. If the platform is NOT in the list above, return a new short lowercase ID for it. Use only lowercase letters, digits and underscores, identifying the specific instrument model when available.
 5. If the user does NOT mention or imply any specific platform anywhere in the conversation, return "unknown".
@@ -399,14 +411,16 @@ Return ONLY the platform ID. One word, lowercase, no quotes, no explanation."""
 
     # ── Known handler ──────────────────────────────────────────────
     if detected in available_ids:
+        detected = handlers[detected].get("canonical_device_id",detected)
         cfg = handlers[detected]
+        original = dict(cfg)
         _log(f"[handlers] Known handler '{detected}' — strategy={cfg.get('validation_strategy')}, "
              f"simulate_tool={cfg.get('simulate_tool')}, simulate_cmd={cfg.get('simulate_cmd')}")
 
         # One-time migration: if we have no simulate_tool info at all, ask LLM once
         needs_save = _discover_protocol_format(cfg, client)
         if not cfg.get("simulate_tool") and not cfg.get("simulate_cmd"):
-            needs_save = _discover_simulate_tool(cfg, client)
+            needs_save = _discover_simulate_tool(cfg, client) or needs_save
 
         # Quick local check: did the simulation tool get installed/removed since last run?
         needs_save = _refresh_simulation_status(cfg) or needs_save
@@ -422,7 +436,7 @@ Return ONLY the platform ID. One word, lowercase, no quotes, no explanation."""
                 needs_save = True
 
         if needs_save:
-            _save_handlers(handlers)
+            _save_handlers({detected: {key: value for key, value in cfg.items() if key not in original or original[key] != value}})
 
         # Show the user what validation setup is active
         strategy = cfg.get("validation_strategy", "llm_review")
@@ -524,7 +538,7 @@ RULES:
 
     handlers[detected] = new_cfg
 
-    _save_handlers(handlers)
+    _save_handlers({detected: new_cfg})
     print(f"STEP:Added {handler_name} to handlers config (strategy={new_cfg['validation_strategy']})", flush=True)
 
     return detected, handlers

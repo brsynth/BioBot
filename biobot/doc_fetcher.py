@@ -1,7 +1,7 @@
 """
 Autonomous documentation fetcher for BioBot RAG pipeline.
 
-When no local documentation is found for a liquid handler, this module:
+When no local documentation is found for a programmable biology instrument, this module:
 1. Asks the LLM for official documentation URLs (GitHub, ReadTheDocs, manufacturer sites)
 2. Fetches content from those URLs (HTML pages, raw text files, PDFs)
 3. Saves them permanently to data/docs/{handler}/ for future use
@@ -41,7 +41,7 @@ def _log(msg):
 def discover_doc_urls(handler_name, handler_keywords, api_key):
     """
     Use the LLM with web search to find REAL official documentation URLs
-    for a liquid handler. Strongly prefers scrapable sources.
+    for a programmable biology instrument. Strongly prefers scrapable sources.
     Returns a list of {"url": ..., "type": "page"|"repo"|"docs_site", "description": ...}
     """
     client = get_openai_client(api_key)
@@ -53,7 +53,7 @@ def discover_doc_urls(handler_name, handler_keywords, api_key):
             {
                 "role": "system",
                 "content": """You are an expert in lab automation documentation.
-You have access to web search. Use it to find REAL, VERIFIED official documentation for the given liquid handling platform.
+You have access to web search. Use it to find REAL, VERIFIED official documentation for the given programmable biology platform.
 
 PRIORITY ORDER for sources:
 1. **GitHub repositories** — Look for official SDKs, Python libraries, or API wrappers on GitHub. Link to the raw README.md, docs/ folder, or specific .py/.rst/.md files using raw.githubusercontent.com URLs when possible.
@@ -74,7 +74,7 @@ Return 3-10 sources."""
             },
             {
                 "role": "user",
-                "content": f"Search the web for documentation,references, SDKs, Python libraries, and API references for: {handler_name} (liquid handling robot). Keywords: {', '.join(handler_keywords)}. Focus on finding GitHub repos, ReadTheDocs sites, and downloadable PDF manuals."
+                "content": f"Search the web for documentation,references, SDKs, Python libraries, and API references for: {handler_name} (programmable biology instrument). Keywords: {', '.join(handler_keywords)}. Focus on finding GitHub repos, ReadTheDocs sites, and downloadable PDF manuals."
             }
         ]
     )
@@ -101,6 +101,23 @@ Return 3-10 sources."""
 MIN_CONTENT_LENGTH = 200  # Skip pages with less than this many characters of text
 
 
+def _valid_pdf(content, url):
+    """Reject error pages and broken PDFs before they enter the shared store."""
+    try:
+        if not isinstance(content, bytes) or b"%PDF-" not in content[:1024]:
+            raise ValueError("missing PDF header")
+        import fitz
+        with fitz.open(stream=content, filetype="pdf") as document:
+            if document.page_count == 0 or document.needs_pass:
+                raise ValueError("PDF has no pages or requires a password")
+            for page in document:
+                page.get_text()
+        return True
+    except Exception as error:
+        _log(f"  Skipping invalid PDF from {url}: {error}")
+        return False
+
+
 def fetch_page_content(url, timeout=REQUEST_TIMEOUT):
     """
     Fetch a URL and extract clean text content.
@@ -118,8 +135,8 @@ def fetch_page_content(url, timeout=REQUEST_TIMEOUT):
         content_type = resp.headers.get("Content-Type", "")
 
         # PDF — save as binary
-        if "pdf" in content_type.lower() or url.lower().endswith(".pdf"):
-            if len(resp.content) > 1000:  # Skip tiny/empty PDFs
+        if "pdf" in content_type.lower() or urlparse(url).path.lower().endswith(".pdf"):
+            if _valid_pdf(resp.content, url):
                 return resp.content, [], "pdf"
             return None, [], "error"
 
@@ -348,6 +365,8 @@ def save_fetched_docs(docs_path, fetched_pages):
             url, content, content_type = page["url"], page["content"], page["type"]
             if content_type not in ("pdf", "html", "text") or not content:
                 continue
+            if content_type == "pdf" and not _valid_pdf(content, url):
+                continue
             name = _device_filename(url, content_type, i)
             key = hashlib.sha256(url.encode()).hexdigest()[:20] + os.path.splitext(name)[1]
             path = os.path.join(shared, "files", key)
@@ -366,6 +385,77 @@ def save_fetched_docs(docs_path, fetched_pages):
             except OSError as error:
                 _log(f"  Could not save {name}: {error}")
     return saved
+
+
+def recover_pdf(docs_path, filepath):
+    """Retry a damaged PDF from its recorded URL, at most once per five minutes.
+
+    The per-file lock also prevents preload and generation downloading it twice.
+    Unknown or ambiguous sources are never guessed from a flattened filename.
+    """
+    filename = os.path.basename(filepath)
+    try:
+        with open(os.path.join(docs_path, "sources.json")) as file:
+            urls = list(json.load(file))
+    except (OSError, ValueError):
+        urls = []
+    if not urls:
+        index = os.path.join(os.path.dirname(os.path.abspath(docs_path)), "_shared", "index.json")
+        try:
+            with open(index) as file:
+                urls = [url for url in json.load(file) if url != "_crawled"]
+        except (OSError, ValueError):
+            urls = []
+    matches = [url for url in urls if _device_filename(url, "pdf") == filename]
+    if len(matches) != 1:
+        return False
+    url = matches[0]
+    try:
+        with open(str(filepath) + ".repair.lock", "a+") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            # Another request may have repaired the hard-linked copy meanwhile.
+            with open(filepath, "rb") as file:
+                if _valid_pdf(file.read(), url):
+                    return True
+            lock.seek(0)
+            previous = lock.read().strip()
+            if previous and time.time() - float(previous) < 300:
+                return False
+            lock.seek(0)
+            lock.truncate()
+            lock.write(str(time.time()))
+            lock.flush()
+            _log(f"  Re-downloading damaged PDF: {url}")
+            content, _, kind = fetch_page_content(url)
+            if not content or kind != "pdf":
+                return False
+            page = {"url": url, "content": content, "type": "pdf"}
+            if not save_fetched_docs(docs_path, [page]):
+                return False
+            # Record the actual bytes, even when the server's validators did not change.
+            record_sources(docs_path, [page])
+            # An existing index may have been built while this PDF was skipped.
+            with open(os.path.join(docs_path, ".pdf-recovered"), "w") as marker:
+                marker.write(str(time.time()))
+            _log(f"  Recovered PDF: {filename}")
+            return True
+    except (OSError, ValueError) as error:
+        _log(f"  Could not recover PDF {filename}: {error}")
+        return False
+
+
+def repair_cached_pdfs(docs_path):
+    """Repair local PDFs even if an existing index or unchanged ETag hides them."""
+    from pathlib import Path
+    repaired = 0
+    for path in Path(docs_path).glob("*"):
+        if path.is_file() and path.suffix.lower() == ".pdf":
+            try:
+                if not _valid_pdf(path.read_bytes(), str(path)):
+                    repaired += bool(recover_pdf(docs_path, str(path)))
+            except OSError as error:
+                _log(f"  Could not check PDF {path}: {error}")
+    return repaired
 
 
 def migrate_to_shared(docs_path):
@@ -420,7 +510,7 @@ def search_github_repos(handler_name, handler_keywords):
 
     for term in search_terms:
         try:
-            query = f"{term} liquid handler"
+            query = f"{term} programmable biology instrument"
             resp = requests.get(
                 "https://api.github.com/search/repositories",
                 params={"q": query, "sort": "stars", "per_page": 3},
@@ -569,6 +659,7 @@ def update_documentation(handler_name, handler_keywords, docs_path, api_key):
        and keep it only if its content really differs.
     2. Search online for resources the database does not have yet, and fetch only those."""
     migrate_to_shared(docs_path)
+    repaired = repair_cached_pdfs(docs_path)
     try:
         known = json.load(open(os.path.join(docs_path, "sources.json")))
     except (OSError, ValueError):
@@ -603,7 +694,7 @@ def update_documentation(handler_name, handler_keywords, docs_path, api_key):
         save_fetched_docs(docs_path, changed)
         record_sources(docs_path, changed)
     _log(f"Documentation check for {handler_name}: {len(known)} stored, {len(changed)} new or changed")
-    return len(changed)
+    return len(changed) + repaired
 
 
 def fetch_documentation(handler_name, handler_keywords, docs_path, api_key):
