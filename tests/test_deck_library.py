@@ -138,6 +138,33 @@ class DeckGeometryTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 library.clean_layout(state)
 
+    def test_unknown_empty_geometry_uses_relative_display_extents(self):
+        state={'platform':'Device','layout_type':'spatial','positions':[],
+               'workspace':{'width':None,'height':None,'units':'mm'}}
+        saved=library.clean_layout(state)
+        self.assertEqual((saved['workspace']['width'],saved['workspace']['height'],saved['workspace']['units']),(1,1,'relative'))
+        self.assertEqual(saved['positions'],[])
+        self.assertIsNone(state['workspace']['width'])
+
+    def test_invalid_generated_geometry_gets_one_model_repair(self):
+        valid={'platform':'Device','layout_type':'spatial',
+               'workspace':{'width':100,'height':80},'positions':[{'id':'stage','x':0,'y':0,'width':10,'height':10}]}
+        invalid=copy.deepcopy(valid);invalid['workspace']['width']=None
+        with patch.object(library,'generate_device_layout',side_effect=[invalid,valid]) as generate:
+            result=library._generate_layout('Device','key')
+        self.assertEqual(result['workspace']['width'],100)
+        self.assertEqual(generate.call_count,2)
+        repair=generate.call_args.kwargs['correction']
+        self.assertIn('Workspace dimensions',repair['error'])
+        self.assertEqual(repair['layout'],invalid)
+
+    def test_generated_geometry_repair_is_bounded(self):
+        invalid={'platform':'Device','layout_type':'spatial','workspace':{'width':None,'height':None},
+                 'positions':[{'id':'stage','x':0,'y':0,'width':10,'height':10}]}
+        with patch.object(library,'generate_device_layout',return_value=invalid) as generate:
+            with self.assertRaises(ValueError):library._generate_layout('Device','key')
+        self.assertEqual(generate.call_count,2)
+
     def test_mount_descriptions_normalize_to_identifiers_without_mutating_input(self):
         state=layout()
         state['mounts']=[{'id':'tool_1','description':'Documented attachment'},

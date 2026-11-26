@@ -307,7 +307,7 @@ Rules:
   attachments or item sites before using it to generate positions. Explain this distinction in workspace.label
   and sources, including any uncertainty; a count alone does not establish usable site geometry.
 """ + DECK_DISPLAY_RULES + """- If sources do not establish the physical workspace, return an empty spatial workspace with no positions and a source claim
-  explaining that physical geometry is unavailable. Do not fabricate realistic-looking hardware.
+  explaining that physical geometry is unavailable. Use width=1, height=1 and units=relative for this empty display, not null dimensions or invented physical measurements. Do not fabricate realistic-looking hardware.
 - Return ONLY JSON.
 """
 
@@ -333,12 +333,14 @@ def local_layout_documentation(device_name):
     return ""
 
 
-def generate_device_layout(device_name, api_key=None, previous=None):
+def generate_device_layout(device_name, api_key=None, previous=None, correction=None):
     """previous: an earlier layout whose position ids are kept wherever they match the real device."""
     import json
     client = OpenAI(api_key=api_key or get_api_key(), timeout=120, max_retries=2)
     request = f"Device model: {device_name}"
     local_docs = local_layout_documentation(device_name)
+    if correction:
+        request += "\nCorrect this invalid layout representation, preserving supported facts and source evidence: " + json.dumps(correction)
     if previous:
         request += ("\nAn earlier layout of this device used these position ids: "
                     + json.dumps([pos.get("id") for pos in previous.get("positions", []) if isinstance(pos, dict)])

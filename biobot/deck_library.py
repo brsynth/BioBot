@@ -201,6 +201,8 @@ def clean_layout(state):
         workspace = take(state.get("workspace") or {}, {"width", "height", "shape", "view", "units", "label"})
         def positive(value):
             return type(value) in (int, float) and math.isfinite(value) and 0 < value <= 1000000
+        if not layout["positions"] and not all(positive(workspace.get(key)) for key in ("width", "height")):
+            workspace.update(width=1, height=1, units="relative")  # empty display, not physical dimensions
         if not all(positive(workspace.get(key)) for key in ("width", "height")):
             raise ValueError("Workspace dimensions must be finite positive numbers.")
         if workspace.get("shape", "rectangle") not in {"rectangle", "ellipse"} or workspace.get("view", "top") not in {"top", "front"}:
@@ -331,6 +333,17 @@ def _choices(cursor, user_id, device_id):
     return [dict(row) for row in cursor.fetchall()]
 
 
+def _generate_layout(name, api_key, previous=None):
+    options = {'previous': previous} if previous is not None else {}
+    layout = generate_device_layout(name, api_key, **options)
+    try:
+        return clean_layout(layout)
+    except ValueError as error:
+        # One repair addresses generated schema errors; do not invent missing physical facts locally.
+        repaired = generate_device_layout(name, api_key, correction={'error':str(error),'layout':layout}, **options)
+        return clean_layout(repaired)
+
+
 def _default_deck(cursor, name, device_id, api_key):
     cursor.execute("SELECT * FROM deck_templates WHERE device_id = %s AND is_default", (device_id,))
     cached = cursor.fetchone()
@@ -349,7 +362,7 @@ def _default_deck(cursor, name, device_id, api_key):
     cursor.execute("SELECT * FROM deck_templates WHERE device_id = %s AND is_default", (device_id,))
     default = cursor.fetchone()
     if default is None:
-        layout = clean_layout(generate_device_layout(name, api_key))
+        layout = _generate_layout(name, api_key)
         layout["platform"] = name
         cursor.execute("""INSERT INTO deck_templates (id, device_id, device_name, name, is_default, layout)
                           VALUES (%s, %s, %s, %s, TRUE, %s) RETURNING *""",
@@ -369,7 +382,7 @@ def regenerate_default_deck(device_id, api_key=None):
             default = cursor.fetchone()
             if default is None:
                 raise ValueError("Unknown device.")
-            layout = clean_layout(generate_device_layout(default["device_name"], api_key, previous=default["layout"]))
+            layout = _generate_layout(default["device_name"], api_key, previous=default["layout"])
             layout["platform"] = default["device_name"]
             cursor.execute("UPDATE deck_templates SET layout = %s WHERE id = %s", (Json(layout), default["id"]))
             return default["device_name"]
