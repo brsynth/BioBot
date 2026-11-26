@@ -138,6 +138,23 @@ class DeckGeometryTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 library.clean_layout(state)
 
+    def test_workspace_description_accepts_quotes_ampersands_and_paragraph_length(self):
+        description = 'Operator’s "loading & processing" area.\n' + 'Documented loading interfaces. ' * 25
+        state = {'platform':'Device','layout_type':'spatial',
+                 'workspace':{'width':100,'height':80,'label':description},'positions':[]}
+        saved = library.clean_layout(state)
+        self.assertEqual(saved['workspace']['label'], ' '.join(description.split()))
+        self.assertGreater(len(saved['workspace']['label']),500)
+        self.assertEqual(state['workspace']['label'],description)
+
+    def test_workspace_description_rejects_markup_controls_and_excessive_length(self):
+        for description in ('<script>alert(1)</script>','Hidden\x00text','x'*2001):
+            state = {'platform':'Device','layout_type':'spatial',
+                     'workspace':{'width':100,'height':80,'label':description},'positions':[]}
+            with self.subTest(description=description[:30]):
+                with self.assertRaisesRegex(ValueError,'Workspace description'):
+                    library.clean_layout(state)
+
     def test_layout_sources_keep_urls_and_quoted_excerpts(self):
         state = {**layout(), "sources": [{"claim": 'deck has "54 tracks"\nper manual', "source": "https://x.org/a?b=1&c=<2>"}]}
         source = library.clean_layout(state)["sources"][0]

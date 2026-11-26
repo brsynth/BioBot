@@ -84,6 +84,14 @@ class CatalogAdminTests(unittest.TestCase):
         self.assertEqual(self.catalog.job_status(key)['status'], 'ready')
         return key
 
+    def test_fresh_device_accepts_a_descriptive_workspace_label(self):
+        description = 'Operator’s "loading & processing" area. ' + 'Documented loading interfaces. ' * 25
+        self.geometry.return_value['workspace']['label'] = description
+        self.ready()
+        saved = self.catalog._read('SELECT layout FROM deck_templates WHERE is_default',one=True)
+        self.assertEqual(saved['layout']['workspace']['label'],description.strip())
+        self.geometry.assert_called_once()
+
     def test_concurrent_request_reuses_in_progress_entry(self):
         key = self.queue()
         entered, finish = threading.Event(), threading.Event()

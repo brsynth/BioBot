@@ -208,7 +208,17 @@ def clean_layout(state):
             if pos.get("shape", "rectangle") not in {"rectangle", "ellipse"}:
                 raise ValueError("Invalid physical position shape.")
         text_fields(workspace, ("label",))
-        plain_values(workspace)
+        # This description is rendered with textContent/setAttribute, not interpolated HTML.
+        # Keep strict identifier validation separate from ordinary descriptive punctuation.
+        plain_values({key: value for key, value in workspace.items() if key != "label"})
+        label = workspace.get("label")
+        if label is not None:
+            if re.search(r"[<>\x00-\x08\x0b\x0c\x0e-\x1f]", label):
+                raise ValueError("Workspace description must be plain text without markup or control characters.")
+            label = " ".join(label.split())
+            if len(label) > 2000:
+                raise ValueError("Workspace description must be at most 2000 characters.")
+            workspace["label"] = label
         layout["workspace"] = workspace
     positions = layout["positions"]
     ids = [pos.get("id") for pos in positions]
