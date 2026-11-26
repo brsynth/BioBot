@@ -5,7 +5,6 @@
   const feedback = document.getElementById('admin-feedback');
   const token = document.getElementById('admin-csrf-token').value;
   let deviceRows = [];
-  const expandedCategories = new Set();
   const deviceForms = new Map(), deviceEditVisible = new Set(), deviceCards = new Map();
   const deckPanel = document.getElementById('admin-device-deck');
   function message(text, error = false) {
@@ -74,7 +73,19 @@
       button.setAttribute('aria-selected', String(active)); button.tabIndex = active ? 0 : -1;
       document.getElementById(`admin-panel-${tab}`).hidden = !active;
     }
+    scheduleDeviceRefresh();
     if (name === 'models' && !modelsLoaded) {modelsLoaded = true; loadPanel('models', refreshModels);}  // loaded on first visit
+  }
+  let deviceRefreshTimer;
+  function scheduleDeviceRefresh() {
+    clearTimeout(deviceRefreshTimer);
+    if (document.getElementById('admin-panel-devices').hidden) return;
+    deviceRefreshTimer = setTimeout(async () => {
+      try {
+        if (!document.hidden) await refreshDevices({quiet:true});
+      } catch (_) { /* Keep the current list and retry after temporary connection failures. */ }
+      finally {scheduleDeviceRefresh();}
+    }, 3000);
   }
   let modelsLoaded = false;
   for (const [index, name] of tabs.entries()) {
@@ -212,8 +223,6 @@
     const form = node('div', undefined, 'admin-editor');
     form.id = `admin-device-form-${encodeURIComponent(device.key)}`;
     const profile = detail.profile || {};
-    const categories = field(form, 'Equipment categories (one per line)', (profile.categories || []).join('\n'), 'textarea');
-    form.appendChild(node('p', 'Use an existing equipment family or add your own. Devices can belong to several categories.', 'admin-help'));
     const features = field(form, 'Features (one per line)', (profile.features || []).join('\n'), 'textarea');
     const format = field(form, 'Instruction format / language', profile.output_type);
     const identifier = field(form, 'Format identifier', profile.output_format || 'text');
@@ -224,8 +233,7 @@
     for (const source of profile.sources || profile.programming_sources || []) sources.appendChild(node('p', `${source.claim || ''} ${source.url || ''}`));
     form.appendChild(sources);
     actions(form, async () => {
-      const body = {profile: {categories:categories.value.split('\n').map(value=>value.trim()).filter(Boolean),
-        features:features.value.split('\n').map(value=>value.trim()).filter(Boolean),
+      const body = {profile: {features:features.value.split('\n').map(value=>value.trim()).filter(Boolean),
         output_type:format.value, output_format:identifier.value, file_extension:extension.value,
         programming_interface:programming.value, constraints:constraints()}};
       await api(`/admin/devices/${encodeURIComponent(device.key)}`, 'PATCH', body);
@@ -234,11 +242,10 @@
     }, () => dismissDeviceForm(device.key));
     deviceForms.set(device.key, form); deviceEditVisible.add(device.key); syncEditorToggles();
   }
-  const deviceCategories = device => device.categories?.length ? device.categories : ['Uncategorized'];
   const searchQuery = () => document.getElementById('admin-device-search').value.trim().toLowerCase();
   function matchesDevice(device, query) {
     return [device.device_name, device.status, device.output_type, device.output_format,
-      ...deviceCategories(device), ...(device.features || []),
+      ...(device.features || []),
       ...(device.constraints || []).map(rule => rule.description || rule.name || '')]
       .some(value => String(value || '').toLowerCase().includes(query));
   }
@@ -254,61 +261,10 @@
     }
     element.appendChild(node('span', text.slice(start)));
   }
-  function renderEquipmentCloud({cloud, rows, query, expandedCategories, onSelect, onToggle = () => {}}) {
-    const categories = [...new Set(rows.flatMap(deviceCategories))].sort();
-    cloud.replaceChildren();
-    for (const [index, category] of categories.entries()) {
-      const members = rows.filter(device => deviceCategories(device).includes(category));
-      const matches = members.filter(device => matchesDevice(device, query));
-      const expanded = query ? matches.length > 0 : expandedCategories.has(category);
-      const group = node('section', undefined, 'admin-category-bubble');
-      group.classList.toggle('is-muted', !!query && !matches.length);
-      const toggle = node('button', undefined, 'admin-category-toggle'); toggle.type = 'button';
-      const label = node('span'); highlight(label, category, query);
-      toggle.append(label, node('span', query ? `${matches.length} / ${members.length}` : String(members.length), 'admin-category-count'),
-        node('span', expanded ? '−' : '+', 'admin-category-chevron'));
-      toggle.setAttribute('aria-expanded', String(expanded));
-      toggle.setAttribute('aria-pressed', String(expandedCategories.has(category)));
-      const list = node('div', undefined, 'admin-category-members'); list.id = `${cloud.id}-members-${index}`;
-      list.hidden = !expanded; toggle.setAttribute('aria-controls', list.id);
-      for (const device of (query ? matches : members).slice().sort((a,b) => a.device_name.localeCompare(b.device_name))) {
-        const chip = node('button', undefined, 'admin-device-chip'); chip.type = 'button';
-        highlight(chip, device.device_name, query);
-        chip.classList.toggle('is-search-match', !!query);
-        chip.setAttribute('aria-label', `${query ? 'Search match: ' : ''}${device.device_name}`);
-        chip.addEventListener('click', () => onSelect(device));
-        list.appendChild(chip);
-      }
-      toggle.addEventListener('click', () => {
-        const selected = !expandedCategories.has(category);
-        if (selected) expandedCategories.add(category); else expandedCategories.delete(category);
-        const open = query ? matches.length > 0 : selected; list.hidden = !open;
-        toggle.setAttribute('aria-pressed', String(selected));
-        toggle.setAttribute('aria-expanded', String(open)); toggle.children[2].textContent = open ? '−' : '+';
-        onToggle();
-      });
-      group.append(toggle, list); cloud.appendChild(group);
-    }
-  }
-  async function selectDevice(device) {
-    if (device.device_id && !['queued','building'].includes(device.status)) {
-      const accepted = await window.adminDeckEditor?.open(device.key);
-      if (accepted === false) return;
-    } else if (window.adminDeckEditor?.close() === false) {
-      return;
-    }
-    syncEditorToggles();
-    deviceCards.get(device.key)?.row.scrollIntoView?.({behavior:'smooth', block:'start'});
-  }
-  function renderCategoryCloud() {
-    renderEquipmentCloud({cloud:document.getElementById('admin-category-cloud'), rows:deviceRows, query:searchQuery(), expandedCategories,
-      onSelect:selectDevice, onToggle:renderDeviceCards});
-  }
   function renderDeviceCards() {
     const box = document.getElementById('admin-devices');
     const query = searchQuery();
-    const visible = deviceRows.filter(device => matchesDevice(device, query) &&
-      (!expandedCategories.size || deviceCategories(device).some(category => expandedCategories.has(category))));
+    const visible = deviceRows.filter(device => matchesDevice(device, query));
     document.getElementById('admin-device-results').textContent = `${visible.length} of ${deviceRows.length} devices${query ? ' match your search' : ''}`;
     // Keep the live editor and its draft attached while result cards are rebuilt.
     if (deckPanel && box.contains?.(deckPanel)) box.parentElement.appendChild(deckPanel);
@@ -318,9 +274,8 @@
       row.classList.toggle('is-search-match', !!query);
       highlight(row.children[0], device.device_name, query);
       highlight(row.children[1], `${device.status} · ${device.output_type || device.output_format || 'Instruction format pending'}`, query);
-      const categories = node('p', undefined, 'admin-category-tags'); highlight(categories, deviceCategories(device).join(' · '), query);
       const features = node('p', undefined, 'admin-tags'); highlight(features, (device.features || []).join(' · ') || 'Features not yet documented', query);
-      row.append(categories, features);
+      row.appendChild(features);
       for (const constraint of device.constraints || []) {
         const description = node('p', undefined, 'admin-limit'); highlight(description, constraint.description || constraint.name || '', query); row.appendChild(description);
       }
@@ -346,19 +301,18 @@
     syncEditorToggles();
     if (!box.children.length) box.appendChild(node('p', 'No matching devices. Discovered devices will appear here.'));
   }
-  function renderDevices() {renderCategoryCloud(); renderDeviceCards();}
-  async function refreshDevices() {
-    deviceRows = await api('/admin/devices');
-    const available = new Set(deviceRows.flatMap(deviceCategories));
-    for (const category of expandedCategories) if (!available.has(category)) expandedCategories.delete(category);
+  function renderDevices() {renderDeviceCards();}
+  async function refreshDevices({quiet = false} = {}) {
+    const rows = await api('/admin/devices');
+    if (quiet && JSON.stringify(rows) === JSON.stringify(deviceRows)) return;
+    deviceRows = rows;
     const count = document.getElementById('admin-count-devices');
     if (count) count.textContent = String(deviceRows.length);
     renderDevices();
   }
   document.getElementById('admin-refresh-users')?.addEventListener('click', () => loadPanel('users', refreshUsers));
   document.getElementById('admin-device-search').addEventListener('input', renderDevices);
-  document.getElementById('admin-category-reset').addEventListener('click', () => {
-    expandedCategories.clear();
+  document.getElementById('admin-device-search-reset').addEventListener('click', () => {
     document.getElementById('admin-device-search').value = ''; renderDevices();
   });
   document.getElementById('admin-refresh-devices').addEventListener('click', () => refreshDevices().catch(error=>message(error.message,true)));
@@ -387,7 +341,7 @@
       const result = await api('/admin/devices/reset', 'POST', {confirm:'RESET DB'});
       window.adminDeckEditor?.close?.({discard:true});
       deviceForms.clear(); deviceEditVisible.clear();
-      expandedCategories.clear(); document.getElementById('admin-device-search').value = '';
+      document.getElementById('admin-device-search').value = '';
       message(result.message); await refreshCatalogViews(); await followDatabaseRebuild();
     } catch (error) {disableCatalogActions(false); message(error.message, true);}
   });
@@ -511,7 +465,7 @@
     try {debug.checked = localStorage.getItem('biobot-debug-logs') === '1';} catch (_) {}
     debug.addEventListener('change', () => {try {localStorage.setItem('biobot-debug-logs',debug.checked ? '1' : '0');} catch (_) {}});
   }
-  window.adminConsole = {api, selectTab, renderEquipmentCloud, syncEditorToggles, async open() {
+  window.adminConsole = {api, selectTab, syncEditorToggles, async open() {
     message('Loading administration…');
     const results = await Promise.all([loadPanel('users', refreshUsers), loadPanel('devices', refreshDevices)]);
     message(results.every(Boolean) ? '' : 'Some administration data could not be loaded. Retry the affected list.', !results.every(Boolean));

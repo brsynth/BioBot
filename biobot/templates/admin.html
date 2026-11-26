@@ -38,11 +38,9 @@
       <section id="admin-panel-devices" role="tabpanel" aria-labelledby="admin-tab-devices" hidden>
         <div class="admin-page-heading"><div><p class="admin-eyebrow">Shared knowledge</p><h1>Devices</h1><p>Manage equipment capabilities, instruction languages and physical decks.</p></div><div class="admin-actions"><button id="admin-refresh-devices" class="btn" type="button">Refresh devices</button><button id="admin-update-db" class="btn" type="button" title="Check existing devices online and discover new programmable instruments">Update</button><button id="admin-reset-db" class="btn btn-danger" type="button">RESET DB</button></div></div>
         <div class="admin-catalog-filters">
-          <label class="admin-search">Search the catalog<input id="admin-device-search" type="search" placeholder="Device name, category, feature or instruction format"></label>
-          <button id="admin-category-reset" class="btn" type="button">Reset view</button>
+          <label class="admin-search">Search the catalog<input id="admin-device-search" type="search" placeholder="Device name, feature or instruction format"></label>
+          <button id="admin-device-search-reset" class="btn" type="button">Reset view</button>
         </div>
-        <p class="admin-help">Expand equipment families to explore their devices. Search opens matching categories automatically.</p>
-        <div id="admin-category-cloud" class="admin-category-cloud" role="group" aria-label="Equipment categories"></div>
         <p id="admin-device-results" class="admin-help" role="status" aria-live="polite"></p>
         <div id="admin-devices" class="admin-record-list"></div>
         <section id="admin-device-deck" class="admin-device-deck" aria-labelledby="admin-selected-device" hidden>

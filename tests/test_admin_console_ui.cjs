@@ -93,29 +93,7 @@ test('successful administration clears loading and sends requests with abort sig
   }
 });
 
-test('category cloud expands devices and multi-category selections keep unique result cards',async()=>{
-  const w=setup({devices:[
-    {key:'a',device_id:'a',device_name:'Combined instrument',status:'ready',categories:['Liquid handling','Analysis & detection']},
-    {key:'b',device_id:'b',device_name:'Microscope',status:'ready',categories:['Imaging & microscopy']},
-    {key:'c',device_id:'c',device_name:'New device',status:'queued',categories:[]}
-  ]});
-  await w.context.window.adminConsole.open();
-  const cloud=w.get('admin-category-cloud');
-  assert.equal(cloud.children.length,4);
-  const group=name=>cloud.children.find(group=>group.children[0].children[0].textContent===name);
-  const analysis=group('Analysis & detection');
-  assert.equal(analysis.children[1].hidden,true);
-  analysis.children[0].events.click();
-  assert.equal(analysis.children[1].hidden,false);
-  assert.equal(analysis.children[0].attributes['aria-expanded'],'true');
-  assert.equal(w.get('admin-devices').children.length,1);
-  group('Liquid handling').children[0].events.click();
-  assert.equal(w.get('admin-devices').children.length,1);
-  w.get('admin-category-reset').events.click();
-  assert.equal(w.get('admin-devices').children.length,3);
-});
-
-test('search automatically expands matching categories and highlights literal device text',async()=>{
+test('search filters the flat device list and highlights literal device text',async()=>{
   const w=setup({devices:[
     {key:'a',device_id:'a',device_name:'Scope [X]',status:'ready',categories:['Imaging'],features:['fluorescence']},
     {key:'b',device_id:'b',device_name:'Pipette',status:'ready',categories:['Liquid handling']}
@@ -125,15 +103,12 @@ test('search automatically expands matching categories and highlights literal de
   assert.equal(w.get('admin-devices').children.length,1);
   const title=w.get('admin-devices').children[0].children[0];
   assert.equal(title.children.find(child=>child.tagName==='mark').textContent,'[X]');
-  const cloud=w.get('admin-category-cloud');
-  assert.equal(cloud.children[0].children[0].attributes['aria-expanded'],'true');
-  assert.equal(cloud.children[1].children[0].attributes['aria-expanded'],'false');
   w.get('admin-device-search').value='FLUORESCENCE';w.get('admin-device-search').events.input();
   assert.equal(w.get('admin-devices').children.length,1);
   assert.match(w.get('admin-device-results').textContent,/1 of 2/);
   w.get('admin-device-search').value='missing';w.get('admin-device-search').events.input();
   assert.match(w.text(w.get('admin-devices')),/No matching devices/);
-  w.get('admin-category-reset').events.click();
+  w.get('admin-device-search-reset').events.click();
   assert.equal(w.get('admin-devices').children.length,2);
 });
 
@@ -176,26 +151,6 @@ for (const updateId of ['admin-update-db']) test(`${updateId} checks online with
   assert.equal(w.get('admin-update-db').disabled,false);
 });
 
-test('selecting a device opens its deck without changing the category-filtered list',async()=>{
-  const w=setup({devices:[
-    {key:'a',device_id:'a',device_name:'Instrument A',status:'ready',categories:['Liquid handling']},
-    {key:'b',device_id:'b',device_name:'Instrument B',status:'ready',categories:['Liquid handling']}
-  ]});
-  await w.context.window.adminConsole.open();
-  const calls=[];let accepted=false;
-  w.context.window.adminDeckEditor={open:async key=>{calls.push(key);return accepted;}};
-  const category=w.get('admin-category-cloud').children[0];
-  category.children[0].events.click();
-  await category.children[1].children[0].events.click();
-  assert.equal(w.get('admin-devices').children.length,2);
-  accepted=true;
-  await category.children[1].children[0].events.click();
-  assert.equal(w.get('admin-devices').children.length,2);
-  assert.match(w.text(w.get('admin-devices')),/Instrument A/);
-  assert.deepEqual(calls,['a','a']);
-  assert.equal(typeof w.get('admin-tab-devices').events.click,'function');
-});
-
 test('editor buttons expose pressed states and preserve device drafts when hidden and shown',async()=>{
   const w=setup({devices:[{key:'a',device_id:'a',device_name:'Instrument A',status:'ready',categories:['Liquid handling']}]});
   await w.context.window.adminConsole.open();
@@ -210,17 +165,17 @@ test('editor buttons expose pressed states and preserve device drafts when hidde
   await edit.events.click();
   const form=row.children.find(child=>child.className==='admin-editor');
   assert.equal(edit.attributes['aria-pressed'],'true');assert.equal(form.hidden,false);
-  const input=form.children[0].children[0];input.value='Draft custom category';
+  const input=form.children[0].children[0];input.value='Draft feature';
   await edit.events.click();
   assert.equal(edit.attributes['aria-pressed'],'false');assert.equal(form.hidden,true);
   await edit.events.click();
-  assert.equal(edit.attributes['aria-pressed'],'true');assert.equal(input.value,'Draft custom category');assert.equal(detailReads,1);
+  assert.equal(edit.attributes['aria-pressed'],'true');assert.equal(input.value,'Draft feature');assert.equal(detailReads,1);
   const currentButton=name=>w.get('admin-devices').children[0].children.find(child=>child.textContent===name);
   await deck.events.click();assert.equal(currentButton('Edit deck').attributes['aria-pressed'],'true');
   assert.equal(w.get('admin-device-deck').parentElement,w.get('admin-devices').children[0]);
   await currentButton('Edit deck').events.click();assert.equal(currentButton('Edit deck').attributes['aria-pressed'],'false');
   assert.equal(currentButton('Edit device').attributes['aria-pressed'],'true');
-  assert.equal(input.value,'Draft custom category');
+  assert.equal(input.value,'Draft feature');
 });
 
 test('opening a deck from the full list mounts it inside the selected card and survives refresh',async()=>{
@@ -246,32 +201,21 @@ test('opening a deck from the full list mounts it inside the selected card and s
   assert.equal(panel.hidden,false);
 });
 
-test('only search and category choices filter the list while deck toggles leave both filters intact',async()=>{
+test('deck toggles preserve the search on the flat device list',async()=>{
   const w=setup({devices:[
     {key:'a',device_id:'a',device_name:'Instrument A',status:'ready',categories:['Liquid handling']},
-    {key:'b',device_id:'b',device_name:'Instrument B',status:'ready',categories:['Imaging']},
-    {key:'c',device_id:'c',device_name:'Instrument C',status:'ready',categories:['Liquid handling']}
+    {key:'b',device_id:'b',device_name:'Instrument B',status:'ready',categories:['Imaging']}
   ]});
   await w.context.window.adminConsole.open();
-  const search=w.get('admin-device-search');
-  search.value='instrument';search.events.input();
-  const category=()=>w.get('admin-category-cloud').children.find(group=>w.text(group.children[0].children[0]).trim()==='Liquid handling');
-  category().children[0].events.click();
-  assert.equal(w.get('admin-devices').children.length,2);
-  assert.equal(category().children[0].attributes['aria-pressed'],'true');
+  const search=w.get('admin-device-search');search.value='Instrument A';search.events.input();
   let open=false;
-  w.context.window.adminDeckEditor={toggle:async()=>{open=!open;return true;},isOpen:key=>key==='a' && open};
+  w.context.window.adminDeckEditor={toggle:async()=>{open=!open;return true;},isOpen:()=>open};
   const toggle=w.get('admin-devices').children[0].children.find(child=>child.textContent==='Edit deck');
   await toggle.events.click();await toggle.events.click();
-  assert.equal(w.get('admin-devices').children.length,2);
-  assert.equal(search.value,'instrument');
-  assert.equal(category().children[0].attributes['aria-pressed'],'true');
-  search.value='Instrument B';search.events.input();
-  assert.match(w.text(w.get('admin-devices')),/No matching devices/);
+  assert.equal(w.get('admin-devices').children.length,1);
+  assert.equal(search.value,'Instrument A');
   search.value='';search.events.input();
   assert.equal(w.get('admin-devices').children.length,2);
-  category().children[0].events.click();
-  assert.equal(w.get('admin-devices').children.length,3);
 });
 
 test('model update policies show per task and persist independently of manual selection',async()=>{
@@ -340,4 +284,34 @@ test('Users tab saves separate zero and unlimited daily allowances', async () =>
   assert.equal(users[1].daily_api_limit, null);
   assert.match(w.text(w.get('admin-users')), /Unlimited/);
   assert.doesNotMatch(w.text(w.get('admin-models')), /Daily allowance/);
+});
+
+
+test('Devices tab automatically adds discoveries and preserves search and editor drafts',async()=>{
+  const first={key:'a',device_id:'a',device_name:'Instrument A',status:'ready',features:['Pipetting']};
+  const w=setup({devices:[first]});
+  await w.context.window.adminConsole.open();
+  w.context.window.adminConsole.selectTab('devices');
+  assert.equal(w.timers.size,1);
+  const poll=async()=>{
+    const [id,callback]=[...w.timers.entries()][0];w.timers.delete(id);await callback();
+  };
+  const row=w.get('admin-devices').children[0];
+  await poll();
+  assert.equal(w.get('admin-devices').children[0],row,'unchanged responses leave the live DOM in place');
+  const originalFetch=w.context.fetch;
+  w.context.fetch=async(url,options)=>url==='/admin/devices/a'
+    ? {ok:true,json:async()=>({profile:{features:['Pipetting'],constraints:[]}})} : originalFetch(url,options);
+  await row.children.find(child=>child.textContent==='Edit device').events.click();
+  const form=row.children.find(child=>child.className==='admin-editor');
+  form.children[0].children[0].value='Unsaved feature';
+  const search=w.get('admin-device-search');search.value='instrument';search.events.input();
+  w.state.devices=[first,{key:'b',device_id:'b',device_name:'Instrument B',status:'ready'}];
+  await poll();
+  assert.equal(w.get('admin-devices').children.length,2);
+  assert.equal(search.value,'instrument');
+  assert.equal(form.children[0].children[0].value,'Unsaved feature');
+  assert.equal(form.parentElement,w.get('admin-devices').children[0]);
+  w.context.window.adminConsole.selectTab('users');
+  assert.equal(w.timers.size,0);
 });
