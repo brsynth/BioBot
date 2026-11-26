@@ -8,7 +8,7 @@ import sys
 import tempfile
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 import types
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "biobot"))
@@ -81,6 +81,16 @@ class DocumentationIndexTests(unittest.TestCase):
         self.assertEqual(self.patches["load_and_chunk_docs"].call_count, 1)
         self.assertEqual(self.patches["get_text_embedding_with_retry"].call_count, 2)
 
+    def test_interrupted_embedding_build_resumes_from_successful_passages(self):
+        embed = self.patches['get_text_embedding_with_retry']
+        embed.side_effect = [[0.1,0.2], RuntimeError('temporary outage')]
+        with self.assertRaisesRegex(RuntimeError,'temporary outage'):
+            self.load()
+        self.assertFalse((self.root / self.config['docs_path'] / 'store.pkl').exists())
+        embed.reset_mock();embed.side_effect = None;embed.return_value = [0.3,0.4]
+        self.assertEqual(self.load()[2].ntotal,2)
+        embed.assert_called_once_with('second','test-key')
+
     def test_failed_save_does_not_publish_a_partial_store(self):
         with patch.object(documentation.os, "replace", side_effect=OSError("save failed")):
             with self.assertRaises(OSError):
@@ -114,3 +124,48 @@ class DocumentationPreparationTests(unittest.TestCase):
         with patch.dict(sys.modules, {"handlers":handlers}), patch.object(documentation,"load_or_build_index",return_value=([],[],None)):
             with self.assertRaisesRegex(ValueError,"No usable device documentation"):
                 documentation.preload_documentation("Missing manual robot", "test-key", check_updates=False).result(timeout=5)
+
+
+class EmbeddingRetryTests(unittest.TestCase):
+    def call(self, effects, retries=5):
+        client=Mock()
+        client.embeddings.create.side_effect=effects
+        with patch.object(documentation,'OpenAI',return_value=client),patch.object(documentation.time,'sleep') as sleep:
+            result=documentation.get_text_embedding_with_retry('passage','test-key',retries=retries)
+        return result,client,sleep
+
+    def test_server_error_respects_retry_delay(self):
+        error=RuntimeError('server unavailable');error.status_code=520;error.body={'retry_after':60}
+        result,client,sleep=self.call([error,types.SimpleNamespace(data=[types.SimpleNamespace(embedding=[1.,2.])])])
+        self.assertEqual(result,[1.,2.]);self.assertEqual(client.embeddings.create.call_count,2)
+        sleep.assert_called_once_with(60)
+
+    def test_connection_error_is_retried(self):
+        from openai import APIConnectionError
+        import httpx
+        error=APIConnectionError(request=httpx.Request('POST','https://api.example.test/embeddings'))
+        _,_,sleep=self.call([error,types.SimpleNamespace(data=[types.SimpleNamespace(embedding=[1.,2.])])])
+        sleep.assert_called_once_with(2)
+
+    def test_http_retry_header_is_respected(self):
+        error=RuntimeError('busy');error.status_code=429;error.response=types.SimpleNamespace(headers={'retry-after':'75'})
+        _,_,sleep=self.call([error,types.SimpleNamespace(data=[types.SimpleNamespace(embedding=[1.,2.])])])
+        sleep.assert_called_once_with(75)
+
+    def test_authentication_and_budget_errors_are_not_retried(self):
+        for status in (401,None):
+            error=RuntimeError('budget or credentials');error.status_code=status
+            with patch.object(documentation,'OpenAI') as client,patch.object(documentation.time,'sleep') as sleep:
+                client.return_value.embeddings.create.side_effect=error
+                with self.assertRaises(RuntimeError):
+                    documentation.get_text_embedding_with_retry('passage','test-key')
+                self.assertEqual(client.return_value.embeddings.create.call_count,1);sleep.assert_not_called()
+
+    def test_transient_retries_are_bounded(self):
+        error=RuntimeError('unavailable');error.status_code=503
+        with patch.object(documentation,'OpenAI') as client,patch.object(documentation.time,'sleep') as sleep:
+            client.return_value.embeddings.create.side_effect=error
+            with self.assertRaises(RuntimeError):
+                documentation.get_text_embedding_with_retry('passage','test-key',retries=3)
+            self.assertEqual(client.return_value.embeddings.create.call_count,3)
+            self.assertEqual([call.args[0] for call in sleep.call_args_list],[2,4])

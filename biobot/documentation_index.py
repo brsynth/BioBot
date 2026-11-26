@@ -1,6 +1,8 @@
 """One persistent documentation index shared by preloading and generation."""
 from background_jobs import BackgroundExecutor
 import fcntl
+import logging
+import math
 import os
 from pathlib import Path
 import pickle
@@ -11,7 +13,7 @@ import time
 
 import faiss
 import numpy as np
-from openai import OpenAI
+from openai import OpenAI, APIConnectionError
 from api_budget import metered_openai
 OpenAI = metered_openai(OpenAI)
 from config import get_api_key
@@ -37,10 +39,37 @@ def get_text_embedding_with_retry(text, api_key=None, retries=5, delay=2):
         try:
             return client.embeddings.create(model="text-embedding-3-small", input=text).data[0].embedding
         except Exception as error:
-            if "rate limit" not in str(error).lower() or attempt == retries - 1:
+            status = getattr(error, "status_code", None)
+            retryable = isinstance(error, APIConnectionError) or status in (408, 409, 429) or (isinstance(status, int) and 500 <= status < 600)
+            if not retryable or attempt == retries - 1:
                 raise
-            time.sleep(delay)
-            delay *= 2
+            headers = getattr(getattr(error, 'response', None), 'headers', {})
+            body = getattr(error, 'body', None)
+            waits = [delay]
+            for value in (headers.get('retry-after'), body.get('retry_after') if isinstance(body, dict) else None):
+                try:
+                    value = float(value)
+                    if math.isfinite(value) and value >= 0:
+                        waits.append(value)
+                except (TypeError, ValueError):
+                    pass
+            wait = max(waits)
+            logging.getLogger(__name__).warning("Embedding request interrupted (HTTP %s); retrying in %.1fs (%s/%s)",
+                                               status or 'connection', wait, attempt + 1, retries)
+            time.sleep(wait)
+            delay = min(delay * 2, 60)
+
+
+def _save_embedding_cache(cache, cache_path):
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=cache_path.parent, delete=False) as file:
+            temporary = file.name
+            pickle.dump(cache, file)
+        os.replace(temporary, cache_path)
+    finally:
+        if temporary and os.path.exists(temporary):
+            os.unlink(temporary)
 
 
 def embed_chunks(chunks, api_key, docs_path):
@@ -53,15 +82,23 @@ def embed_chunks(chunks, api_key, docs_path):
     with open(str(cache_path) + ".lock", "a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         try:
-            cache = pickle.load(cache_path.open("rb"))
+            with cache_path.open("rb") as file:
+                cache = pickle.load(file)
         except (OSError, EOFError, pickle.UnpicklingError):
             cache = {}
-        for chunk in dict.fromkeys(chunks):
-            if key(chunk) not in cache:
-                cache[key(chunk)] = get_text_embedding_with_retry(chunk, api_key)
-        with tempfile.NamedTemporaryFile(dir=shared, delete=False) as file:
-            pickle.dump(cache, file)
-        os.replace(file.name, cache_path)
+        dirty = 0
+        try:
+            for chunk in dict.fromkeys(chunks):
+                if key(chunk) not in cache:
+                    cache[key(chunk)] = get_text_embedding_with_retry(chunk, api_key)
+                    dirty += 1
+                    if dirty >= 20:
+                        _save_embedding_cache(cache, cache_path)
+                        dirty = 0
+        finally:
+            # Preserve successful passages even if a later request fails.
+            if dirty:
+                _save_embedding_cache(cache, cache_path)
     return np.asarray([cache[key(chunk)] for chunk in chunks], dtype="float32")
 
 
