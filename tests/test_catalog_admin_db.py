@@ -84,6 +84,19 @@ class CatalogAdminTests(unittest.TestCase):
         self.assertEqual(self.catalog.job_status(key)['status'], 'ready')
         return key
 
+    def test_cli_grants_admin_by_email_without_changing_other_account_data(self):
+        import admin
+        with patch.object(admin,'get_db_connection',side_effect=self.connection):
+            self.assertEqual(admin.grant_admin(' USER@example.test '),1)
+            self.assertEqual(admin.grant_admin('missing@example.test'),0)
+        conn=self.connection()
+        with conn,conn.cursor() as cursor:
+            cursor.execute('SELECT admin_status,session_version FROM users WHERE id=2')
+            self.assertEqual(cursor.fetchone(),('approved',0))
+            cursor.execute("SELECT actor_id,target FROM admin_audit WHERE action='grant_admin_cli'")
+            self.assertEqual(cursor.fetchall(),[(None,'2')])
+        conn.close()
+
     def test_fresh_device_accepts_a_descriptive_workspace_label(self):
         description = 'Operator’s "loading & processing" area. ' + 'Documented loading interfaces. ' * 25
         self.geometry.return_value['workspace']['label'] = description
