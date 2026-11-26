@@ -28,6 +28,7 @@ These numbers are structural examples, never physical defaults. Discover the com
 The layout_type is an internal rendering format, not a classification of the instrument or its physical context.
 Describe the context freely in workspace.label; there is no fixed list of contexts or instrument categories.
 All positions and fixed components use the same geometry vocabulary regardless of device. Do not choose a predefined deck template.
+mounts is an array of strings containing documented physical mounting identifiers, not objects or a count. Use [] when none are established.
 """
 
 STEPS_PROMPT = """You are an expert in laboratory automation. Given protocol input (program code, tabular transfers, command files, plain text instructions, or any other format) and a list of deck position IDs, extract ALL instrument operations in execution order, including measurements, imaging, thermal cycles, shaking, separation, movement and liquid handling.

@@ -646,8 +646,8 @@ def admin_reset_device_database():
     try:
         api_key, _ = _deck_request_context({}, actor)
         count = reset_device_database(actor, api_key)
-        return jsonify({'success': True, 'queued': count,
-            'message': 'Device profiles cleared. Rebuilding profiles, categories, instructions and shared decks from sources. Users, chats, saved protocols and personal decks are preserved.'}), 202
+        return jsonify({'success': True, 'removed': count, 'queued': 0,
+            'message': 'Device catalog cleared. Discovering devices again from scratch. Users, chats, saved protocols and personal decks are preserved.'}), 202
     except Busy as error:
         return jsonify({'error': str(error)}), 409
     except ValueError as error:

@@ -380,11 +380,12 @@
     } catch (error) {disableCatalogActions(false); message(error.message, true);}
   }
   for (const resetButton of resetButtons) resetButton.addEventListener('click', async () => {
-    if (!confirm('RESET DB clears all learned device profiles, categories, features, constraints and instruction formats, then rebuilds them and the shared decks from online sources. Administrator device corrections will be replaced. Users, chats, saved protocols and personal deck copies are preserved. Existing shared decks remain available until rebuilt. Start the rebuild?')) return;
+    if (!confirm('RESET DB removes every device from the shared catalog, including aliases, profiles, hardware catalogs and default decks, then starts discovery again from scratch. Users, chats, saved protocols and personal decks are preserved. Protocols retain private layout snapshots. Reset the device catalog?')) return;
     disableCatalogActions(true);
     clearTimeout(rebuildTimer);
     try {
       const result = await api('/admin/devices/reset', 'POST', {confirm:'RESET DB'});
+      window.adminDeckEditor?.close?.({discard:true});
       deviceForms.clear(); deviceEditVisible.clear();
       expandedCategories.clear(); document.getElementById('admin-device-search').value = '';
       message(result.message); await refreshCatalogViews(); await followDatabaseRebuild();

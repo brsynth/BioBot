@@ -179,8 +179,8 @@
     layout.sources=[...(layout.sources || []),{claim:'Relative geometry converted by an administrator; physical dimensions require verification.',source:'Administrator edit'}];
     selected=null;changed();render();notice('Converted to relative coordinates. Adjust the proportions before saving.');
   });
-  function close() {
-    if (dirty && !confirm('Discard unsaved deck edits before selecting another device?')) return false;
+  function close({discard = false} = {}) {
+    if (dirty && !discard && !confirm('Discard unsaved deck edits before selecting another device?')) return false;
     ++version; dirty=false; key='';layout=null;saved=null;selected=null;container.hidden=true;
     document.getElementById('admin-deck-editor').hidden=true;
     syncToggles(); return true;

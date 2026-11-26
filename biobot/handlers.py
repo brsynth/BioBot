@@ -39,14 +39,14 @@ def load_handlers_config():
         return {}
 
 
-def _save_handlers(handlers):
-    """Atomically merge profiles so parallel device discovery cannot erase entries."""
+def _save_handlers(handlers, replace=False):
+    """Atomically save profiles, merging by default; replacement is reserved for catalog reset."""
     temporary = None
     try:
         HANDLERS_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
         with open(str(HANDLERS_CONFIG_PATH) + ".lock", "a") as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
-            current = load_handlers_config()
+            current = {} if replace else load_handlers_config()
             for identifier, profile in handlers.items():
                 current[identifier] = {**current.get(identifier, {}), **profile}
             with tempfile.NamedTemporaryFile(mode="w", dir=HANDLERS_CONFIG_PATH.parent, delete=False) as file:

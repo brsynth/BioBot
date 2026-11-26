@@ -5,6 +5,9 @@ import os
 from pathlib import Path
 import sys
 import threading
+import tempfile
+import json
+import hashlib
 import unittest
 from unittest.mock import Mock, patch
 import uuid
@@ -26,6 +29,14 @@ class CatalogAdminTests(unittest.TestCase):
         import config, device_catalog, admin_console, deck_library, app
         self.config, self.catalog, self.admin, self.library, self.server = config, device_catalog, admin_console, deck_library, app
         self.connect = config.get_db_connection
+        import handlers, device_series
+        runtime = tempfile.TemporaryDirectory()
+        self.addCleanup(runtime.cleanup)
+        self.runtime = Path(runtime.name)
+        for module, field, filename in ((handlers,'HANDLERS_CONFIG_PATH','handlers.json'),
+                                         (device_series,'CACHE_PATH','device_series.json')):
+            p = patch.object(module,field,self.runtime/filename)
+            p.start();self.addCleanup(p.stop)
         # Installation credentials must never influence or appear in test failures.
         for module in (config, device_catalog, app):
             p = patch.object(module, 'get_api_key', return_value='test-only')
@@ -34,6 +45,11 @@ class CatalogAdminTests(unittest.TestCase):
         conn = self.connect()
         with conn, conn.cursor() as cursor:
             cursor.execute(f'CREATE SCHEMA "{self.schema}"')
+            # Advisory locks are database-wide, so give each test schema its own key space.
+            cursor.execute(f"""CREATE FUNCTION "{self.schema}".hashtextextended(text,bigint) RETURNS bigint
+                LANGUAGE SQL IMMUTABLE AS $$ SELECT pg_catalog.hashtextextended('{self.schema}:' || $1,$2) $$""")
+            cursor.execute(f"""CREATE FUNCTION "{self.schema}".hashtext(text) RETURNS integer
+                LANGUAGE SQL IMMUTABLE AS $$ SELECT pg_catalog.hashtext('{self.schema}:' || $1) $$""")
         conn.close()
         self.addCleanup(self.drop_schema)
         for module in (config, device_catalog, admin_console, deck_library, app):
@@ -61,7 +77,7 @@ class CatalogAdminTests(unittest.TestCase):
     def connection(self):
         conn = self.connect()
         with conn.cursor() as cursor:
-            cursor.execute(f'SET search_path TO "{self.schema}"')
+            cursor.execute(f'SET search_path TO "{self.schema}", pg_catalog')
         return conn
 
     def drop_schema(self):
@@ -96,6 +112,30 @@ class CatalogAdminTests(unittest.TestCase):
             cursor.execute("SELECT actor_id,target FROM admin_audit WHERE action='grant_admin_cli'")
             self.assertEqual(cursor.fetchall(),[(None,'2')])
         conn.close()
+
+    def test_device_discovery_logs_progress_without_credentials(self):
+        with self.assertLogs(self.catalog._log,level='INFO') as captured:
+            key=self.ready()
+        output='\n'.join(captured.output)
+        for stage in ('Device discovery queued','Device discovery started','Device profile verified',
+                      'Preparing device workspace','Device ready'):
+            self.assertIn(stage,output)
+        self.assertIn(PROFILE['name'],output)
+        self.assertIn('job='+key,output)
+        self.assertIn('elapsed=',output)
+        self.assertNotIn('test-key',output)
+
+    def test_fresh_device_accepts_explicit_mount_identifiers_in_objects(self):
+        self.geometry.return_value['mounts']=[{'id':'attachment_1','description':'Documented interface'}]
+        self.ready()
+        saved=self.catalog._read('SELECT layout FROM deck_templates WHERE is_default',one=True)
+        self.assertEqual(saved['layout']['mounts'],['attachment_1'])
+
+    def test_fresh_device_accepts_no_applicable_mounts(self):
+        self.geometry.return_value['mounts']=None
+        self.ready()
+        saved=self.catalog._read('SELECT layout FROM deck_templates WHERE is_default',one=True)
+        self.assertEqual(saved['layout']['mounts'],[])
 
     def test_fresh_device_accepts_a_descriptive_workspace_label(self):
         description = 'Operator’s "loading & processing" area. ' + 'Documented loading interfaces. ' * 25
@@ -151,6 +191,30 @@ class CatalogAdminTests(unittest.TestCase):
         self.catalog._integrate(key, 'test-key')
         self.assertEqual(self.catalog.job_status(key)['status'], 'ready')
         self.assertEqual(self.profile.call_count, 1)
+
+    def test_automatic_discovery_searches_only_liquid_handlers(self):
+        with patch.object(self.catalog,'OpenAI'),patch.object(self.catalog,'_answer',return_value={'devices':[]}) as search:
+            self.catalog._bootstrap('test-key')
+        instructions=search.call_args.args[1]
+        self.assertIn('only programmable liquid handlers',instructions)
+        self.assertIn('native function',instructions)
+        self.assertEqual(self.catalog.catalog_status()['status'],'complete')
+
+    def test_on_demand_non_liquid_device_is_verified_registered_and_documented(self):
+        with patch.object(self.server,'_deck_request_context',return_value=('test-key',None)), \
+             patch.object(self.server,'dispatch_device',return_value={'name':PROFILE['name'],'device_id':PROFILE['device_id']}), \
+             patch.object(self.catalog,'resume_device'),patch('documentation_index.preload_documentation') as docs:
+            pending=self.client.post('/devices/validate',json={'device':PROFILE['name']})
+            self.assertEqual(pending.status_code,202)
+            self.catalog._integrate(pending.json['catalog_job'],'test-key')
+            ready=self.client.post('/devices/validate',json={'device':PROFILE['name']})
+        self.assertEqual(ready.status_code,200)
+        self.assertEqual(ready.json['status'],'ready')
+        self.profile.assert_called_once()
+        saved=self.catalog.find_device(PROFILE['name'])['profile']
+        self.assertTrue(saved['programmable'])
+        self.assertNotIn('Liquid handling',saved['categories'])
+        docs.assert_called_once_with(PROFILE['name'],'test-key',check_updates=False)
 
     def test_first_build_is_persistent_and_not_repeated(self):
         answers = [{'devices':[{'name':'Maker Model7','source':'https://manufacturer.example/manual'}], 'next_query':'other manufacturers'}, {'devices':[]}]
@@ -543,34 +607,89 @@ class CatalogAdminTests(unittest.TestCase):
         self.geometry.assert_not_called()
         self.profile.assert_called_once()
 
-    def test_reset_database_clears_knowledge_and_rebuilds_without_losing_saved_work(self):
+    def test_reset_database_removes_devices_and_restarts_empty_preserving_private_work(self):
+        from psycopg2.extras import Json
+        import handlers, device_series
         key=self.ready()
-        alias=self.queue('Maker Model7 Robot');self.catalog._integrate(alias,'test-key')
+        self.queue('Maker Model7 Robot');self.catalog._integrate('makermodel7robot','test-key')
         default=self.catalog._read('SELECT * FROM deck_templates WHERE is_default',one=True)
         private=self.library.save_copy(1,str(default['id']),'Keep my deck',copy.deepcopy(LAYOUT))
+        code='saved protocol'
+        conn=self.connection()
+        with conn,conn.cursor() as cursor:
+            cursor.execute("INSERT INTO deck_protocols(user_id,code_hash,device_id,template_id,binding) VALUES(1,%s,%s,%s,%s)",
+                           (hashlib.sha256(code.encode()).hexdigest(),PROFILE['device_id'],default['id'],Json({'_version':self.library.BINDING_VERSION,'steps':[]})))
+            cursor.execute("INSERT INTO deck_protocols(user_id,code_hash,device_id,template_id,binding) VALUES(2,%s,%s,%s,%s)",
+                           (hashlib.sha256(code.encode()).hexdigest(),PROFILE['device_id'],default['id'],Json({'_version':self.library.BINDING_VERSION,'steps':[]})))
+            cursor.execute("INSERT INTO deck_catalogs(platform_key,position_type,catalog) VALUES('maker','labware','{}')")
+        conn.close()
+        handlers._save_handlers({'old-device':{'name':'Old device'}})
+        device_series.CACHE_PATH.write_text('{"old-series":{}}')
         def snapshot(table):
             return self.catalog._read(f"SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY to_jsonb(t)::text),'[]'::jsonb) AS data FROM {table} t",one=True)['data']
-        tables=('users','chat_names','saved_protocols','deck_templates','deck_protocols','device_catalog_aliases')
-        before={table:snapshot(table) for table in tables}
+        before={table:snapshot(table) for table in ('users','chat_names','saved_protocols')}
         with patch.object(self.catalog,'start_catalog') as start:
             response=self.client.post('/admin/devices/reset',json={'confirm':'RESET DB'},headers=self.headers)
         self.assertEqual(response.status_code,202,response.get_json())
-        self.assertEqual(response.get_json()['queued'],1)
+        self.assertEqual(response.json['removed'],1)
+        self.assertEqual(response.json['queued'],0)
         start.assert_called_once_with('test-only',force=True)
-        row=self.catalog.find_device(PROFILE['name'])
-        self.assertIsNone(row['profile']);self.assertTrue(row['reset_layout'])
-        self.assertEqual(row['status'],'queued')
-        self.assertEqual(self.admin.devices()[0]['categories'],[])
-        self.assertEqual(self.catalog.catalog_status()['counts'].get('ready',0),0)
-        for table in tables:self.assertEqual(snapshot(table),before[table],table)
+        for table in ('device_catalog_jobs','device_catalog_aliases','device_identity_merges','deck_catalogs'):
+            self.assertEqual(snapshot(table),[],table)
+        self.assertEqual(self.admin.devices(),[])
+        self.assertEqual(self.client.get('/devices/equipment').json,[])
+        self.assertEqual(handlers.load_handlers_config(),{})
+        self.assertFalse(device_series.CACHE_PATH.exists())
+        for table in before:self.assertEqual(snapshot(table),before[table],table)
+        templates=snapshot('deck_templates')
+        self.assertTrue(all(not row['is_default'] for row in templates))
+        self.assertTrue(any(row['id']==private['id'] and row['layout']==self.library.clean_layout(LAYOUT) for row in templates))
+        state=self.library.get_deck(code,1,'test-key')
+        self.assertEqual(state['platform'],PROFILE['name'])
+        self.assertEqual(state['workspace'],LAYOUT['workspace'])
+        other=self.library.get_deck(code,2,'test-key')
+        self.assertEqual(state['_library']['selected']['owner_id'],1)
+        self.assertEqual(other['_library']['selected']['owner_id'],2)
+        self.assertNotEqual(state['_library']['selected']['id'],other['_library']['selected']['id'])
+        conn=self.connection()
+        with conn,conn.cursor() as cursor:
+            cursor.execute("UPDATE deck_protocols SET binding=jsonb_set(binding,'{_version}','0') WHERE user_id=1")
+        conn.close()
+        with patch.object(self.library,'bind_protocol',return_value={'steps':[]}) as bind:
+            upgraded=self.library.get_deck(code,1,'test-key',refresh_parameters=True)
+        self.assertEqual(bind.call_args.args[1]['workspace'],LAYOUT['workspace'])
+        self.assertEqual(upgraded['_library']['selected']['id'],state['_library']['selected']['id'])
+        self.assertEqual(self.admin.devices(),[])
+        self.profile.reset_mock()
         with patch.object(self.catalog,'OpenAI'),patch.object(self.catalog,'_answer',return_value={'devices':[]}):
             self.catalog._bootstrap('test-key')
-        self.assertEqual(self.catalog.job_status(key)['status'],'ready')
+        self.profile.assert_not_called()
         self.assertEqual(self.catalog.catalog_status()['status'],'complete')
-        self.assertTrue(self.catalog.find_device(PROFILE['name'])['profile']['categories'])
-        self.assertEqual(self.catalog.find_device('Maker Model7 Robot')['lookup_key'],key)
-        self.assertEqual(snapshot('deck_templates'),before['deck_templates'])
-        self.assertEqual(snapshot('deck_protocols'),before['deck_protocols'])
+        self.assertEqual(self.admin.devices(),[])
+        self.config.init_db()
+        self.assertEqual(self.admin.devices(),[])
+
+    def test_reset_database_rolls_back_if_clearing_profile_registry_fails(self):
+        key=self.ready()
+        with patch('handlers._save_handlers',return_value=False),patch.object(self.catalog,'start_catalog') as start:
+            result=self.client.post('/admin/devices/reset',json={'confirm':'RESET DB'},headers=self.headers)
+        self.assertEqual(result.status_code,400)
+        self.assertEqual(self.catalog.job_status(key)['status'],'ready')
+        self.assertTrue(self.catalog._read('SELECT 1 FROM deck_templates WHERE is_default'))
+        start.assert_not_called()
+
+    def test_reset_database_cannot_clear_a_live_protocol_task(self):
+        key=self.ready(); run_id=str(uuid.uuid4())
+        owner=self.connection()
+        try:
+            with owner,owner.cursor() as cursor:
+                cursor.execute("INSERT INTO chat_names(chat_id,user_id,name) VALUES('active-reset-test',1,'active')")
+                cursor.execute("INSERT INTO chat_runs(chat_id,id,user_id) VALUES('active-reset-test',%s,1)",(run_id,))
+                cursor.execute('SELECT pg_advisory_lock(hashtextextended(%s,0))',('chat-run:'+run_id,))
+            result=self.client.post('/admin/devices/reset',json={'confirm':'RESET DB'},headers=self.headers)
+            self.assertEqual(result.status_code,409)
+            self.assertEqual(self.catalog.job_status(key)['status'],'ready')
+        finally:owner.close()
 
     def test_reset_database_requires_admin_csrf_confirmation_and_no_active_builder(self):
         key=self.ready()

@@ -127,10 +127,19 @@ def clean_layout(state):
         text = lambda value, limit: re.sub(r"[<>\x00-\x1f]+", " ", str(value))[:limit]
         layout["sources"] = [{"claim": text(s.get("claim", ""), 300), "source": text(s.get("source", ""), 500)}
                              for s in state["sources"][:40] if isinstance(s, dict)]
-    mounts = state.get("mounts", [])
-    if not isinstance(mounts, list) or any(not isinstance(mount, str) or not mount for mount in mounts):
-        raise ValueError("Instrument mounts must be a list of non-empty physical identifiers.")
-    layout["mounts"] = list(dict.fromkeys(mounts))
+    mounts = state.get("mounts")
+    if mounts is None:
+        mounts = []
+    if not isinstance(mounts, list):
+        raise ValueError("Instrument mounts must be a list of physical identifiers.")
+    identifiers = []
+    for mount in mounts:
+        if isinstance(mount, dict):
+            mount = next((mount[key] for key in ("id", "identifier", "mount", "name") if key in mount), None)
+        if not isinstance(mount, str) or not mount.strip():
+            raise ValueError("Each instrument mount must provide a non-empty physical identifier.")
+        identifiers.append(mount.strip())
+    layout["mounts"] = list(dict.fromkeys(identifiers))
     layout["grid"] = take(state.get("grid") or {}, FIELDS["grid"])
     layout["positions"] = [take(item, FIELDS["positions"]) for item in (state.get("positions") or [])]
     layout["instruments"] = [take(item, FIELDS["instruments"]) for item in (state.get("instruments") or [])]
@@ -479,7 +488,8 @@ def get_deck(code, user_id, api_key=None, history=None, template_id=None, refres
             elif refresh_parameters and protocol["binding"].get("_version") != BINDING_VERSION:
                 # Upgrade extraction artifacts without regenerating the shared device layout.
                 import protocol_lang
-                cursor.execute("SELECT layout FROM deck_templates WHERE device_id = %s AND is_default", (protocol["device_id"],))
+                cursor.execute("SELECT layout FROM deck_templates WHERE id=%s OR (device_id=%s AND is_default) ORDER BY (id=%s) DESC NULLS LAST LIMIT 1",
+                               (protocol["template_id"],protocol["device_id"],protocol["template_id"]))
                 structured = protocol_lang.parse(code)
                 layout = cursor.fetchone()["layout"]
                 binding = (protocol_lang.binding(protocol_lang.match_positions(structured, [p.get("id") for p in layout.get("positions", [])]))

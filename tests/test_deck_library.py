@@ -138,6 +138,23 @@ class DeckGeometryTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 library.clean_layout(state)
 
+    def test_mount_descriptions_normalize_to_identifiers_without_mutating_input(self):
+        state=layout()
+        state['mounts']=[{'id':'tool_1','description':'Documented attachment'},
+                         {'identifier':'tool_2'},{'mount':'tool_3'},{'name':'tool_4'},' tool_1 ']
+        original=copy.deepcopy(state)
+        self.assertEqual(library.clean_layout(state)['mounts'],['tool_1','tool_2','tool_3','tool_4'])
+        self.assertEqual(state,original)
+        state['mounts']=None
+        self.assertEqual(library.clean_layout(state)['mounts'],[])
+
+    def test_mount_normalization_does_not_invent_identifiers_or_allow_markup(self):
+        for mounts in ([{}],[{'description':'Internal mechanism'}],[{'id':2}],['   '],
+                       [{'id':'<script>'}],[{'name':'mount" onmouseover="bad'}],2):
+            with self.subTest(mounts=mounts):
+                state=layout();state['mounts']=mounts
+                with self.assertRaises(ValueError):library.clean_layout(state)
+
     def test_workspace_description_accepts_quotes_ampersands_and_paragraph_length(self):
         description = 'Operator’s "loading & processing" area.\n' + 'Documented loading interfaces. ' * 25
         state = {'platform':'Device','layout_type':'spatial',

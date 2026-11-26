@@ -253,11 +253,17 @@ def update_device_database(actor, api_key):
 
 
 def reset_device_database(actor, api_key):
-    """Clear learned catalog knowledge and rebuild, retaining stable references."""
+    """Remove the shared device inventory, retaining private work, then rediscover from scratch."""
     from device_catalog import start_catalog
     from config import get_api_key
     api_key = api_key or get_api_key()
+    from handlers import load_handlers_config, _save_handlers
+    import device_series
+    import fcntl
+    import uuid
     conn = get_db_connection()
+    previous_handlers = None
+    registry_cleared = False
     try:
         with conn, conn.cursor(cursor_factory=RealDictCursor) as cursor:
             for lock in ('catalog-reset', 'catalog-bootstrap', 'catalog-identity-registry'):
@@ -270,12 +276,42 @@ def reset_device_database(actor, api_key):
                 cursor.execute('SELECT pg_try_advisory_xact_lock(hashtextextended(%s,0)) AS locked', ('catalog-device:' + key,))
                 if not cursor.fetchone()['locked']:
                     raise Busy('A device is being edited or built. Wait for it to finish before resetting the database.')
-            cursor.execute("""UPDATE device_catalog_jobs SET profile=NULL,error=NULL,attempts=0,updated_at=NOW(),
-                status=CASE WHEN canonical_key IS NULL THEN 'queued' ELSE status END,
-                refresh_profile=FALSE,checked_at=NULL,reset_layout=CASE WHEN canonical_key IS NULL THEN TRUE ELSE FALSE END""")
+            cursor.execute("SELECT id::text FROM chat_runs WHERE status='running'")
+            for run in cursor.fetchall():
+                cursor.execute('SELECT pg_try_advisory_xact_lock(hashtextextended(%s,0)) AS locked', ('chat-run:' + run['id'],))
+                if not cursor.fetchone()['locked']:
+                    raise Busy('A protocol is being prepared. Wait for it to finish before resetting the device catalog.')
+            # Protocols keep their physical layout privately; archived layouts are not inventory entries.
+            cursor.execute("""SELECT DISTINCT p.user_id,t.id,t.device_id,t.device_name,t.name,t.layout
+                FROM deck_protocols p JOIN deck_templates t ON t.id=p.template_id WHERE t.is_default""")
+            for template in cursor.fetchall():
+                identifier = str(uuid.uuid4())
+                cursor.execute("""INSERT INTO deck_templates(id,device_id,device_name,name,owner_id,layout)
+                    VALUES(%s,%s,%s,%s,%s,%s)""", (identifier,template['device_id'],template['device_name'],
+                    template['name'] + ' (saved snapshot)',template['user_id'],Json(template['layout'])))
+                cursor.execute('UPDATE deck_protocols SET template_id=%s WHERE user_id=%s AND template_id=%s',
+                               (identifier,template['user_id'],template['id']))
+            cursor.execute('DELETE FROM deck_templates WHERE is_default')
+            cursor.execute('DELETE FROM deck_catalogs')
+            cursor.execute('DELETE FROM device_catalog_aliases')
+            cursor.execute('DELETE FROM device_identity_merges')
+            cursor.execute('DELETE FROM device_catalog_jobs')
+            cursor.execute('UPDATE chat_names SET device_job=NULL,device_job_seen=TRUE WHERE device_job IS NOT NULL')
+            previous_handlers = load_handlers_config()
+            if not _save_handlers({}, replace=True):
+                raise ValueError('Could not clear the device profiles; the reset was cancelled.')
+            registry_cleared = True
+            device_series.CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with open(str(device_series.CACHE_PATH) + '.lock', 'a') as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                device_series.CACHE_PATH.unlink(missing_ok=True)
             cursor.execute("""UPDATE device_catalog_build SET status='pending',discovery_done=FALSE,
                 next_query='',rounds=0,target_count=NULL,updated_at=NOW() WHERE id=1""")
-            audit(cursor, actor, 'reset_device_database', 'catalog', ['profiles', 'categories', 'constraints', 'instruction_formats', 'shared_decks'])
+            audit(cursor, actor, 'reset_device_database', 'catalog', ['devices', 'aliases', 'profiles', 'hardware_catalogs', 'shared_decks', 'series'])
+    except Exception:
+        if registry_cleared:
+            _save_handlers(previous_handlers, replace=True)
+        raise
     finally:
         conn.close()
     start_catalog(api_key, force=True)
