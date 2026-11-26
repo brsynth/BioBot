@@ -1,0 +1,9 @@
+.maintenance-page {text-align:center;gap:20px}
+.maintenance-page > p {color:var(--text-secondary);line-height:1.6}
+.maintenance-page h2 {font-size:24px}
+.maintenance-page a {color:var(--accent);text-underline-offset:3px}
+.maintenance-page small {color:var(--text-secondary)}
+.maintenance-page .bench-carriage {animation:maintenance-pipette 3s ease-in-out infinite}
+.maintenance-page .login-funding {margin-top:32px}
+@keyframes maintenance-pipette {0%,100% {transform:translateX(-18px)} 50% {transform:translateX(18px)}}
+@media(prefers-reduced-motion:reduce) {.maintenance-page .bench-carriage {animation:none}}

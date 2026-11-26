@@ -1,0 +1,25 @@
+{% from "_brand.html" import liquid_handler, funding_acknowledgement %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BioBot — Preparing devices</title>
+  <script src="{{ asset_url('theme.js') }}" data-default-appearance="daylight"></script>
+  <link rel="stylesheet" href="{{ asset_url('auth.css') }}">
+  <link rel="stylesheet" href="{{ asset_url('theme.css') }}">
+  <link rel="stylesheet" href="{{ asset_url('maintenance.css') }}">
+</head>
+<body class="auth-login">
+  <main class="login-page maintenance-page" id="maintenance-page">
+    <header class="login-brand">{{ liquid_handler() }}<h1>BioBot</h1><small>v{{ version }}</small></header>
+    <h2>Preparing BioBot</h2>
+    <p>Discovering programmable liquid handlers and preparing their workspaces.</p>
+    <p id="maintenance-progress" role="status" aria-live="polite">{{ catalog.counts.get('ready', 0) }} devices ready</p>
+    <p id="maintenance-detail">The page will open automatically when discovery is complete.</p>
+    {% if is_admin %}<a id="admin-workspace-link" href="/admin">Open Administration</a>{% endif %}
+    <a href="/logout">Sign out</a>
+    <footer class="login-funding">{{ funding_acknowledgement() }}</footer>
+  </main>
+  <script src="{{ asset_url('maintenance.js') }}"></script>
+</body>
+</html>

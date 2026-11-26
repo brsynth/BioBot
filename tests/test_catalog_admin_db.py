@@ -68,6 +68,7 @@ class CatalogAdminTests(unittest.TestCase):
         self.mirror = patch.object(device_catalog, '_save_profile').start()
         self.geometry = patch.object(deck_library, 'generate_device_layout', return_value=copy.deepcopy(LAYOUT)).start()
         self.addCleanup(patch.stopall)
+        self.start_catalog = device_catalog.start_catalog
         patch.object(device_catalog, 'start_catalog').start()
         patch.dict(os.environ, {'BIOBOT_ADMINS': 'owner@example.test'}).start()
         self.client = app.app.test_client()
@@ -99,6 +100,27 @@ class CatalogAdminTests(unittest.TestCase):
         self.catalog._integrate(key, 'test-key')
         self.assertEqual(self.catalog.job_status(key)['status'], 'ready')
         return key
+
+    def test_maintenance_blocks_landing_until_discovery_completes_but_admin_is_accessible(self):
+        for status, done in [('pending',False),('building',True),('failed',False)]:
+            with self.connection() as conn, conn.cursor() as cursor:
+                cursor.execute('UPDATE device_catalog_build SET status=%s,discovery_done=%s WHERE id=1',(status,done))
+            response=self.client.get('/')
+            self.assertIn(b'id="maintenance-page"',response.data)
+            self.assertIn(b'href="/admin"',response.data)
+            self.assertEqual(response.headers['Cache-Control'],'no-store')
+            self.assertFalse(self.client.get('/devices/catalog').json['available'])
+            self.assertEqual(self.client.get('/admin').status_code,200)
+        self.login(2)
+        self.assertNotIn(b'href="/admin"',self.client.get('/').data)
+        self.assertEqual(self.client.get('/admin').status_code,403)
+        with self.connection() as conn, conn.cursor() as cursor:
+            cursor.execute("UPDATE device_catalog_build SET status='complete',discovery_done=TRUE WHERE id=1")
+        self.assertNotIn(b'id="maintenance-page"',self.client.get('/').data)
+        self.assertTrue(self.client.get('/devices/catalog').json['available'])
+        with self.connection() as conn, conn.cursor() as cursor:
+            cursor.execute('UPDATE device_catalog_build SET reset_requested=TRUE WHERE id=1')
+        self.assertIn(b'id="maintenance-page"',self.client.get('/').data)
 
     def test_cli_grants_admin_by_email_without_changing_other_account_data(self):
         import admin
@@ -268,6 +290,50 @@ class CatalogAdminTests(unittest.TestCase):
         self.assertNotIn('Liquid handling',saved['categories'])
         docs.assert_called_once_with(PROFILE['name'],'test-key',check_updates=False)
 
+    def test_startup_skips_completed_discovery_but_resumes_pending_work(self):
+        with self.connection() as conn, conn.cursor() as cursor:
+            cursor.execute("UPDATE device_catalog_build SET status='complete',discovery_done=TRUE WHERE id=1")
+        with patch.object(self.catalog,'_submit') as submit, self.assertLogs(self.catalog._log,level='INFO') as logs:
+            self.start_catalog('test-key')
+        submit.assert_not_called()
+        self.assertIn('already complete',' '.join(logs.output))
+        with self.connection() as conn, conn.cursor() as cursor:
+            cursor.execute("INSERT INTO device_catalog_jobs(lookup_key,requested_name) VALUES('pendinghandler','Pending handler')")
+        with patch.object(self.catalog,'_submit') as submit:
+            self.start_catalog('test-key')
+        submit.assert_called_once_with('bootstrap',self.catalog._bootstrap,'test-key')
+        with self.connection() as conn, conn.cursor() as cursor:
+            cursor.execute("DELETE FROM device_catalog_jobs")
+            cursor.execute("UPDATE device_catalog_build SET status='pending',discovery_done=FALSE WHERE id=1")
+        with patch.object(self.catalog,'_submit') as submit:
+            self.start_catalog('test-key')
+        submit.assert_called_once_with('bootstrap',self.catalog._bootstrap,'test-key')
+
+    def test_discovery_batch_runs_three_at_a_time_and_preserves_each_billing_user(self):
+        import api_budget
+        entered,release=threading.Event(),threading.Event()
+        lock=threading.Lock();active=0;maximum=0;seen={}
+        def integrate(key,api_key,**options):
+            nonlocal active,maximum
+            with lock:
+                active+=1;maximum=max(maximum,active);seen[key]=api_budget._actor.get()
+                if len(seen)==3:entered.set()
+            try:
+                if not release.wait(5):raise RuntimeError('Test did not release builders')
+            finally:
+                with lock:active-=1
+        rows=[{'lookup_key':str(i),'billing_user':i or None} for i in range(4)]
+        with patch.object(self.catalog,'_integrate',side_effect=integrate),ThreadPoolExecutor(max_workers=1) as runner:
+            batch=runner.submit(self.catalog._integrate_batch,rows,'test-key')
+            try:
+                self.assertTrue(entered.wait(3))
+                self.assertFalse(batch.done())
+                self.assertEqual(len(seen),3)
+            finally:release.set()
+            batch.result(timeout=5)
+        self.assertEqual(maximum,3)
+        self.assertEqual(seen,{'0':None,'1':1,'2':2,'3':3})
+
     def test_first_build_is_persistent_and_not_repeated(self):
         self.profile.return_value['features']=['Liquid handling']
         answers = [{'devices':[{'name':'Maker Model7','source':'https://manufacturer.example/manual'}], 'next_query':'other manufacturers'}, {'devices':[]}]
@@ -386,6 +452,8 @@ class CatalogAdminTests(unittest.TestCase):
         self.assertNotIn(b'id="admin-tab-decks"',response.data)
         self.assertNotIn(b'id="admin-deck-cloud"',response.data)
         self.assertNotIn(b'id="admin-deck-device"',response.data)
+        with self.connection() as conn, conn.cursor() as cursor:
+            cursor.execute("UPDATE device_catalog_build SET status='complete',discovery_done=TRUE WHERE id=1")
         user_page=self.client.get('/').data
         for page in (response.data,user_page):
             for marker in (b'id="app-banner"',b'id="admin-workspace-link"',b'id="account-menu"',b'id="settings-modal"',b'/static/account.js'):

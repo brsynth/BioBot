@@ -752,7 +752,10 @@ def index():
 
     session.setdefault("answer_session", uuid.uuid4().hex)
     session.setdefault("admin_csrf", secrets.token_urlsafe(32))
-    response = app.make_response(render_template("index.html", user=user, version=__version__, is_admin=is_admin(user)))
+    from device_catalog import catalog_status
+    catalog = catalog_status()
+    template = "index.html" if catalog['available'] else "maintenance.html"
+    response = app.make_response(render_template(template, user=user, version=__version__, is_admin=is_admin(user), catalog=catalog))
     response.headers["Cache-Control"] = "no-store"
     return response
 
