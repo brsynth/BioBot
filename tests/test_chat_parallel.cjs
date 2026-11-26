@@ -26,11 +26,12 @@ class Element {
 }
 function setup() {
   const jobs=new Map(), history=new Element(), input=new Element(), list=new Element(), streams=new Map(), decks=[], requests=[];
+  const badge=new Element(), historyButton=new Element();
   for(const id of ['a','b']) {const row=new Element(); row.dataset.chatId=id; const title=new Element(); title.className='chat-title-row'; row.append(title); list.append(row);}
   const ctx=vm.createContext({
     chatJobs:jobs, chatLoadVersion:0, currentChatId:'a', isTyping:false, chatRequestController:null, chatRequestDone:Promise.resolve(),
     chatHistoryElem:history, chatListElem:list, sendBtn:{},
-    document:{getElementById:()=>input, createElement:()=>new Element(), createTextNode:text=>Object.assign(new Element(),{textContent:text})},
+    document:{getElementById:id=>id==='history-unread-count'?badge:id==='sidebar-toggle'?historyButton:input, createElement:()=>new Element(), createTextNode:text=>Object.assign(new Element(),{textContent:text})},
     window:{workspace:{startDevice:async()=>false,analyzingIcon:()=>new Element(),enterChat(){},restoreChat(){},syncActions(){},switchChat(){},generationLayout(){},get busy(){return false;}},parseDeckFromCode:code=>decks.push({chat:ctx.currentChatId,code})},
     addMessage(text,sender,id,target=history) {const node=new Element(); node._buffer=''; node.textContent=text; target.append(node); return node;},
     addThinkingMessage:()=>1, renderUserMessage(){}, scrollToBottom(){}, closeSidebar(){}, selectChatListItem(){},
@@ -50,7 +51,7 @@ function setup() {
     },
   });
   vm.runInContext(activity+resume+load+send,ctx);
-  return {ctx,jobs,history,list,streams,decks,requests};
+  return {ctx,jobs,history,list,streams,decks,requests,badge,historyButton};
 }
 
 test('two chats stream independently; navigation preserves running views and completion badges clear on opening', async()=>{
@@ -67,9 +68,12 @@ test('two chats stream independently; navigation preserves running views and com
   assert.equal(w.jobs.get('a').status,'done');
   assert.equal(w.ctx.isTyping,true); // B is still running.
   assert.deepEqual(w.decks,[]); // A cannot replace B's deck.
+  assert.equal(w.badge.hidden,false);assert.equal(w.badge.textContent,'1');
+  assert.match(w.historyButton['aria-label'],/1 unread result/);
   await w.ctx.loadChatHistory('a');
   assert.equal(w.history.children[0],firstView);
   assert.equal(w.jobs.get('a').status,'read');
+  assert.equal(w.badge.hidden,true);
   w.streams.get('b')('__FAILED_CODE__:Validation failed'); await second;
   assert.equal(w.jobs.get('b').status,'error');
   assert.equal(w.list.children[1].children[0].className,'chat-status error');
@@ -144,4 +148,74 @@ test('reopening an unconfigured new chat keeps device choice visible and the dec
   assert.equal(clearOptions,undefined);
   assert.equal(w.ctx.currentChatId,'new');
   assert.equal(w.requests.length,0);
+});
+
+test('feasibility explanations after progress remain visible and never open as protocol code', async()=>{
+  const w=setup();
+  const pending=w.ctx.sendMessage({message:'make a short demo'}); await tick();
+  const explanation='Please specify compatible source and destination plates.';
+  w.streams.get('a')('__STATUS__:Checking feasibility...\n__STATUS__:__FORMAT__:text\n'+explanation);
+  await pending;
+  const view=w.jobs.get('a').view;
+  assert.ok(view.children.some(node=>node.textContent===explanation));
+  assert.equal(view.querySelectorAll('.protocol-deck-link').length,0);
+  assert.deepEqual(w.decks,[]);
+  assert.equal(w.jobs.get('a').status,'done');
+});
+
+test('previously saved text fences display explanations instead of hidden code references',()=>{
+  const w=setup();
+  w.ctx.renderChatMessages([{role:'assistant',content:'```text\nPlease specify the labware.\n```'}]);
+  assert.equal(w.history.querySelectorAll('.protocol-deck-link').length,0);
+  assert.equal(w.history.children[0].children[0].textContent,'Please specify the labware.\n');
+});
+
+test('history badge restores saved unread results, skips running and viewed jobs, and caps its display',()=>{
+  const w=setup();
+  w.ctx.syncChatActivity.history=new Map([
+    ['a',{status:'done',seen:true}],['b',{status:'done',seen:false}],
+    ['c',{status:'running',seen:false}],['d',{status:'error',seen:false}]
+  ]);
+  w.ctx.syncChatActivity();
+  assert.equal(w.badge.textContent,'2');assert.equal(w.badge.hidden,false);
+  assert.match(w.historyButton.title,/2 unread results/);
+  w.jobs.set('b',{status:'read'});w.jobs.set('d',{status:'done',seen:true});
+  w.ctx.syncChatActivity();assert.equal(w.badge.hidden,true);
+  assert.equal(w.historyButton['aria-label'],'History and saved protocols');
+  for(let id=0;id<110;id++)w.ctx.syncChatActivity.history.set('extra'+id,{status:'done',seen:false});
+  w.ctx.syncChatActivity();assert.equal(w.badge.textContent,'99+');
+});
+
+test('a result completing in a hidden tab stays unread until that chat is visible',async()=>{
+  const w=setup();w.ctx.document.visibilityState='hidden';
+  const request=w.ctx.sendMessage({message:'demo'});await tick();
+  w.streams.get('a')('Prepared demo');await request;
+  assert.equal(w.badge.textContent,'1');assert.equal(w.badge.hidden,false);
+  assert.equal(w.jobs.get('a').seen,undefined);
+  w.ctx.document.visibilityState='visible';w.ctx.syncChatActivity();
+  assert.equal(w.jobs.get('a').seen,true);assert.equal(w.badge.hidden,true);
+  assert.equal(w.requests.filter(request=>request.url==='/chat/a/read').length,1);
+});
+
+test('completion waits for the active deck to finish rendering',async()=>{
+  const w=setup();let finishDeck;
+  w.ctx.window.parseDeckFromCode=()=>new Promise(resolve=>finishDeck=resolve);
+  const request=w.ctx.sendMessage({message:'demo'});await tick();
+  w.streams.get('a')('__STATUS__:Generating...\n__STATUS__:__FORMAT__:json\n{"protocol":"demo"}');
+  await tick();
+  assert.equal(typeof finishDeck,'function');
+  assert.equal(w.jobs.get('a').status,'running');assert.equal(w.badge.hidden,true);
+  const confirms=()=>w.jobs.get('a').view.children.flatMap(node=>node.children).filter(node=>node.textContent==='Your protocol, deck and playback are ready.');
+  assert.equal(confirms().length,0);
+  finishDeck({steps:[]});await request;
+  assert.equal(w.jobs.get('a').status,'done');
+  assert.equal(confirms().length,1);
+});
+
+test('a deck rendering failure is an error rather than a completed task',async()=>{
+  const w=setup();w.ctx.window.parseDeckFromCode=async()=>false;
+  const request=w.ctx.sendMessage({message:'demo'});await tick();
+  w.streams.get('a')('__STATUS__:Generating...\n__STATUS__:__FORMAT__:json\n{"protocol":"demo"}');
+  await request;
+  assert.equal(w.jobs.get('a').status,'error');
 });

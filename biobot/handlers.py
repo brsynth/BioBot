@@ -9,7 +9,9 @@ import subprocess
 import sys
 from pathlib import Path
 from openai import OpenAI
-from config import biobot_model, light_functions_model
+from api_budget import metered_openai
+OpenAI = metered_openai(OpenAI)
+from model_settings import model_for
 
 
 _DEBUG = os.environ.get("HANDLERS_DEBUG", "").lower() in ("1", "true", "yes")
@@ -122,7 +124,7 @@ def _ask_llm_pip_info(client, tool_name):
     """Ask LLM for pip package name AND a known-good version for a CLI tool."""
     try:
         response = client.responses.create(
-            model=light_functions_model,
+            model=model_for("light"),
             input=[
                 {
                     "role": "system",
@@ -296,7 +298,7 @@ def _discover_simulate_tool(cfg, client):
     _log(f"[handlers] No simulate_tool for '{handler_name}' — one-time LLM lookup...")
     try:
         response = client.responses.create(
-            model=light_functions_model,
+            model=model_for("light"),
             input=[
                 {
                     "role": "system",
@@ -332,7 +334,7 @@ def _discover_protocol_format(cfg, client):
     """Enrich older learned profiles once, without device-specific migrations."""
     if cfg.get("output_format") and cfg.get("file_extension"):
         return False
-    response = client.responses.create(model=light_functions_model, input=[
+    response = client.responses.create(model=model_for("light"), input=[
         {"role": "system", "content": 'Return ONLY JSON with output_format (a lowercase language/format identifier) and file_extension (including its dot) for the documented protocol files of the specified device. Use text and .txt when unknown. Do not assume a programming language.'},
         {"role": "user", "content": f"Device: {cfg['name']}\nKnown output type: {cfg.get('output_type', 'unknown')}"},
     ])
@@ -375,7 +377,7 @@ def detect_handler(query, history, api_key):
         known_list = "  (none configured)"
 
     response = client.responses.create(
-        model=biobot_model,
+        model=model_for("main"),
         input=[
             {
                 "role": "system",
@@ -458,7 +460,7 @@ Return ONLY the platform ID. One word, lowercase, no quotes, no explanation."""
     _log(f"[handlers] New platform '{detected}' — running LLM discovery...")
 
     discovery_response = client.responses.create(
-        model=light_functions_model,
+        model=model_for("light"),
         input=[
             {
                 "role": "system",

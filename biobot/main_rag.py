@@ -6,8 +6,11 @@ import time
 import json
 import tempfile
 from openai import OpenAI
+from api_budget import metered_openai
+OpenAI = metered_openai(OpenAI)
 import sys
-from config import get_api_key, biobot_model, light_functions_model
+from config import get_api_key
+from model_settings import model_for
 from documentation_index import load_or_build_index, get_text_embedding_with_retry as _embed
 from feasibility_check import check_feasibility, format_feasibility_response
 from handlers import detect_handler
@@ -79,7 +82,7 @@ def consolidate_request(query, history, api_key):
     )
 
     response = client.responses.create(
-        model=light_functions_model,
+        model=model_for("light"),
         input=[
             {
                 "role": "system",
@@ -87,6 +90,7 @@ def consolidate_request(query, history, api_key):
 Given a conversation between a user and an assistant about a protocol request, 
 write a structered, complete, self-contained protocol description that consolidates 
 ALL the information provided across the entire conversation. Preserve the requested output language or file format; otherwise use the format documented for the selected device.
+Do not turn schematic loading coordinates or routine choices delegated to the model into experimental constraints.
 Preserve "Don't know" answers as delegated choices, not supplied facts. Distinguish justified defaults from unresolved essential facts, retain actual values and units, and require adopted defaults to be stated explicitly in the output.
 
 Note that the request will be sent to an LLM. Restructure it and write it in natural langage in 3th person (the user wants to...) describing what the user wants to do, as if he had provided everything upfront.
@@ -107,7 +111,8 @@ def get_text_embedding_with_retry(text, retries=5, delay=2):
 
 
 # ----------- COMPLETION -------------
-def run_gpt(user_message, model=biobot_model):
+def run_gpt(user_message, model=None):
+    model = model or model_for("main")
     client = get_openai_client(user_api_key)
     messages = [
         {
@@ -198,7 +203,7 @@ def validate_llm_review(code, handler_config, context_chunks, question):
 
     client = get_openai_client(user_api_key).with_options(timeout=120, max_retries=0)
     response = client.responses.create(
-        model=biobot_model,
+        model=model_for("main"),
         tools=[{"type": "web_search"}],
         input=[
             {
@@ -506,7 +511,7 @@ else:
 if feasibility_result is not None:
     if not feasibility_result.get("feasible"):
         # Protocol is NOT feasible — tell user and stop
-        print(format_feasibility_response(feasibility_result), flush=True)
+        print("FAILED_CODE:" + format_feasibility_response(feasibility_result), flush=True)
         sys.exit(0)
     else:
         # Feasible with warnings — print them inline and continue

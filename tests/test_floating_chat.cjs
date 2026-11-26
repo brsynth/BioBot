@@ -26,6 +26,9 @@ function setup() {
 test('chat floats within deck bounds, supports dragging and keyboard movement, and keeps content when collapsed',()=>{
   const w=setup(); w.window.floatingChat.attach();
   assert.equal(w.panel.parentElement,w.frame);
+  assert.equal(w.toggle.attributes['aria-expanded'],'true');
+  assert.equal(w.panel.classList.contains('chat-collapsed'),false);
+
   w.handle.events.pointerdown({button:0,clientX:16,clientY:16,pointerId:1});
   w.handle.events.pointermove({clientX:2000,clientY:2000}); w.handle.events.pointerup();
   assert.equal(w.panel.style.left,'432px'); assert.equal(w.panel.style.top,'32px');

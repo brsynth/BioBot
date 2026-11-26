@@ -10,6 +10,7 @@ function setup({ current = 'current', fail = false } = {}) {
   const header = {}, button = { classList: { toggle() {} }, setAttribute() {} };
   const context = vm.createContext({
     document: { querySelector: () => header, getElementById: () => button },
+    syncChatActivity:Object.assign(()=>{}, {history:new Map()}),
     currentChatId: current, showingTrash: false, chatRequestController: null, chatRequestDone: Promise.resolve(),
     localStorage: { removeItem() {} }, alert: error => errors.push(error),
     refreshChatList: async () => [{ chat_id: 'next' }],

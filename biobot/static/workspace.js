@@ -11,6 +11,7 @@
   const notice = document.getElementById("protocol-notice");
   const chats = new Map();
   let selectedDevice = "", protocolName = "", sourceProtocol = null, creating = null, deviceRequest = null, pageVersion = 0;
+  let landingSelection = null, editingDevice = false, protocolDraft = "", landingChecking = false;
   let noticeTimer, libraryProtocol = null, exportRunning = false, exportReady = false, exportCurrent = false;
   // Errors and warnings belong to their chat: kept per chat until closed, shown again on return.
   let noticeChat = null;
@@ -121,20 +122,105 @@
     document.getElementById("deck-heading").textContent = "Your deck";
     for (const row of protocolList.children) row.classList.remove("selected");
   }
+  document.getElementById("inspector-toggle")?.addEventListener("click", () => {
+    const inspector = document.getElementById("deck-inspector");
+    window.setInspectorVisible?.(inspector.hidden);
+  });
+  function renderLandingQuestion() {
+    const protocolStep = !!landingSelection?.attached && !editingDevice;
+    document.body.dataset.landingStep = protocolStep ? "protocol" : "device";
+    document.getElementById("landing-question").textContent = protocolStep ? "What protocol would you like to prepare?" : "On what device?";
+    document.getElementById("landing-device-attachment").hidden = !protocolStep;
+    document.getElementById("landing-device-name").textContent = landingSelection?.name || "";
+    userInputElem.setAttribute("aria-label", protocolStep ? "Describe your protocol" : "Device manufacturer, model or description");
+  }
+  function attachLandingDevice(selection) {
+    if (landingSelection !== selection || !document.body.classList.contains("landing")) return;
+    if (!selection.attached) {
+      selection.attached = true; editingDevice = false;
+      userInputElem.value = protocolDraft; userInputElem.style.height = "auto";
+    }
+    landingChecking = false; sendBtn.disabled = false;
+    renderLandingQuestion(); userInputElem.focus();
+  }
+  document.getElementById("landing-device-attachment")?.addEventListener("click", () => {
+    if (!landingSelection) return;
+    protocolDraft = userInputElem.value;
+    editingDevice = true;
+    renderLandingQuestion(); userInputElem.value = landingSelection.name;
+    window.landingEquipment?.editDevice?.(); userInputElem.focus(); userInputElem.select();
+  });
+  async function selectLandingDevice(name, trusted = false, prompt = name) {
+    landingSelection?.controller.abort();
+    const selection = landingSelection = {name, controller:new AbortController(), attached:false};
+    let identify;
+    selection.identified = new Promise(resolve => {identify = resolve;});
+    landingChecking = !trusted;
+    let timedOut = false;
+    const timeout = setTimeout(() => {timedOut = true; selection.controller.abort();}, 90000);
+    const status = document.getElementById("device-choice-status");
+    status.classList.remove("is-error"); status.textContent = "Checking device…";
+    showModelChoices([]); if(window.landingEquipment?.beginCheck)window.landingEquipment.beginCheck();
+    else window.landingEquipment?.dismissSearch();
+    if (trusted) attachLandingDevice(selection);
+    selection.preparation = (async () => {
+      try {
+        const ready = await resolveDevice("/devices/validate", {...post({device:name, prompt}), signal:selection.controller.signal}, async (message, result) => {
+          if (landingSelection !== selection) return;
+          selection.chatId = result.chat_id || selection.chatId;
+          selection.name = result.name || selection.name;
+          attachLandingDevice(selection);
+          identify(result);
+          if (document.body.classList.contains("landing")) status.textContent = "Preparing your device in the background. You can describe the protocol now.";
+          if (result.chat_id) await refreshChatList();
+        });
+        if (landingSelection !== selection) return null;
+        if (ready.incomplete) {
+          if (document.body.classList.contains("landing")) {
+            landingSelection = null; editingDevice = false; renderLandingQuestion();
+            status.textContent = "Choose an exact physical model below.";
+            showModelChoices(ready.options || ready.choices);
+          }
+          return null;
+        }
+        selection.name = ready.name; selection.ready = ready;
+        attachLandingDevice(selection);
+        identify(ready);
+        if (document.body.classList.contains("landing")) status.textContent = "Device ready.";
+        return ready;
+      } catch (error) {
+        if (landingSelection === selection && (timedOut || error.name !== "AbortError")) {
+          status.classList.add("is-error");
+          status.textContent = timedOut && selection.chatId
+            ? "Device preparation continues in the background. Open History to follow it, or describe your protocol here."
+            : timedOut ? "Checking the device took too long. Please select it again to retry." : error.message;
+        }
+        return null;
+      } finally {
+        identify(null);
+        clearTimeout(timeout);
+        if (landingSelection === selection) {landingChecking = false; sendBtn.disabled = isTyping;}
+      }
+    })();
+    return selection.preparation;
+  }
   function enterChat() {
-    leaveProtocol(); document.body.classList.remove("landing"); userInputElem.placeholder = "";
+    leaveProtocol(); document.body.classList.remove("landing"); userInputElem.placeholder = ""; userInputElem.setAttribute("aria-label", "Message BioBot"); userInputElem.wrap = "off";
     window.ensureDeckWorkspace?.();
   }
   function landing() {
     leaveProtocol();
     window.floatingChat?.detach();
+    window.setInspectorVisible?.(false);
     pageVersion++; creating = null;
     deviceRequest?.abort(); deviceRequest = null;
     selectedDevice = ""; protocolName = ""; sourceProtocol = null;
+    landingSelection?.controller.abort(); landingSelection = null; editingDevice = false; protocolDraft = ""; landingChecking = false;
     document.body.classList.add("landing");
+    renderLandingQuestion();
     deviceSelect.value = "";
     userInputElem.value = ""; userInputElem.style.height = "auto";
-    userInputElem.placeholder = "Enter a device name…";
+    userInputElem.placeholder = ""; userInputElem.setAttribute("aria-label", "Device manufacturer, model or description"); userInputElem.wrap = "off";
     showNotice("");
     document.getElementById("device-choice-status").textContent = ""; deviceSelect.disabled = false;
     sendBtn.disabled = false;
@@ -143,7 +229,7 @@
   async function ensureChat() {
     if (currentChatId) return currentChatId;
     const version = pageVersion;
-    if (!creating) creating = json("/chat", post({ protocol_id: sourceProtocol, device: selectedDevice })).then(async data => {
+    if (!creating) creating = json("/chat", post({ protocol_id: sourceProtocol, device: selectedDevice, prepare_device: !!landingSelection?.attached })).then(async data => {
       if (version !== pageVersion) throw new DOMException("Chat changed", "AbortError");
       currentChatId = data.chat_id;
       localStorage.setItem("lastChatId", currentChatId);
@@ -177,24 +263,31 @@
     deviceSelect.value = selectedDevice;
 
   }
-  // Bubbles hold devices already known to be valid (used before, or proposed by the model search): they open at once.
+  // All landing selections attach a device; the protocol answer opens the chat.
   function deviceBubble(device, trusted = true) {
     const bubble = document.createElement("button");
     bubble.type = "button"; bubble.className = "device-bubble"; bubble.textContent = device;
-    bubble.addEventListener("click", () => chooseDevice(device, null, trusted));
+    bubble.addEventListener("click", () => document.body.classList.contains("landing") ? selectLandingDevice(device, trusted) : chooseDevice(device, null, trusted));
     return bubble;
   }
   function showModelChoices(options) {
-    const box = document.getElementById("device-model-choices");
-    box?.replaceChildren(...(options || []).map(option => deviceBubble(option, true)));
+    const models = (options || []).flatMap(option => ["series", "family"].includes(option.kind) ? option.members : [option]);
+    const names = [...new Set(models.map(option => typeof option === "string" ? option : option.name))];
+    document.getElementById("device-model-choices")?.replaceChildren(...names.map(name => deviceBubble(name, true)));
+  }
+  function chooseSeries(series) {
+    window.landingEquipment?.beginCheck();
+    document.getElementById("device-choice-status").textContent = `${series.name}. Choose an exact model below; only the selected model will be registered.`;
+    showModelChoices(series.members);
   }
   async function resolveDevice(url, options, onProgress) {
     let result = await json(url, options);
-    if (!result.catalog_job) return result;
+    if (result.incomplete || !result.catalog_job) return result;
     const job = result.catalog_job;
     while (result.status !== "ready") {
+      if (result.incomplete) return result;
       if (result.status === "failed") throw Error(result.error || "Could not prepare this device. Please retry.");
-      onProgress(result.message || "This device is being added to the local database…");
+      await onProgress(result.message || "This device is being added to the local database…", result);
       await new Promise((resolve, reject) => {
         if (options.signal.aborted) return reject(new DOMException("Aborted", "AbortError"));
         const abort = () => {clearTimeout(timer); reject(new DOMException("Aborted", "AbortError"));};
@@ -203,36 +296,20 @@
       });
       result = await json(`/devices/discovery/${encodeURIComponent(job)}`, {signal:options.signal});
     }
-    return url.endsWith("/device") ? json(url, options) : result;
+    return url.endsWith("/device") || url === "/devices/validate" ? json(url, options) : result;
   }
 
   async function chooseDevice(device, templateId = null, trusted = false) {
+    if (document.body.classList.contains("landing")) return selectLandingDevice(device, trusted);
     if (isTyping && !templateId) return;
     deviceRequest?.abort();
     const controller = new AbortController();
     let timedOut = false, progress = null, enteredDeck = false;
-    const fromLanding = document.body.classList.contains("landing");
     const status = document.getElementById("device-choice-status");
     const timeout = setTimeout(() => {timedOut = true; controller.abort();}, 90000);
     deviceRequest = controller;
     sendBtn.disabled = true; deviceSelect.disabled = true;
-    if (fromLanding) {status.classList.remove("is-error"); status.textContent = "Checking device…"; userInputElem.value = device;}
     try {
-      if (fromLanding) showModelChoices([]);
-      if (fromLanding && !trusted) {
-        const validated = await resolveDevice("/devices/validate", {...post({device}), signal:controller.signal}, message => {
-          clearTimeout(timeout);
-          if (deviceRequest === controller) status.textContent = message;
-        });
-        if (deviceRequest !== controller) return;
-        if (validated.incomplete) {
-          status.textContent = validated.options?.length ? `${validated.message} Choose one below, or type it.` : validated.message;
-          showModelChoices(validated.options);
-          return;
-        }
-        if (userInputElem.value.trim() !== device.trim()) {status.textContent = "The device name changed. Submit it to check."; return;}
-        device = validated.name;
-      }
       selectedDevice = device;
       enterChat(); enteredDeck = true; status.textContent = "";
       userInputElem.value = ""; userInputElem.style.height = "auto";
@@ -244,10 +321,18 @@
       const chatId = await ensureChat();
       if (deviceRequest !== controller) return;
       const state = await resolveDevice(`/chat/${chatId}/device`, {...post({device, template_id:templateId}), signal:controller.signal}, message => {
-        clearTimeout(timeout);
         if (deviceRequest === controller) progress.replaceChildren(analyzingIcon(), document.createTextNode(message));
       });
       if (currentChatId !== chatId || deviceRequest !== controller) return;
+      if (state.incomplete) {
+        landing();
+        currentChatId = null;
+        localStorage.removeItem?.("lastChatId");
+        userInputElem.value = device;
+        status.textContent = "Choose an exact physical model below.";
+        showModelChoices(state.options);
+        return;
+      }
       selectedDevice = state.platform;
       window.showDeviceDeck(state);
       if (!chatHistoryElem.querySelector(".chat-message")) say(`Your ${selectedDevice} workspace is ready. What would you like to prepare?`);
@@ -256,7 +341,8 @@
       userInputElem.focus();
     } catch (error) {
       if (deviceRequest === controller && (timedOut || error.name !== "AbortError")) {
-        const message = timedOut ? "The device request timed out. Please try again." : error.message;
+        const message = timedOut
+          ? "Device preparation continues in the background. Open this chat from History to follow it." : error.message;
         if (!enteredDeck) {status.classList.add("is-error"); status.textContent = message; userInputElem.focus();}
         else {window.showDeckLoadError?.(message, () => chooseDevice(device, templateId)); say(message);}
       }
@@ -469,6 +555,7 @@
   function switchChat() {
     leaveProtocol();
     window.floatingChat?.detach();
+    window.setInspectorVisible?.(false);
     pageVersion++; creating = null; deviceRequest?.abort(); deviceRequest = null;
     protocolName = ""; sourceProtocol = null; selectedDevice = "";
   }
@@ -516,6 +603,8 @@
   }
   function foldParameters(folded, remember = true) {
     parametersPane?.classList.toggle("collapsed", folded);
+    const fields = document.getElementById("protocol-parameter-fields");
+    if (fields) fields.hidden = folded;
     parametersToggle?.setAttribute("aria-expanded", String(!folded));
     if (!remember) return;
     const chats = foldedChats();
@@ -676,25 +765,58 @@
     }, needsDevice(chatId) {
       const chat = chats.get(chatId);
       return !!chat && !chat.device && chat.has_messages === false && !chat.run;
-    }, switchChat, refreshTrash, landing, enterChat, ensureChat, analyzingIcon, chooseDevice, deviceDetected,
+    }, switchChat, refreshTrash, landing, enterChat, ensureChat, analyzingIcon, chooseDevice, selectLandingDevice, chooseSeries, deviceDetected,
+    clearDeviceChoices() {
+      if (deviceRequest) return;
+      if (!landingSelection?.attached || editingDevice) document.getElementById("device-choice-status").textContent = "";
+      showModelChoices([]);
+    },
     deckChanged, syncActions, restoreChat, rememberChat: chat => {chats.set(chat.chat_id, chat); syncNameActions();},
     confirmLayout() { window.confirmDeviceLayout(); showNotice("Deck layout ready. It will be included in your next request."); },
     async startDevice(message) {
       if (!document.body.classList.contains("landing")) return false;
+      if (!message.trim()) return true;
+      if (landingSelection?.attached && !editingDevice) {
+        const selection = landingSelection;
+        selectedDevice = selection.name;
+        currentChatId = selection.chatId || null;
+        try {
+          await ensureChat();
+          const chatId = currentChatId;
+          enterChat();
+          window.openDeviceWorkspace?.();
+          selection.preparation.then(ready => {
+            if (ready && currentChatId === chatId && !window.getWorkspaceProtocol?.()?.code) chooseDetectedDevice(ready.name);
+          });
+          return false; // The second answer is sent as the first protocol prompt.
+        } catch (error) {
+          const status = document.getElementById("device-choice-status");
+          status.classList.add("is-error"); status.textContent = error.message;
+          return true;
+        }
+      }
       const device = message.trim() || deviceSelect.value;
-      if (!device) return false;
-      await chooseDevice(device);
+      if (!device) return true;
+      const saved=window.landingEquipment?.resolve(device);
+      const preparation = selectLandingDevice(saved?.name || device, !!saved, message);
+      const selection = landingSelection;
+      const identified = await selection.identified;
+      if (selection !== landingSelection) return true;
+      if (identified?.has_protocol_request && selection.attached) return window.workspace.startDevice(message);
+      await preparation;
       return true;
     },
     generationLayout() {
       const state = window.getWorkspaceProtocol?.().layout;
       if (!state) return undefined;
       const {platform, layout_type, workspace, grid, positions, instruments, plates, carriers} = state;
-      return {platform, layout_type, workspace, grid, positions, instruments, plates, carriers};
+      return {platform, layout_type, workspace, grid, positions:positions?.filter(pos => pos.configurable !== false),
+        instruments:instruments?.filter(item => item.configurable !== false), plates, carriers};
     },
+    get choosingDevice() {return !landingSelection?.attached || editingDevice;},
     get readOnly() {return !!libraryProtocol;},
     get deviceContext() {return selectedDevice;},
-    get busy() {const protocol = window.getWorkspaceProtocol?.(); return !!libraryProtocol || !!deviceRequest || !!(protocol?.code && protocol.pending);} };
+    get busy() {const protocol = window.getWorkspaceProtocol?.(); return !!libraryProtocol || landingChecking || !!deviceRequest || !!(protocol?.code && protocol.pending);} };
   Promise.all([refreshDevices(), refreshProtocols()]).catch(error => {showNotice(error.message);});
   refreshCatalogStatus();
 })();

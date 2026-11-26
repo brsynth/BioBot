@@ -7,6 +7,8 @@ import types
 import unittest
 from unittest.mock import Mock, patch
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'biobot'))
+
 
 class ProtocolParameterTests(unittest.TestCase):
     def setUp(self):
@@ -14,6 +16,8 @@ class ProtocolParameterTests(unittest.TestCase):
         modules = patch.dict(sys.modules, {
             "openai": types.SimpleNamespace(OpenAI=Mock(return_value=self.client)),
             "config": types.SimpleNamespace(get_api_key=lambda: "test", biobot_model="protocol-model", light_functions_model="catalog-model"),
+
+            "model_settings": types.SimpleNamespace(model_for=lambda role: {'main': "protocol-model", 'light': "catalog-model"}.get(role, 'doc-model')),
         })
         modules.start(); self.addCleanup(modules.stop)
         spec = importlib.util.spec_from_file_location("tested_parameters", Path(__file__).resolve().parents[1] / "biobot/deck_visualizer.py")

@@ -66,23 +66,32 @@ function setup() {
 }
 const tick = () => new Promise(setImmediate);
 
-test('device-first landing opens the deck before sending a protocol request', async()=>{
-  const w = setup(); await tick();
-  assert.deepEqual(w.get('device-select').options.map(o=>o.value), ['', 'Robot XYZ']);
-  assert.equal(await w.context.window.workspace.startDevice('Robot XYZ'), true);
-  assert.equal(w.context.currentChatId, 'new-chat');
-  assert.equal(w.state.layout.platform, 'Robot XYZ');
-  assert.equal(w.context.document.body.classList.contains('landing'), false);
-  assert.equal(w.get('input').placeholder, '');
-  assert.equal(w.calls.some(c=>c.url?.endsWith('/stream')), false);
+test('landing asks for a device, attaches it, and opens chat only after the protocol answer',async()=>{
+  const w=setup();await tick();
+  assert.equal(await w.context.window.workspace.startDevice('Robot XYZ'),true);
+  assert.equal(w.context.currentChatId,null);
+  assert.equal(w.context.document.body.classList.contains('landing'),true);
+  assert.equal(w.get('landing-device-attachment').hidden,false);
+  assert.equal(w.get('landing-device-name').textContent,'Robot XYZ');
+  assert.match(w.get('landing-question').textContent,/protocol/);
+  assert.equal(w.calls.some(call=>call.url==='/chat'),false);
+  assert.equal(await w.context.window.workspace.startDevice('Prepare a dilution'),false);
+  assert.equal(w.context.currentChatId,'new-chat');
+  assert.equal(w.context.document.body.classList.contains('landing'),false);
+  assert.equal(w.calls.find(call=>call.url==='/chat').data.prepare_device,true);
 });
 
-test('the single landing question opens a named device directly without dispatching a protocol task', async()=>{
-  const w=setup(); await tick();
-  assert.equal(await w.context.window.workspace.startDevice('Robot XYZ'),true);
-  assert.equal(w.calls.find(call=>call.url?.endsWith('/device')).data.device,'Robot XYZ');
-  assert.equal(w.calls.some(call=>call.url?.endsWith('/stream')),false);
-  assert.equal(await w.context.window.workspace.startDevice('Prepare a dilution'),false);
+test('the attached device can be edited while preserving the protocol draft',async()=>{
+  const w=setup();await tick();
+  await w.context.window.workspace.selectLandingDevice('Robot XYZ',true);
+  w.get('input').value='Dilute the sample tenfold';
+  w.get('landing-device-attachment').events.click();
+  assert.match(w.get('landing-question').textContent,/device/);
+  assert.equal(w.context.window.workspace.choosingDevice,true);
+  await w.context.window.workspace.selectLandingDevice('Other Model',true);
+  assert.equal(w.get('input').value,'Dilute the sample tenfold');
+  assert.equal(w.get('landing-device-name').textContent,'Other Model');
+  assert.equal(w.calls.some(call=>call.url==='/chat'),false);
 });
 
 test('saved protocols open as fixed library snapshots and create a chat only when explicitly edited', async()=>{
@@ -149,6 +158,7 @@ test('pending code edits disable exporting, and only physical deck data accompan
 
 test('a slow device response cannot reopen a deck after starting a new chat', async()=>{
   const w = setup(); await tick();
+  w.context.window.workspace.enterChat();
   let finish;
   w.deferDevice(new Promise(resolve=>finish=resolve));
   const choosing = w.context.window.workspace.chooseDevice('Robot XYZ');
@@ -161,14 +171,15 @@ test('a slow device response cannot reopen a deck after starting a new chat', as
 });
 
 
-test('choosing a cached device opens its empty workspace without sending a prompt', async()=>{
+test('choosing a cached device keeps the protocol question on landing without opening a chat', async()=>{
   const w=setup(); await tick();
   assert.equal(w.get('device-select').options[0].textContent,'Selected device');
   w.get('device-select').value='Robot XYZ'; w.get('device-select').events.change();
   await tick();
-  assert.equal(w.context.currentChatId,'new-chat');
-  assert.equal(w.state.layout.platform,'Robot XYZ');
-  assert.equal(w.context.document.body.classList.contains('landing'),false);
+  assert.equal(w.context.currentChatId,null);
+  assert.equal(w.state.layout,null);
+  assert.match(w.get('landing-question').textContent,/protocol/);
+  assert.equal(w.context.document.body.classList.contains('landing'),true);
   assert.equal(w.calls.some(call=>call.url?.endsWith('/stream')),false);
 });
 
@@ -216,6 +227,7 @@ test('opening a chat always opens the deck frame before any layout or protocol e
 
 test('a failed device load replaces the deck spinner with a retry action and releases the composer', async()=>{
   const w=setup(); await tick();
+  w.context.window.workspace.enterChat();
   let reject;
   w.deferDevice(new Promise((resolve,fail)=>reject=fail));
   let error;
@@ -241,8 +253,12 @@ test('the landing page and typed device stay in place until dispatch validation 
   assert.equal(w.get('input').value,'Robot XYZ');
   assert.equal(w.context.currentChatId,null);
   assert.equal(opened,0);
-  assert.equal(w.get('device-choice-status').textContent,'Checking device…');
+  assert.match(w.get('device-choice-status').textContent,/Checking/);
   validate({name:'Robot XYZ',device_id:'robot_xyz'}); await choosing;
+  assert.equal(w.context.document.body.classList.contains('landing'),true);
+  assert.match(w.get('landing-question').textContent,/protocol/);
+  assert.equal(opened,0);
+  await w.context.window.workspace.startDevice('Prepare a dilution');
   assert.equal(w.context.document.body.classList.contains('landing'),false);
   assert.equal(opened,1);
 });
@@ -274,7 +290,7 @@ test('only an empty chat without a device or a running task needs device choice 
 });
 
 
-test('a device already being built is awaited before creating its chat', async()=>{
+test('background device preparation finishes on landing without opening its chat', async()=>{
   const w=setup(); await tick();
   w.context.setTimeout=(callback,delay)=>delay===1000 ? setImmediate(callback) : 1;
   w.deferValidation(Promise.resolve({catalog_job:'robotxyz',status:'building',name:'Robot XYZ'}));
@@ -283,8 +299,10 @@ test('a device already being built is awaited before creating its chat', async()
   await w.context.window.workspace.chooseDevice('Robot XYZ');
   const polls=w.calls.map((call,index)=>({call,index})).filter(({call})=>call.url.startsWith('/devices/discovery/'));
   assert.equal(polls.length,2);
-  assert.ok(w.calls.findIndex(call=>call.url==='/chat')>polls[1].index);
-  assert.equal(w.state.layout.platform,'Robot XYZ');
+  assert.equal(w.calls.some(call=>call.url==='/chat'),false);
+  assert.equal(w.state.layout,null);
+  assert.equal(w.context.document.body.classList.contains('landing'),true);
+  assert.match(w.get('landing-question').textContent,/protocol/);
 });
 
 test('a failed catalog entry displays its error and creates no chat', async()=>{
@@ -294,4 +312,152 @@ test('a failed catalog entry displays its error and creates no chat', async()=>{
   assert.match(w.get('device-choice-status').textContent,/could not be verified/);
   assert.equal(w.calls.some(call=>call.url==='/chat'),false);
   assert.equal(w.get('send').disabled,false);
+});
+
+
+test('a saved device stays on landing after validation until the protocol is submitted', async()=>{
+  const w=setup(); await tick();
+  let ready;
+  w.deferValidation(new Promise(resolve=>ready=resolve));
+  const opening=w.context.window.workspace.chooseDevice('Robot XYZ',null,true);
+  await tick();
+  assert.equal(w.calls.some(call=>call.url==='/chat'),false);
+  assert.equal(w.context.document.body.classList.contains('landing'),true);
+  ready({name:'Robot XYZ',device_id:'robot_xyz',status:'ready'});
+  await opening;
+  assert.equal(w.calls.filter(call=>call.url==='/chat').length,0);
+  assert.equal(w.context.document.body.classList.contains('landing'),true);
+  assert.equal(await w.context.window.workspace.startDevice('  '),true);
+  assert.equal(w.calls.filter(call=>call.url==='/chat').length,0);
+  await w.context.window.workspace.startDevice('Prepare a dilution');
+  assert.equal(w.calls.filter(call=>call.url==='/chat').length,1);
+});
+
+test('Enter submission resolves cached landing names before falling back to checking an unknown device',async()=>{
+  const w=setup();await tick();
+  const resolved=[];
+  w.context.window.landingEquipment={resolve:name=>{resolved.push(name);return name==='model 10'?{name:'Maker Model 10'}:null;},dismissSearch(){}};
+  await w.context.window.workspace.startDevice('model 10');
+  assert.equal(w.calls.find(call=>call.url==='/devices/validate').data.device,'Maker Model 10');
+  w.context.window.workspace.landing();
+  await w.context.window.workspace.startDevice('Unknown device');
+  const validations=w.calls.filter(call=>call.url==='/devices/validate');
+  assert.equal(validations[1].data.device,'Unknown device');
+  assert.deepEqual(resolved,['model 10','Unknown device']);
+});
+
+
+test('submission dismisses autocomplete and shows a checking status while awaiting validation',async()=>{
+  const w=setup();await tick();
+  let release,checks=0;
+  w.context.window.landingEquipment={beginCheck(){checks++;},resolve:()=>null};
+  w.deferValidation(new Promise(resolve=>release=resolve));
+  const opening=w.context.window.workspace.startDevice('SeriesA');await tick();
+  assert.equal(checks,1);
+  assert.match(w.get('device-choice-status').textContent,/Checking/);
+  release({incomplete:true,scope:'series',query:'SeriesA',message:'Choose an exact model.',options:['Maker SeriesA 10','Maker SeriesA 20'],options_source:'saved'});
+  await opening;
+  assert.match(w.get('device-choice-status').textContent,/exact physical model/);
+  assert.equal(w.get('device-model-choices').children.length,2);
+  assert.equal(w.calls.some(call=>call.url==='/chat'),false);
+});
+
+test('Enter lists exact models directly and a series suggestion exposes its members without registration',async()=>{
+  const w=setup();await tick();
+  const group={kind:'series',name:'Maker A Series',programming_interface:'Shared command API',protocol_format:'Transfer schema',
+    members:[{kind:'model',name:'Maker A10'},{kind:'model',name:'Maker A10T Plus'}]};
+  w.deferValidation(Promise.resolve({incomplete:true,scope:'series',choices:[group,{kind:'model',name:'Maker B20'}]}));
+  await w.context.window.workspace.startDevice('Maker');
+  const box=w.get('device-model-choices');
+  assert.deepEqual(box.children.map(button=>button.textContent),['Maker A10','Maker A10T Plus','Maker B20']);
+  assert.equal(w.calls.some(call=>call.url==='/chat'),false);
+  w.context.window.workspace.chooseSeries(group);
+  assert.deepEqual(box.children.map(button=>button.textContent),['Maker A10','Maker A10T Plus']);
+  assert.match(w.get('device-choice-status').textContent,/Maker A Series/);
+  assert.equal(w.calls.filter(call=>call.url==='/devices/validate').length,1);
+  w.deferValidation(Promise.resolve({name:'Maker A10T Plus',device_id:'maker_a10t_plus'}));
+  await box.children[1].events.click();
+  const requested=w.calls.filter(call=>call.url==='/devices/validate').map(call=>call.data.device);
+  assert.deepEqual(requested,['Maker','Maker A10T Plus']);
+});
+
+test('device preparation keeps its deadline active while validation is pending',async()=>{
+  const w=setup();await tick();
+  let released,cleared=false,deadline;
+  w.context.setTimeout=(callback,ms)=>{deadline={callback,ms};return deadline;};
+  w.context.clearTimeout=timer=>{if(timer===deadline)cleared=true;};
+  w.deferValidation(new Promise(resolve=>released=resolve));
+  const opening=w.context.window.workspace.chooseDevice('Robot XYZ',null,true);
+  await tick();
+  assert.equal(deadline.ms,90000);
+  assert.equal(cleared,false);
+  released({name:'Robot XYZ',device_id:'robot_xyz',status:'ready'});
+  await opening;
+  assert.equal(cleared,true);
+});
+
+test('a family discovered during preparation presents exact models without an error or chat',async()=>{
+  const w=setup();await tick();
+  w.context.setTimeout=(callback,delay)=>delay===1000 ? setImmediate(callback) : 1;
+  w.deferValidation(Promise.resolve({catalog_job:'family',status:'building',name:'Maker Family'}));
+  w.deferCatalog([{catalog_job:'family',status:'failed',incomplete:true,options:['Maker A10','Maker A20']}]);
+  await w.context.window.workspace.chooseDevice('Maker Family');
+  assert.deepEqual(w.get('device-model-choices').children.map(button=>button.textContent),['Maker A10','Maker A20']);
+  assert.equal(w.get('device-choice-status').classList.contains('is-error'),false);
+  assert.equal(w.calls.some(call=>call.url==='/chat'),false);
+  assert.equal(w.context.document.body.classList.contains('landing'),true);
+});
+
+test('device preparation appears in history without opening chat when the wait times out',async()=>{
+  const w=setup();await tick();let expire;
+  w.context.setTimeout=(callback,delay)=>{if(delay===90000)expire=callback;return 1;};
+  w.deferValidation(Promise.resolve({catalog_job:'robotxyz',status:'building',name:'Robot XYZ',chat_id:'preparing-chat'}));
+  const opening=w.context.window.workspace.chooseDevice('Robot XYZ');await tick();
+  assert.equal(w.context.currentChatId,null);
+  assert.equal(w.context.document.body.classList.contains('landing'),true);
+  assert.equal(w.calls.some(call=>call.url==='/chat'),false);
+  expire();await opening;
+  assert.match(w.get('device-choice-status').textContent,/History/);
+  assert.equal(w.context.currentChatId,null);
+  assert.equal(w.context.document.body.classList.contains('landing'),true);
+});
+
+test('protocol submission opens chat while selected-device preparation is still running',async()=>{
+  const w=setup();await tick();let verified;
+  w.deferValidation(new Promise(resolve=>verified=resolve));
+  const preparation=w.context.window.workspace.selectLandingDevice('Robot XYZ',true);
+  await tick();
+  assert.equal(w.context.document.body.classList.contains('landing'),true);
+  assert.equal(w.get('landing-device-name').textContent,'Robot XYZ');
+  assert.equal(w.context.window.workspace.busy,false);
+  assert.equal(w.context.window.workspace.choosingDevice,false);
+  assert.equal(await w.context.window.workspace.startDevice('Prepare a dilution'),false);
+  assert.equal(w.context.document.body.classList.contains('landing'),false);
+  assert.equal(w.context.currentChatId,'new-chat');
+  verified({status:'ready',name:'Robot XYZ',device_id:'robot_xyz'});
+  await preparation;await tick();
+  assert.equal(w.calls.filter(call=>call.url==='/chat').length,1);
+});
+
+test('one prompt containing a device and protocol opens chat without asking for the protocol again', async () => {
+  const w = setup(); await tick();
+  const prompt = 'DNA dilution, make an example, on Maker Model 10';
+  w.deferValidation(Promise.resolve({name:'Maker Model 10',device_id:'maker_model10',status:'ready',has_protocol_request:true}));
+  assert.equal(await w.context.window.workspace.startDevice(prompt), false);
+  const validation = w.calls.find(call => call.url === '/devices/validate');
+  assert.equal(validation.data.prompt, prompt);
+  assert.equal(w.context.window.workspace.deviceContext, 'Maker Model 10');
+  assert.equal(w.context.document.body.classList.contains('landing'), false);
+  assert.equal(w.calls.filter(call => call.url === '/chat').length, 1);
+});
+
+test('a combined request opens its chat while device preparation continues in the background', async () => {
+  const w = setup(); await tick();
+  w.deferValidation(Promise.resolve({name:'Maker Model 10',catalog_job:'maker10',chat_id:'preparing-chat',status:'building',has_protocol_request:true}));
+  assert.equal(await w.context.window.workspace.startDevice('Dilute DNA on Maker Model 10'), false);
+  assert.equal(w.context.currentChatId, 'preparing-chat');
+  assert.equal(w.context.window.workspace.deviceContext, 'Maker Model 10');
+  assert.equal(w.context.document.body.classList.contains('landing'), false);
+  assert.equal(w.calls.some(call => call.url === '/chat'), false);
+  await tick(); w.context.window.workspace.landing();
 });

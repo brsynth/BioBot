@@ -3,8 +3,6 @@ import os, time
 import secrets
 from pathlib import Path
 
-light_functions_model = "gpt-4o-mini"
-biobot_model = "gpt-5.6-sol"
 
 def get_flask_secret_key():
     """Keep the generated secret across restarts so saved chats remain readable."""
@@ -23,6 +21,13 @@ def get_flask_secret_key():
 
 
 def get_api_key(required=True):
+    """Installation-wide key: the one set in Administration, else the deployment secret or environment."""
+    try:
+        from model_settings import system_api_key
+        if system_api_key():
+            return system_api_key()
+    except Exception:
+        pass
     secret_path = "/run/secrets/biobot_api_key"
     if os.path.exists(secret_path):
         with open(secret_path, "r") as f:
@@ -90,6 +95,8 @@ def init_db():
         cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS admin_status TEXT")  # NULL, 'requested' or 'approved'
         cur.execute("ALTER TABLE chat_names ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ")
         cur.execute("ALTER TABLE chat_names ADD COLUMN IF NOT EXISTS device_name TEXT")
+        cur.execute("ALTER TABLE chat_names ADD COLUMN IF NOT EXISTS device_job TEXT")
+        cur.execute("ALTER TABLE chat_names ADD COLUMN IF NOT EXISTS device_job_seen BOOLEAN NOT NULL DEFAULT FALSE")
         cur.execute("""
             CREATE TABLE IF NOT EXISTS saved_protocols (
                 id UUID PRIMARY KEY,
@@ -144,6 +151,10 @@ def init_db():
         """)
         from deck_library import init_deck_tables
         init_deck_tables(cur)
+        from model_settings import init_settings_tables
+        init_settings_tables(cur)
+        from api_budget import init_usage_table
+        init_usage_table(cur)
         from device_catalog import init_catalog_tables
         init_catalog_tables(cur)
         conn.commit()

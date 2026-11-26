@@ -1,6 +1,6 @@
 {% from "_brand.html" import liquid_handler %}
   <header id="app-banner" class="app-banner">
-        <a class="brand" href="/?landing=1" aria-label="BioBot home">{{ liquid_handler() }}<span>BioBot</span></a>
+        <a class="brand" href="/?landing=1" aria-label="BioBot home">{{ liquid_handler() }}<span class="brand-title">BioBot{% if not admin_view %}<small class="brand-version">v{{ version }}</small>{% endif %}</span></a>
         <span class="version-tag">v{{ version }}</span>
 
         <nav id="admin-workspace-link" class="admin-workspace-link" aria-label="Workspace mode" {% if not is_admin %}hidden{% endif %}>
@@ -28,4 +28,10 @@
         </button>
           </div>
         </details>
+        {% if not admin_view %}
+        <button id="sidebar-toggle" class="landing-history-toggle" type="button" aria-label="History and saved protocols" title="History and saved protocols" aria-expanded="false" aria-controls="sidebar">
+          <span id="history-unread-count" class="history-unread-count" aria-hidden="true" hidden></span>
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11a9 9 0 1 1 2.6 7.4M3 4v7h7"/><path d="M12 7v5l3 2"/></svg>
+        </button>
+        {% endif %}
   </header>

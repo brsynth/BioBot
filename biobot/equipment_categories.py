@@ -5,7 +5,7 @@ import re
 CAPABILITY_CATEGORIES = {
     'Liquid handling': r'liquid[\s_-]+handl|pipett|dispens|acoustic[\s_-]+(?:droplet[\s_-]+)?(?:eject|transfer)|(?:liquid|fluid)[\s_-]+transfer',
     'Imaging & microscopy': r'imag|microscop|camera',
-    'Analysis & detection': r'detect|spectro|fluorescen|absorbance|plate.read|measurement|sequenc|cytometr',
+    'Analysis & detection': r'(?:analyte|assay|sample|signal|molecular|optical)[\s_-]+detect|detect(?:ion)?[\s_-]+(?:of[\s_-]+)?(?:analyte|sample|signal)|spectro|fluorescen|absorbance|plate.read|measurement|sequenc|cytometr',
     'Separation & purification': r'chromatograph|purif|electrophores|filtrat|extract',
     'Centrifugation': r'centrifug',
     'Thermal processing': r'thermocycl|thermal.cycl|\bpcr\b|heating|cooling|temperature.control',

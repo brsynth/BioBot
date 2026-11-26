@@ -66,7 +66,7 @@
     el.append(node('h4', title), node('p', subtitle, 'admin-card-summary'));
     return el;
   }
-  const tabs = ['users', 'devices'];
+  const tabs = ['users', 'devices', 'models'];
   function selectTab(name) {
     for (const tab of tabs) {
       const active = tab === name;
@@ -74,7 +74,9 @@
       button.setAttribute('aria-selected', String(active)); button.tabIndex = active ? 0 : -1;
       document.getElementById(`admin-panel-${tab}`).hidden = !active;
     }
+    if (name === 'models' && !modelsLoaded) {modelsLoaded = true; loadPanel('models', refreshModels);}  // loaded on first visit
   }
+  let modelsLoaded = false;
   for (const [index, name] of tabs.entries()) {
     const tab = document.getElementById(`admin-tab-${name}`);
     tab.addEventListener('click', () => selectTab(name));
@@ -96,6 +98,8 @@
       const row = card(`${user.first_name || ''} ${user.last_name || ''}`.trim() || user.email, user.email || 'No email');
       const tags = node('p', user.server_owner ? 'Server owner' : user.admin_status === 'approved' ? 'Administrator' : 'User', 'admin-tags');
       row.appendChild(tags);
+      const allowance = user.daily_api_limit === undefined ? 0.5 : user.daily_api_limit;
+      row.appendChild(node('p', `Shared API allowance: ${allowance === null ? 'Unlimited' : `$${Number(allowance).toFixed(2)} / day`} · $${Number(user.daily_api_spent || 0).toFixed(4)} used or reserved today`, 'admin-help'));
       row.appendChild(button('Edit user', () => {
             const form = node('div', undefined, 'admin-editor');
         const inputs = {};
@@ -109,9 +113,22 @@
         }
         access.value = user.admin_status || ''; access.disabled = user.server_owner || String(user.id) === document.body.dataset.userId;
         wrapper.appendChild(access); form.appendChild(wrapper);
+        const allowanceInput = field(form, 'Daily shared API allowance (USD; 0 disables access)', allowance === null ? '0.50' : allowance, 'number');
+        allowanceInput.min = '0'; allowanceInput.max = '1000000'; allowanceInput.step = 'any';
+        allowanceInput.disabled = allowance === null;
+        const unlimitedLabel = node('label', 'Unlimited', 'admin-field');
+        const unlimited = node('input'); unlimited.type = 'checkbox'; unlimited.checked = allowance === null;
+        unlimited.setAttribute('aria-label', 'Unlimited daily allowance');
+        unlimitedLabel.appendChild(unlimited); form.appendChild(unlimitedLabel);
+        unlimited.addEventListener('change', () => {allowanceInput.disabled = unlimited.checked;});
+        form.appendChild(node('p', 'This user’s own daily allowance; resets at 00:00 UTC. Personal API keys are excluded.', 'admin-help'));
         actions(form, async () => {
           if (!inputs.email.reportValidity()) return;
+          if (!unlimited.checked && (!allowanceInput.value.trim() || !Number.isFinite(Number(allowanceInput.value)) || Number(allowanceInput.value) < 0)) {
+            throw Error('Enter 0 or a positive USD amount, or select Unlimited.');
+          }
           const data = Object.fromEntries(Object.entries(inputs).map(([key, input]) => [key, input.value]));
+          data.daily_api_limit = unlimited.checked ? null : Number(allowanceInput.value);
           if (!access.disabled) data.admin_status = access.value || null;
           await api(`/admin/users/${user.id}`, 'PATCH', data);
           message('User changes saved.'); await refreshUsers();
@@ -412,6 +429,82 @@
       if (!requests.length) box.appendChild(node('p','No pending access requests.','admin-help'));
     } catch (error) {box.replaceChildren(node('p',error.message,'is-error'));}
   }
+  // Models: one OpenAI model per task, with official prices, and the installation-wide default API key.
+  const price = value => value == null ? '—' : `$${value}`;
+  function renderModels(data) {
+    const box = document.getElementById('admin-models');
+    const models = data.catalog?.models || [];
+    const releaseDate = id => models.find(model => model.id === id)?.released_at
+      || id.match(/\d{4}-\d{2}-\d{2}$/)?.[0]
+      || models.find(model => model.id === id.replace(/-\d{4}-\d{2}-\d{2}$/, ''))?.released_at || '';
+    box.replaceChildren();
+    const checked = data.catalog?.checked_at ? new Date(data.catalog.checked_at).toLocaleString() : 'never';
+    box.appendChild(node('p', `Prices in USD per 1M tokens (input · cached input · output), Standard tier, from OpenAI's pricing page. Last checked: ${checked}.`, 'admin-help'));
+    if (data.catalog?.price_error) box.appendChild(node('p', `Prices could not be updated (${data.catalog.price_error}); the last known prices are shown and the update is retried hourly.`, 'is-error'));
+    for (const role of data.roles) {
+      const row = card(role.label, role.detail);
+      const select = node('select'); select.setAttribute('aria-label', `${role.label} model`);
+      const ids = [...new Set([role.model, role.default, ...models.map(model => model.id)])]
+        .sort((a, b) => releaseDate(b).localeCompare(releaseDate(a))
+          || b.localeCompare(a, undefined, {numeric:true, sensitivity:'base'}));
+      for (const id of ids) {
+        const exact = models.find(model => model.id === id);
+        const family = models.find(model => model.id === id.replace(/-\d{4}-\d{2}-\d{2}$/, ''));
+        const info = exact || family ? {
+          input: exact?.input ?? family?.input,
+          cached_input: exact?.cached_input ?? family?.cached_input,
+          output: exact?.output ?? family?.output,
+        } : null;
+        const label = `${id}${id === role.default ? ' (default)' : ''}${info ? ` — ${price(info.input)} · ${price(info.cached_input)} · ${price(info.output)}` : ''}`;
+        select.append(new Option(label, id, false, id === role.model));
+      }
+      select.addEventListener('change', async () => {
+        try {renderModels(await api('/admin/models', 'PATCH', {[role.role]: select.value})); message(`${role.label} set to ${select.value}.`);}
+        catch (error) {message(error.message, true); select.value = role.model;}
+      });
+      const policy = node('select');
+      policy.setAttribute('aria-label', `${role.label} automatic updates`);
+      for (const [value, label] of [['off', 'Off — keep the selected model'],
+        ['cheaper', 'Newer in the same class, same price or cheaper'],
+        ['always', 'Newer in the same class, regardless of price']]) {
+        policy.append(new Option(label, value, false, value === (role.auto_update || 'off')));
+      }
+      policy.addEventListener('change', async () => {
+        try {
+          renderModels(await api('/admin/models', 'PATCH', {updates: {[role.role]: policy.value}}));
+          message(`${role.label} automatic update policy saved.`);
+        } catch (error) {message(error.message, true); policy.value = role.auto_update || 'off';}
+      });
+      const policyLabel = node('label', 'Automatic updates');
+      policyLabel.appendChild(policy);
+      row.append(select, node('p', `Model class: ${role.model_class || 'unverified — automatic changes are skipped'}.`, 'admin-help'), policyLabel);
+      box.appendChild(row);
+    }
+    box.appendChild(node('p', 'Automatic updates run after the daily catalog refresh or a manual refresh. Only newer, stable, available models in the same class are eligible. Documentation and main models must support web search. “Same price or cheaper” requires no increase in input, output or published cached-input rates. Missing prices or unverified equivalence keep the current model.', 'admin-help'));
+    const keyRow = card('Default API key', data.system_key
+      ? `Used for every user without their own key. Stored encrypted; ends with …${data.system_key.last4}.`
+      : 'Used for every user without their own key. None set here: the deployment secret or environment key applies, if any.');
+    const input = node('input'); input.type = 'password'; input.autocomplete = 'off'; input.placeholder = 'sk-…';
+    input.setAttribute('aria-label', 'Default OpenAI API key');
+    keyRow.append(input, button('Save key', async () => {
+      renderModels(await api('/admin/models', 'PATCH', {system_api_key: input.value})); message('Default API key saved.');
+    }));
+    if (data.system_key) keyRow.appendChild(button('Remove key', async () => {
+      renderModels(await api('/admin/models', 'PATCH', {system_api_key: ''})); message('Default API key removed.');
+    }));
+    box.appendChild(keyRow);
+  }
+  async function refreshModels() {renderModels(await api('/admin/models'));}
+  document.getElementById('admin-refresh-models')?.addEventListener('click', async event => {
+    event.currentTarget.disabled = true; message('Checking OpenAI models and prices… this can take a minute.');
+    try {
+      const response = await fetch('/admin/models/refresh', {method:'POST', headers:{'Content-Type':'application/json','X-CSRF-Token':token}, body:'{}'});
+      const result = await response.json();
+      if (!response.ok) throw Error(result.error || 'Could not refresh the models.');
+      renderModels(result); message('Models and prices updated.');
+    } catch (error) {message(error.message, true);}
+    finally {document.getElementById('admin-refresh-models').disabled = false;}
+  });
   const debug = document.getElementById('debug-logs');
   if (debug) {
     try {debug.checked = localStorage.getItem('biobot-debug-logs') === '1';} catch (_) {}

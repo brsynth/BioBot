@@ -11,6 +11,7 @@ then the docs are local for all subsequent runs.
 """
 
 import os, sys
+from model_settings import model_for
 import re
 import time
 import json
@@ -20,6 +21,8 @@ import shutil
 from contextlib import contextmanager
 from urllib.parse import urlparse, urljoin
 from openai import OpenAI
+from api_budget import metered_openai
+OpenAI = metered_openai(OpenAI)
 from bs4 import BeautifulSoup
 
 
@@ -47,7 +50,7 @@ def discover_doc_urls(handler_name, handler_keywords, api_key):
     client = get_openai_client(api_key)
 
     response = client.responses.create(
-        model="gpt-5.4-2026-03-05",
+        model=model_for("documentation"),
         tools=[{"type": "web_search"}],
         input=[
             {

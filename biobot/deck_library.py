@@ -47,25 +47,32 @@ def init_deck_tables(cursor):
     """)
 
 
-def get_hardware_catalog(platform, position_type="labware", api_key=None):
+def get_hardware_catalog(platform, position_type="labware", api_key=None, position=None):
     """Reuse a public hardware catalog across page loads and concurrent requests."""
     from deck_visualizer import get_catalog
     key = re.sub(r"[\s_-]", "", platform.strip().casefold())
+    context = None
+    if isinstance(position, dict):
+        context = {key: position[key] for key in ("id", "interface", "role", "allowed_types") if key in position}
+        if context:
+            key += ":position:" + hashlib.sha256(json.dumps(context, sort_keys=True).encode()).hexdigest()[:24]
     conn = get_db_connection()
     try:
         with conn, conn.cursor() as cursor:
             cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"catalog:{key}:{position_type}",))
             cursor.execute("SELECT catalog FROM deck_catalogs WHERE platform_key = %s AND position_type = %s", (key, position_type))
             row = cursor.fetchone()
-            if row and row[0].get("_version") == CATALOG_VERSION:
+            # A position's compatible items belong to the device and come from its documentation; they are
+            # rebuilt from evidence rather than merged with older, unsourced suggestions.
+            version = f"{CATALOG_VERSION}+evidence" if context else CATALOG_VERSION
+            if row and row[0].get("_version") == version:
                 return row[0]
-            # Store only platform-wide suggestions, never a user's custom hardware.
-            catalog = get_catalog(platform, position_type, api_key=api_key, existing_catalog=row[0] if row else None)
+            catalog = get_catalog(platform, position_type, api_key=api_key, existing_catalog=row[0] if row and not context else None, **({"position": context} if context else {}))
             if not isinstance(catalog, dict) or not isinstance(catalog.get("categories"), list) or not catalog["categories"]:
                 raise ValueError("No hardware suggestions were returned. Please retry.")
-            if row:
+            if row and not context:
                 catalog = merge_catalogs(row[0], catalog)
-            catalog["_version"] = CATALOG_VERSION
+            catalog["_version"] = version
             cursor.execute("INSERT INTO deck_catalogs (platform_key, position_type, catalog) VALUES (%s, %s, %s) ON CONFLICT (platform_key, position_type) DO UPDATE SET catalog = EXCLUDED.catalog",
                            (key, position_type, Json(catalog)))
             return catalog
@@ -95,11 +102,11 @@ def merge_catalogs(previous, updated):
 # Only physical layout/default hardware is shared; protocol data never enters a template.
 FIELDS = {
     "grid": {"rows", "cols", "labels"},
-    "positions": {"fixed", "id", "labware", "labware_display", "type", "module", "row", "col", "x", "y", "width", "height", "shape", "aspect_ratio", "well_count", "well_rows", "well_columns", "visual"},
-    "instruments": {"name", "model", "mount", "tipracks"},
+    "positions": {"configurable", "fixed", "id", "labware", "labware_display", "type", "module", "row", "col", "x", "y", "width", "height", "shape", "aspect_ratio", "well_count", "well_rows", "well_columns", "visual"},
+    "instruments": {"configurable", "fixed", "name", "model", "mount", "tipracks"},
     "plate": {"name", "type", "format", "well_rows", "well_columns", "aspect_ratio"},
     "carrier": {"name", "type", "track", "positions"},
-    "carrier_position": {"fixed", "index", "labware", "labware_display", "type", "well_count", "well_rows", "well_columns", "aspect_ratio", "visual"},
+    "carrier_position": {"configurable", "fixed", "index", "labware", "labware_display", "type", "well_count", "well_rows", "well_columns", "aspect_ratio", "visual"},
 }
 
 
@@ -156,6 +163,10 @@ def clean_layout(state):
             raise ValueError("Hardware names and identifiers must be text.")
 
     text_fields(layout, ("platform",))
+    for item in [*layout["positions"], *layout["instruments"]]:
+        for flag in ("configurable", "fixed"):
+            if flag in item and type(item[flag]) is not bool:
+                raise ValueError("Configurability and fixed-location flags must be booleans.")
     for pos in layout["positions"]:
         if pos.get("aspect_ratio") is not None and (type(pos["aspect_ratio"]) not in (int, float) or not 0.1 <= pos["aspect_ratio"] <= 10):
             raise ValueError("Invalid hardware aspect ratio.")
@@ -356,6 +367,34 @@ def known_device(known, name):
 
 
 
+def transfer_physics(profile):
+    """Use documented capabilities and drop-volume constraints, never a device-name rule."""
+    evidence = ' '.join(str(feature) for feature in profile.get('features', []))
+    if not re.search(r'acoustic.*(?:droplet|eject|transfer)', evidence, re.I):
+        return None
+    result = {'mechanism': 'acoustic_droplets'}
+    increments = []
+    units = {'nl': 1, 'ul': 1000, 'µl': 1000, 'μl': 1000, 'ml': 1000000}
+    for constraint in profile.get('constraints', []):
+        if not isinstance(constraint, dict):
+            continue
+        label = ' '.join(str(constraint.get(key, '')) for key in ('name','description'))
+        value, factor = constraint.get('multiple_of'), units.get(str(constraint.get('unit', '')).lower())
+        if constraint.get('source') and re.search(r'drop(?:let)?|transfer.*(?:increment|resolution)',label,re.I) and type(value) in (int,float) and math.isfinite(value) and value > 0 and factor:
+            increments.append(float(value)*factor)
+    if increments and len(set(increments)) == 1:
+        result['droplet_volume_nl'] = increments[0]
+    return result
+
+
+def _attach_transfer_physics(cursor, state, device_id):
+    cursor.execute('SELECT profile FROM device_catalog_jobs WHERE device_id=%s AND canonical_key IS NULL', (device_id,))
+    row = cursor.fetchone()
+    physics = transfer_physics((row or {}).get('profile') or {})
+    if physics:
+        state['_transfer_physics'] = physics
+
+
 def get_device_deck(name, user_id, api_key=None, template_id=None, identified_device=None):
     """Open shared physical geometry before a protocol exists."""
     conn = get_db_connection()
@@ -379,6 +418,7 @@ def get_device_deck(name, user_id, api_key=None, template_id=None, identified_de
             state["_library"] = {"selected": next(item for item in choices if item["id"] == str(selected["id"])),
                                  "alternatives": choices, "layout": copy.deepcopy(selected["layout"])}
             state["steps"] = []
+            _attach_transfer_physics(cursor,state,device["device_id"])
             return state
     finally:
         conn.close()
@@ -450,6 +490,7 @@ def get_deck(code, user_id, api_key=None, history=None, template_id=None, refres
             choices = _choices(cursor, user_id, protocol["device_id"])
             state["_library"] = {"selected": next(item for item in choices if item["id"] == str(selected["id"])),
                                  "alternatives": choices, "layout": selected["layout"]}
+            _attach_transfer_physics(cursor,state,protocol["device_id"])
             state["_protocol_code"] = code
             state["_parameters_pending"] = protocol["binding"].get("_version") != BINDING_VERSION
             state["_playback_pending"] = state["_parameters_pending"] and not state.get("steps")

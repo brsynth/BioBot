@@ -7,8 +7,11 @@ import types
 import unittest
 from unittest.mock import Mock, patch
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'biobot'))
+
 ROOT = Path(__file__).resolve().parents[1]
 config = types.SimpleNamespace(biobot_model="test-model", light_functions_model="test-light", get_api_key=lambda: "key")
+model_settings = types.SimpleNamespace(model_for=lambda role: {"main": config.biobot_model, "light": config.light_functions_model}[role])
 
 
 def load_module(name, filename, dependencies):
@@ -20,10 +23,10 @@ def load_module(name, filename, dependencies):
 
 
 questionnaire = load_module("tested_questionnaire", "questionnaire.py", {
-    "config": config, "openai": types.SimpleNamespace(OpenAI=Mock()),
+    "config": config, "model_settings": model_settings, "openai": types.SimpleNamespace(OpenAI=Mock()),
 })
 engine = load_module("tested_engine", "engine.py", {
-    "config": config, "openai": types.SimpleNamespace(OpenAI=Mock()), "questionnaire": questionnaire,
+    "config": config, "model_settings": model_settings, "openai": types.SimpleNamespace(OpenAI=Mock()), "questionnaire": questionnaire,
 })
 
 
@@ -222,6 +225,14 @@ class DispatchTests(unittest.TestCase):
             self.assertTrue(next(reply).startswith(engine.RAG_STATUS_PREFIX))
             with self.assertRaisesRegex(RuntimeError, "timed out"):
                 list(reply)
+
+    def test_feasibility_rejection_is_a_failed_text_response(self):
+        process = Mock(stdout=iter(['FAILED_CODE:Documented constraint prevents this operation.\n']), returncode=0)
+        with patch.object(engine, 'check_sufficient_info', return_value=None), \
+             patch.object(engine.subprocess, 'Popen', return_value=process):
+            reply = ''.join(engine.process_user_query('Generate the protocol', [], 'model', api_key='key'))
+        self.assertIn('__FORMAT__:text', reply)
+        self.assertIn('__FAILED_CODE__:Documented constraint', reply)
 
     def test_status_only_success_is_not_a_valid_answer(self):
         process = Mock(stdout=iter(["STEP:Preparing...\n"]), returncode=0)

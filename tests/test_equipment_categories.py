@@ -41,3 +41,9 @@ class EquipmentCategoryTests(unittest.TestCase):
         self.assertEqual(profile['categories'],['Liquid handling'])
         profile=require_discovered_categories({'categories':['Custom instrument family'], 'features':['Pipetting']})
         self.assertEqual(profile['categories'],['Custom instrument family','Liquid handling'])
+
+    def test_operating_sensor_detection_is_not_an_analytical_capability(self):
+        profile = {'features': ['Pipetting', 'Liquid level detection', 'Tip presence detection', 'Collision detection']}
+        self.assertEqual(categories_for(profile), ['Liquid handling'])
+        self.assertIn('Analysis & detection', categories_for({'features': ['Analyte detection']}))
+        self.assertIn('Analysis & detection', categories_for({'features': ['Fluorescence detection']}))

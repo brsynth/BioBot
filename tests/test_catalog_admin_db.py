@@ -26,6 +26,10 @@ class CatalogAdminTests(unittest.TestCase):
         import config, device_catalog, admin_console, deck_library, app
         self.config, self.catalog, self.admin, self.library, self.server = config, device_catalog, admin_console, deck_library, app
         self.connect = config.get_db_connection
+        # Installation credentials must never influence or appear in test failures.
+        for module in (config, device_catalog, app):
+            p = patch.object(module, 'get_api_key', return_value='test-only')
+            p.start(); self.addCleanup(p.stop)
         self.schema = 'test_catalog_' + uuid.uuid4().hex
         conn = self.connect()
         with conn, conn.cursor() as cursor:
@@ -135,6 +139,18 @@ class CatalogAdminTests(unittest.TestCase):
             self.assertEqual(self.catalog.catalog_status()['counts']['ready'], 1)
             self.catalog._bootstrap('test-key')
             self.assertEqual(discover.call_count, 2)
+
+    def test_saved_device_validation_does_not_wait_for_documentation(self):
+        from concurrent.futures import Future
+        key = self.queue()
+        self.catalog._integrate(key, 'test-key')
+        future = Future()  # Documentation is still preparing when validation returns.
+        with patch('documentation_index.preload_documentation', return_value=future) as preload:
+            response = self.client.post('/devices/validate', json={'device':PROFILE['name']})
+        self.assertEqual(response.status_code, 200, response.get_json())
+        self.assertEqual(response.get_json()['device_id'], PROFILE['device_id'])
+        self.assertFalse(future.done())
+        preload.assert_called_once()
 
     def test_device_api_returns_pending_then_same_completed_model(self):
         with patch.object(self.server, 'dispatch_device', return_value={'name':PROFILE['name'],'device_id':PROFILE['device_id']}), patch.object(self.catalog, 'resume_device'):
@@ -631,10 +647,11 @@ class CatalogAdminTests(unittest.TestCase):
         self.assertEqual(response.status_code,200)
         self.assertEqual(response.headers['Cache-Control'],'no-store')
         rows=response.get_json();self.assertEqual(len(rows),1)
-        self.assertEqual(set(rows[0]),{'key','name','categories','status','manufacturer','model'})
+        self.assertEqual(set(rows[0]),{'key','name','categories','status','manufacturer','model','search_terms'})
         self.assertEqual(rows[0]['categories'],['Analysis & detection'])
         self.assertEqual(rows[0]['key'],key)
         self.assertEqual(rows[0]['status'],'ready')
+        self.assertIn('measurement',rows[0]['search_terms'])
         with self.client.session_transaction() as session:session.clear()
         self.assertEqual(self.client.get('/devices/equipment').status_code,403)
 
@@ -670,3 +687,224 @@ class CatalogAdminTests(unittest.TestCase):
             if scope:profile.update(model_scope=scope,family_models=['Maker Model7','Maker Model7T'])
             with patch.object(self.catalog,'OpenAI'),patch.object(self.catalog,'_answer',return_value=profile):
                 with self.assertRaises(ValueError):self.discover_profile('Maker family','test-key')
+
+    def test_catalog_transfer_physics_is_exposed_to_new_and_cached_protocol_decks(self):
+        profile=copy.deepcopy(PROFILE)
+        profile['features']=['Acoustic droplet ejection']
+        profile['constraints'][0]['name']='Drop transfer resolution'
+        profile['constraints'][0]['source']='manufacturer manual'
+        self.profile.return_value=profile
+        self.ready()
+        state=self.library.get_device_deck(PROFILE['name'],1,'test-key')
+        self.assertEqual(state['_transfer_physics']['droplet_volume_nl'],2.5)
+        code='{"device":"Maker Model7","program":[{"device_op":{"name":"read"}}]}'
+        for _ in range(2):
+            state=self.library.get_deck(code,1,'test-key')
+            self.assertEqual(state['_transfer_physics']['droplet_volume_nl'],2.5)
+
+    def test_landing_keeps_saved_layout_and_categories_after_discovery_failure(self):
+        key=self.ready()
+        conn=self.connection()
+        with conn,conn.cursor() as cursor:
+            cursor.execute("UPDATE device_catalog_jobs SET status='failed',reset_layout=TRUE,error='Interrupted' WHERE lookup_key=%s",(key,))
+        conn.close()
+        self.login(2)
+        with patch('handlers.load_handlers_config',return_value={PROFILE['device_id']:copy.deepcopy(PROFILE)}):
+            rows=self.client.get('/devices/equipment').get_json()
+        self.assertEqual(len(rows),1)
+        self.assertEqual(rows[0]['status'],'local')
+        self.assertEqual(rows[0]['categories'],['Analysis & detection'])
+        self.assertEqual(rows[0]['name'],PROFILE['name'])
+
+    def test_series_clarification_prefers_saved_models_without_registering_the_family(self):
+        from engine import DeviceIncomplete
+        from psycopg2.extras import Json
+        conn=self.connection()
+        with conn,conn.cursor() as cursor:
+            for model in ('10','20'):
+                name='Maker SeriesA '+model
+                cursor.execute('INSERT INTO deck_templates (id,device_id,device_name,name,is_default,layout) VALUES (%s,%s,%s,%s,TRUE,%s)',
+                               (str(uuid.uuid4()),'maker_seriesa_'+model,name,name,Json(LAYOUT)))
+        conn.close()
+        with patch.object(self.server,'_deck_request_context',return_value=('test-key',None)), \
+             patch.object(self.server,'dispatch_device',side_effect=DeviceIncomplete('Specify the exact model.','SeriesA')), \
+             patch('engine.list_device_models') as online, patch('device_series.series_choices',return_value=[]), \
+             patch.object(self.catalog,'request_device') as register:
+            response=self.client.post('/devices/validate',json={'device':'SeriesA'})
+        self.assertEqual(response.status_code,200,response.get_json())
+        data=response.get_json()
+        self.assertEqual(data['scope'],'series')
+        self.assertEqual(data['query'],'SeriesA')
+        self.assertEqual(data['options'],['Maker SeriesA 10','Maker SeriesA 20'])
+        self.assertEqual(data['options_source'],'saved')
+        online.assert_not_called()
+        register.assert_not_called()
+
+    def test_unknown_series_preserves_query_and_labels_online_choices_without_registering_them(self):
+        from engine import DeviceIncomplete
+        with patch.object(self.server,'_deck_request_context',return_value=('test-key',None)), \
+             patch.object(self.server,'dispatch_device',side_effect=DeviceIncomplete('Specify the exact model.','SeriesA')), \
+             patch('engine.list_device_models',return_value=['Maker SeriesA 10']) as online, \
+             patch('device_series.series_choices',return_value=[]), patch.object(self.catalog,'request_device') as register:
+            data=self.client.post('/devices/validate',json={'device':'SeriesA'}).get_json()
+        online.assert_called_once_with('SeriesA','test-key')
+        self.assertEqual(data['scope'],'series')
+        self.assertEqual(data['options_source'],'online')
+        register.assert_not_called()
+
+
+    def test_series_choices_are_navigation_metadata_and_do_not_create_physical_devices(self):
+        from engine import DeviceIncomplete
+        group={'kind':'series','name':'Maker A Series','programming_interface':'Shared API','protocol_format':'Transfer schema',
+               'members':[{'kind':'model','name':'Maker A10'},{'kind':'model','name':'Maker A10T Plus'}]}
+        with patch.object(self.server,'_deck_request_context',return_value=('test-key',None)), \
+             patch.object(self.server,'dispatch_device',side_effect=DeviceIncomplete('Specify the exact model.','Maker A')), \
+             patch('device_series.series_choices',return_value=[group]) as groups, \
+             patch.object(self.catalog,'request_device') as register:
+            response=self.client.post('/devices/validate',json={'device':'Maker A'})
+        self.assertEqual(response.status_code,200,response.get_json())
+        self.assertEqual(response.get_json()['choices'],[group])
+        self.assertEqual(response.get_json()['options'],['Maker A10','Maker A10T Plus'])
+        self.assertEqual(groups.call_args.args[0],'Maker A')
+        register.assert_not_called()
+        conn=self.connection()
+        with conn,conn.cursor() as cursor:
+            cursor.execute('SELECT COUNT(*) FROM deck_templates')
+            self.assertEqual(cursor.fetchone()[0],0)
+        conn.close()
+
+    def test_discovered_family_returns_model_choices_without_creating_a_deck_or_retrying(self):
+        key = self.queue('Maker A Family')
+        self.profile.side_effect = self.catalog.DeviceFamily('Maker A Family', ['A10', 'A20'])
+        self.catalog._integrate(key, 'test-key')
+        with patch.object(self.catalog, 'resume_device') as resume:
+            response = self.client.post('/devices/validate', json={'device':'Maker A Family'})
+        data = response.get_json()
+        self.assertTrue(data['incomplete'], data)
+        self.assertEqual(data['options'], ['Maker A Family A10', 'Maker A Family A20'])
+        self.assertEqual(self.catalog.job_status(key)['options'], data['options'])
+        resume.assert_not_called()
+        self.geometry.assert_not_called()
+        suggestions = self.client.get('/devices/equipment?series=1').get_json()
+        self.assertEqual(suggestions[0]['kind'], 'family')
+        self.assertEqual([member['name'] for member in suggestions[0]['members']], data['options'])
+
+    def test_legacy_family_error_becomes_choices_without_online_rediscovery(self):
+        key = self.queue('Maker Old Family')
+        conn = self.connection()
+        with conn, conn.cursor() as cursor:
+            cursor.execute("UPDATE device_catalog_jobs SET status='failed',error=%s WHERE lookup_key=%s",
+                           (self.catalog.FAMILY_MESSAGE + ': X10, X20', key))
+        conn.close()
+        with patch.object(self.catalog, 'resume_device') as resume:
+            data = self.client.post('/devices/validate', json={'device':'Maker Old Family'}).get_json()
+        self.assertTrue(data['incomplete'], data)
+        self.assertEqual(data['options'], ['Maker Old Family X10','Maker Old Family X20'])
+        resume.assert_not_called()
+        self.profile.assert_not_called()
+
+    def test_description_discovery_offers_cross_manufacturer_models_without_registering(self):
+        from engine import DeviceIncomplete
+        with patch.object(self.server,'_deck_request_context',return_value=('test-key',None)), \
+             patch.object(self.server,'dispatch_device',side_effect=DeviceIncomplete('Choose a model.','plate reader','description')), \
+             patch('engine.list_device_models',return_value=['Maker A10','Other B20']) as discover, \
+             patch('device_series.series_choices') as groups, patch.object(self.catalog,'request_device') as register:
+            response=self.client.post('/devices/validate',json={'device':'plate reader'})
+        self.assertEqual(response.status_code,200,response.get_json())
+        self.assertEqual(response.get_json()['options'],['Maker A10','Other B20'])
+        discover.assert_called_once_with('plate reader','test-key',scope='description')
+        groups.assert_not_called()
+        register.assert_not_called()
+
+    def test_combined_prompt_retains_protocol_intent_with_a_cached_device(self):
+        self.ready()
+        prompt = 'Dilute DNA using Maker Model7'
+        with patch.object(self.server,'_deck_request_context',return_value=('test-key',None)), \
+             patch.object(self.server,'dispatch_device',return_value={'name':PROFILE['name'],
+                          'device_id':PROFILE['device_id'],'has_protocol_request':True}) as dispatch, \
+             patch('documentation_index.preload_documentation'):
+            result = self.client.post('/devices/validate',json={'device':PROFILE['name'],'prompt':prompt})
+        self.assertEqual(result.status_code, 200)
+        self.assertTrue(result.json['has_protocol_request'])
+        self.assertEqual(result.json['name'], PROFILE['name'])
+        self.assertEqual(dispatch.call_args.args[0], prompt)
+
+    def test_device_preparation_is_private_history_and_reopens_the_same_chat(self):
+        with patch.object(self.server,'_deck_request_context',return_value=('test-key',None)), \
+             patch.object(self.server,'dispatch_device',return_value={'name':PROFILE['name'],'device_id':PROFILE['device_id']}), \
+             patch.object(self.catalog,'resume_device'):
+            first=self.client.post('/devices/validate',json={'device':PROFILE['name']}).get_json()
+            second=self.client.post('/devices/validate',json={'device':PROFILE['name']}).get_json()
+        self.assertEqual(first['chat_id'],second['chat_id'])
+        history=self.client.get('/chats').get_json()
+        self.assertEqual(len(history),1)
+        self.assertEqual(history[0]['chat_id'],first['chat_id'])
+        self.assertEqual(history[0]['preparation']['status'],'running')
+        self.assertIsNone(history[0]['run'])  # This is device preparation, not a prompt to replay.
+        self.client.post('/chat/'+first['chat_id']+'/read')
+        self.assertFalse(self.client.get('/chats').get_json()[0]['preparation']['seen'])
+        self.login(2)
+        self.assertEqual(self.client.get('/chats').get_json(),[])
+        self.assertEqual(self.client.get('/chat/'+first['chat_id']).status_code,404)
+        self.login(1)
+        self.catalog._integrate(first['catalog_job'],'test-key')
+        history=self.client.get('/chats').get_json()
+        self.assertEqual(history[0]['preparation']['status'],'done')
+        self.assertFalse(history[0]['preparation']['seen'])
+        self.client.post('/chat/'+first['chat_id']+'/read')
+        self.assertTrue(self.client.get('/chats').get_json()[0]['preparation']['seen'])
+        with patch.object(self.server,'_deck_request_context',return_value=('test-key',None)), patch('documentation_index.preload_documentation'):
+            opened=self.client.post('/chat/'+first['chat_id']+'/device',json={'device':PROFILE['name']})
+        self.assertEqual(opened.status_code,200,opened.get_json())
+        self.assertEqual(opened.get_json()['platform'],PROFILE['name'])
+        self.assertIsNone(self.client.get('/chats').get_json()[0]['preparation'])
+
+    def test_failed_preparation_stays_in_history_with_an_error(self):
+        with patch.object(self.server,'_deck_request_context',return_value=('test-key',None)), \
+             patch.object(self.server,'dispatch_device',return_value={'name':PROFILE['name'],'device_id':PROFILE['device_id']}), \
+             patch.object(self.catalog,'resume_device'):
+            result=self.client.post('/devices/validate',json={'device':PROFILE['name']}).get_json()
+        self.profile.side_effect=ValueError('Could not verify this device.')
+        self.catalog._integrate(result['catalog_job'],'test-key')
+        history=self.client.get('/chats').get_json()
+        self.assertEqual(history[0]['chat_id'],result['chat_id'])
+        self.assertEqual(history[0]['preparation']['status'],'error')
+
+    def test_device_verification_retries_transient_provider_overload(self):
+        import httpx, json
+        from openai import OpenAI
+        calls=[]
+        profile={**copy.deepcopy(PROFILE),'model_scope':'exact_model'}
+        def respond(request):
+            calls.append(request)
+            if len(calls)==1:
+                return httpx.Response(503,headers={'retry-after':'0.01'},json={'error':{'message':'Overloaded','type':'service_unavailable_error','code':'server_is_overloaded'}})
+            return httpx.Response(200,json={'id':'response-test','object':'response','created_at':0,'model':'test-model',
+                'output':[{'type':'message','id':'message-test','role':'assistant','status':'completed',
+                           'content':[{'type':'output_text','text':json.dumps(profile),'annotations':[]}]}]})
+        with httpx.Client(transport=httpx.MockTransport(respond)) as http:
+            with patch.object(self.catalog,'OpenAI',side_effect=lambda **kwargs:OpenAI(**kwargs,http_client=http)):
+                result=self.discover_profile(PROFILE['name'],'test-key')
+        self.assertEqual(len(calls),2)
+        self.assertEqual(result['name'],PROFILE['name'])
+
+    def test_provider_overload_is_reported_instead_of_generic_interruption(self):
+        import httpx
+        from openai import InternalServerError
+        key=self.queue()
+        self.profile.side_effect=InternalServerError('Overloaded',response=httpx.Response(503,request=httpx.Request('POST','https://api.openai.com/v1/responses')),body={'code':'server_is_overloaded'})
+        self.catalog._integrate(key,'test-key')
+        result=self.catalog.job_status(key)
+        self.assertEqual(result['status'],'failed')
+        self.assertIn('HTTP 503',result['error'])
+        self.assertIn('Saved progress is kept',result['error'])
+
+    def test_protocol_submission_reuses_the_device_preparation_chat(self):
+        with patch.object(self.server,'_deck_request_context',return_value=('test-key',None)), \
+             patch.object(self.server,'dispatch_device',return_value={'name':PROFILE['name'],'device_id':PROFILE['device_id']}), \
+             patch.object(self.catalog,'resume_device'):
+            preparing=self.client.post('/devices/validate',json={'device':PROFILE['name']}).get_json()
+            opened=self.client.post('/chat',json={'device':PROFILE['name'],'prepare_device':True})
+        self.assertEqual(opened.status_code,201,opened.get_json())
+        self.assertEqual(opened.get_json()['chat_id'],preparing['chat_id'])
+        self.assertEqual(len(self.client.get('/chats').get_json()),1)

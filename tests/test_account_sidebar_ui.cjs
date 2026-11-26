@@ -20,7 +20,7 @@ function setup({fail=false,brokenMetadata=false}={}) {
   const list=new Element(),oldRow=new Element();oldRow.dataset.chatId='previous';list.appendChild(oldRow);
   const context=vm.createContext({document:{getElementById:get,createElement:()=>new Element()},chatListElem:list,showingTrash:false,currentChatId:'chat-0',chatJobs:new Map(),
     fetch:async()=>({ok:!fail,json:async()=>chats}),window:{workspace:{rememberChat(){if(brokenMetadata)throw Error('optional metadata failed');},refreshTrash(){}}},
-    resumeChatRun(){},syncChatActivity(){},selectChatListItem(){},loadChatHistory(){},trashChat(){},restoreChat(){},alert(){},console:{error(){}}});
+    setTimeout(){return 1;},clearTimeout(){},resumeChatRun(){},syncChatActivity(){},selectChatListItem(){},loadChatHistory(){},trashChat(){},restoreChat(){},alert(){},console:{error(){}}});
   vm.runInContext(listCode+accessCode,context);
   return {context,get,list,oldRow,chats};
 }

@@ -19,6 +19,8 @@ spec = importlib.util.spec_from_file_location('discovered_visualizer', ROOT / 'b
 visualizer = importlib.util.module_from_spec(spec)
 with patch.dict(sys.modules, {
     'config': types.SimpleNamespace(get_api_key=lambda: 'key', biobot_model='test', light_functions_model='light'),
+
+    'model_settings': types.SimpleNamespace(model_for=lambda role: {'main': 'test', 'light': 'light'}.get(role, 'doc-model')),
     'openai': types.SimpleNamespace(OpenAI=Mock()),
 }):
     spec.loader.exec_module(visualizer)

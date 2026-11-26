@@ -5,14 +5,15 @@ const vm = require('node:vm');
 const source = fs.readFileSync(`${__dirname}/../biobot/static/admin_console.js`, 'utf8');
 const tick = () => new Promise(setImmediate);
 
-function setup({users = [{id:1,first_name:'First',email:'admin@example.test',admin_status:'approved'}], devices = []} = {}) {
+function setup({users = [{id:1,first_name:'First',email:'admin@example.test',admin_status:'approved'}], devices = [], models = null} = {}) {
   class Element {
     constructor(tag='div') {this.tagName=tag;this.children=[];this.events={};this.attributes={};this.value='';this.dataset={};this.textContent='';
       this.classList={toggle(){}};}
     append(...nodes) {for(const node of nodes)this.appendChild(node);}
-    appendChild(node) {node.remove();this.children.push(node);node.parentElement=this;}
+    appendChild(node) {node.remove();this.children.push(node);node.parentElement=this;if(this.tagName==='select'&&node.selected)this.value=node.value;}
     replaceChildren(...nodes) {for(const child of this.children)child.parentElement=null;this.children=[];this.append(...nodes);}
     remove() {if(this.parentElement){const parent=this.parentElement;parent.children.splice(parent.children.indexOf(this),1);this.parentElement=null;}}
+    reportValidity() {return true;}
     contains(node) {return this===node || this.children.some(child=>child.contains(node));}
     addEventListener(name,fn) {this.events[name]=fn;}
     setAttribute(key,value) {this.attributes[key]=value;}
@@ -23,12 +24,27 @@ function setup({users = [{id:1,first_name:'First',email:'admin@example.test',adm
   get('admin-panel-devices').append(get('admin-devices'),get('admin-device-deck'));
   const timers=new Map(), calls=[];
   let serial=0;
-  const state={devices};
-  const context=vm.createContext({document:{getElementById:get,createElement:tag=>new Element(tag)},window:{},AbortController,
+  const state={devices,models,modelError:false};
+  const context=vm.createContext({document:{getElementById:get,createElement:tag=>new Element(tag),body:{dataset:{userId:'1'}}},window:{},AbortController,
+    Option:class extends Element {constructor(text,value,defaultSelected,selected){super('option');this.textContent=text;this.value=value;this.selected=selected;}},
     setTimeout:fn=>{timers.set(++serial,fn);return serial;},clearTimeout:id=>timers.delete(id),
     fetch:async(url,options)=>{
       calls.push({url,options});
-      const data=url==='/admin/users' ? users : state.devices;
+      let data=url==='/admin/users' ? users : state.devices;
+      if (/^\/admin\/users\/\d+$/.test(url) && options.method === 'PATCH') {
+        Object.assign(users.find(user => String(user.id) === url.split('/').at(-1)), JSON.parse(options.body));
+        data = {ok:true};
+      }
+      if(url==='/admin/models') {
+        if(options.method==='PATCH'&&!state.modelError) {
+          const body=JSON.parse(options.body);
+          for(const role of state.models.roles) {
+            if(body[role.role]) role.model=body[role.role];
+            if(body.updates?.[role.role]) role.auto_update=body.updates[role.role];
+          }
+        }
+        data=state.modelError ? {error:'Unable to save model settings'} : state.models;
+      }
       if(data==='pending') return new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')),{once:true}));
       return {ok:!data.error,json:async()=>data};
     }});
@@ -256,4 +272,72 @@ test('only search and category choices filter the list while deck toggles leave 
   assert.equal(w.get('admin-devices').children.length,2);
   category().children[0].events.click();
   assert.equal(w.get('admin-devices').children.length,3);
+});
+
+test('model update policies show per task and persist independently of manual selection',async()=>{
+  const w=setup({models:{roles:[
+    {role:'documentation',label:'Documentation model',detail:'Finding documentation',model:'gpt-6.2-sol',default:'gpt-6.2-sol',model_class:'sol',auto_update:'off'},
+    {role:'light',label:'Light model',detail:'Classification',model:'gpt-4o-mini',default:'gpt-4o-mini',model_class:'mini',auto_update:'off'}
+  ],catalog:{models:[]}}});
+  w.context.window.adminConsole.selectTab('models');
+  await tick();
+  const find=(node,label)=>node.attributes['aria-label']===label ? node : node.children.map(child=>find(child,label)).find(Boolean);
+  let policy=find(w.get('admin-models'),'Documentation model automatic updates');
+  assert.equal(policy.value,'off');
+  assert.deepEqual(policy.children.map(option=>option.value),['off','cheaper','always']);
+  assert.match(w.text(w.get('admin-models')),/Model class: sol/);
+  policy.value='cheaper';
+  await policy.events.change();
+  const request=w.calls.find(call=>call.options.method==='PATCH');
+  assert.deepEqual(JSON.parse(request.options.body),{updates:{documentation:'cheaper'}});
+  assert.equal(find(w.get('admin-models'),'Documentation model automatic updates').value,'cheaper');
+  assert.equal(find(w.get('admin-models'),'Light model automatic updates').value,'off');
+  assert.equal(w.state.models.roles[0].model,'gpt-6.2-sol');
+  policy=find(w.get('admin-models'),'Documentation model automatic updates');
+  w.state.modelError=true;
+  policy.value='always';
+  await policy.events.change();
+  assert.equal(policy.value,'cheaper');
+  assert.match(w.get('admin-feedback').textContent,/Unable to save/);
+});
+
+test('model dropdowns put newer releases first without pinning the selected model or default',async()=>{
+  const w=setup({models:{roles:[{role:'main',label:'Main model',model:'gpt-5.4',default:'gpt-4o-mini'}],catalog:{models:[
+    {id:'gpt-5.4',released_at:'2026-03-05'},
+    {id:'gpt-5.4-mini',released_at:'2026-03-17'},
+    {id:'gpt-6.2-sol',released_at:'2026-10-01'},
+    {id:'gpt-4o-mini',released_at:'2024-07-18'},
+    {id:'gpt-9-sol'},{id:'gpt-10-sol'}
+  ]}}});
+  w.context.window.adminConsole.selectTab('models');await tick();
+  const row=w.get('admin-models').children.find(child=>child.children[0]?.textContent==='Main model');
+  const select=row.children.find(child=>child.attributes['aria-label']==='Main model model');
+  assert.deepEqual(select.children.map(option=>option.value),[
+    'gpt-6.2-sol','gpt-5.4-mini','gpt-5.4','gpt-4o-mini','gpt-10-sol','gpt-9-sol'
+  ]);
+  assert.equal(select.value,'gpt-5.4');
+});
+
+test('Users tab saves separate zero and unlimited daily allowances', async () => {
+  const users = [{id:1, first_name:'First', email:'first@example.test', daily_api_limit:0.5},
+    {id:2, first_name:'Second', email:'second@example.test', daily_api_limit:null}];
+  const w = setup({users});
+  await w.context.window.adminConsole.open();
+  const flatten = root => [root, ...root.children.flatMap(flatten)];
+  for (const [index, unlimited, expected] of [[0,false,0], [1,true,null]]) {
+    const row = w.get('admin-users').children[index];
+    await flatten(row).find(item => item.textContent === 'Edit user').events.click();
+    const controls = flatten(row);
+    const amount = controls.find(item => item.type === 'number');
+    const checkbox = controls.find(item => item.attributes['aria-label'] === 'Unlimited daily allowance');
+    amount.value = '0'; checkbox.checked = unlimited; checkbox.events.change();
+    assert.equal(amount.disabled, unlimited);
+    await controls.find(item => item.textContent === 'Save changes').events.click();
+    const call = w.calls.filter(call => call.url === `/admin/users/${index+1}` && call.options.method === 'PATCH').at(-1);
+    assert.equal(JSON.parse(call.options.body).daily_api_limit, expected);
+  }
+  assert.equal(users[0].daily_api_limit, 0);
+  assert.equal(users[1].daily_api_limit, null);
+  assert.match(w.text(w.get('admin-users')), /Unlimited/);
+  assert.doesNotMatch(w.text(w.get('admin-models')), /Daily allowance/);
 });

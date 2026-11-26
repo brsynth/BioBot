@@ -1,0 +1,49 @@
+      <div class="deck-panel-header">
+        <div class="workbench-identity"><div id="deck-device-name" class="workbench-model">Device workspace</div>
+        <div id="deck-name" class="deck-name">
+          <h3 id="deck-heading">Your deck</h3>
+          <button id="deck-name-rename" type="button" class="rename-chat-btn" aria-label="Rename" title="Rename" disabled><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></button>
+          <button id="deck-name-trash" type="button" class="delete-chat-btn" aria-label="Move to Trash" title="Move to Trash" disabled><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+        </div>
+        </div>
+        <div id="deck-playback-host" aria-label="Protocol playback"></div>
+      <div id="code-actions" class="code-actions">
+        <button id="protocol-download-btn" type="button" class="workspace-button primary" disabled>Generate code</button>
+        <div class="export-progress">
+          <span id="export-spinner" class="export-spinner" role="status" aria-label="Generating device code" hidden></span>
+          <span id="export-step" class="export-step" hidden></span>
+        </div>
+        <button id="export-revert" type="button" class="code-action-icon" aria-label="Go back to the protocol of the last generated code" title="Go back to the protocol of the last generated code" hidden><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg></button>
+        <a id="export-download" class="code-action-icon is-disabled" aria-disabled="true" aria-label="Download code" title="Download code"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 17v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg></a>
+        <button id="export-copy" type="button" class="code-action-icon" aria-label="Copy code" title="Copy code" disabled><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg></button>
+        <button id="export-save" type="button" class="code-action-icon" aria-label="Save as protocol" title="Save as protocol" disabled><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h11l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M7 3v5h8V3M7 21v-7h10v7"/></svg></button>
+      </div>
+        <div id="deck-apply-bar" class="deck-apply-bar">
+          <button type="button" class="apply-bar-discard" id="deck-discard-btn" disabled>Discard</button>
+          <button type="button" class="apply-bar-apply" id="deck-apply-btn" disabled>Ready</button>
+        </div>
+      <div id="deck-history" class="deck-history" hidden>
+        <button type="button" id="deck-undo" class="code-action-icon" aria-label="Undo edit" title="Undo (⌘/Ctrl+Z)" disabled><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
+        <button type="button" id="deck-redo" class="code-action-icon" aria-label="Redo edit" title="Redo (⇧⌘/Ctrl+Shift+Z)" disabled><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 14 5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/></svg></button>
+      </div>
+        <div class="deck-panel-actions">
+      <button id="inspector-toggle" type="button" class="code-action-icon" aria-label="Show inspector" title="Inspector" aria-expanded="false" aria-controls="deck-inspector"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M15 3v18"/></svg></button>
+      <button id="protocol-view-download" type="button" class="code-action-icon" aria-label="Download protocol" title="Download protocol" hidden><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M4 17v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg></button>
+      <button id="protocol-view-copy" type="button" class="code-action-icon" aria-label="Copy protocol" title="Copy protocol" hidden><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg></button>
+      <button id="protocol-edit-chat-btn" type="button" class="workspace-button primary" hidden>Edit in new chat</button>
+      <details class="layout-library-menu" hidden>
+        <summary>Device layout library</summary>
+        <section id="deck-library-panel" aria-label="Device layout library"></section>
+      </details>
+      <details id="protocol-actions" class="protocol-actions" hidden>
+        <summary aria-label="Share" title="Share: copy, export or save the protocol">
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 10H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-2"/><path d="M12 15V3M8 7l4-4 4 4"/></svg>
+        </summary>
+        <div class="protocol-actions-menu">
+          <button id="protocol-copy-btn" type="button" disabled>Copy</button>
+          <button id="protocol-save-btn" type="button" disabled>Save as protocol</button>
+        </div>
+      </details>
+        </div>
+
+      </div>

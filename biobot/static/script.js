@@ -18,6 +18,7 @@ let chatLoadVersion = 0;
 let autoScrollEnabled = true;
 
 window.syncChatActivity = syncChatActivity;
+document.addEventListener("visibilitychange", () => syncChatActivity());
 function syncChatActivity() {
   const job = chatJobs.get(currentChatId);
   isTyping = job?.status === "running";
@@ -27,11 +28,29 @@ function syncChatActivity() {
   const stopBtn = document.getElementById("stop-btn");
   if (stopBtn) stopBtn.hidden = !isTyping;  // stop is offered while this chat is answering
   window.workspace?.syncActions();
+  const visible = document.visibilityState !== "hidden"
+    && !document.body?.classList.contains?.("landing") && !window.workspace?.readOnly
+    && !document.getElementById("chat-panel")?.classList.contains?.("chat-collapsed");
+  if (visible && job && ["done", "error"].includes(job.status) && !job.seen) {
+    job.seen = true;
+    fetch(`/chat/${currentChatId}/read`, {method:"POST"}).catch(console.error);
+  }
+  const history = syncChatActivity.history || new Map([...chatListElem.children].map(row=>[row.dataset.chatId,{status:row.dataset.runStatus}]));
+  let unread = 0;
+  for (const [id, saved] of history) {
+    const activity = chatJobs.get(id) || saved;
+    if (["done", "error"].includes(activity.status) && !activity.seen && !(visible && id === currentChatId)) unread++;
+  }
+  const badge = document.getElementById("history-unread-count");
+  if (badge) {badge.hidden = !unread; badge.textContent = unread > 99 ? "99+" : String(unread);}
+  const label = unread ? `History and saved protocols, ${unread} unread ${unread === 1 ? "result" : "results"}` : "History and saved protocols";
+  document.getElementById("sidebar-toggle")?.setAttribute("aria-label", label);
+  document.getElementById("sidebar-toggle")?.setAttribute("title", label);
   for (const row of chatListElem.children) {
     row.querySelector(".chat-status")?.remove();
     let activity = chatJobs.get(row.dataset.chatId) || {status:row.dataset.runStatus};
     if (activity?.status !== "running" && window.exportingChats?.has(row.dataset.chatId)) activity = {status:"exporting"};
-    if (!activity?.status || activity.status === "read") continue;
+    if (!activity?.status || activity.status === "read" || activity.seen) continue;
     const dot = document.createElement("span");
     dot.className = `chat-status ${activity.status}`;
     const label = {running:"In progress", done:"Finished", error:"An issue occurred", exporting:"Generating code"}[activity.status];
@@ -144,6 +163,13 @@ if (sidebarToggle) {
 if (sidebarOverlay) {
   sidebarOverlay.addEventListener("click", closeSidebar);
 }
+
+document.addEventListener("keydown", event => {
+  if (event.key === "Escape" && sidebar.classList.contains("open")) {
+    closeSidebar();
+    sidebarToggle?.focus();
+  }
+});
 
 const sidebarCollapseBtn = document.getElementById("sidebar-collapse-btn");
 function setSidebarCollapsed(collapsed) {
@@ -630,7 +656,8 @@ function renderChatMessages(messages, target = chatHistoryElem) {
             botDiv.appendChild(textP);
           }
           // The code block itself
-          botDiv.appendChild(buildDeckLink(match[2]));
+          if (match[1].toLowerCase() === "text") botDiv.appendChild(document.createTextNode(match[2]));
+          else botDiv.appendChild(buildDeckLink(match[2]));
           lastIndex = codeBlockRegex.lastIndex;
         }
 
@@ -701,6 +728,7 @@ async function loadChatHistory(chatId) {
     fetch(`/chat/${chatId}/read`, {method:"POST"}).catch(console.error);
     const row = Array.from(chatListElem.children).find(row=>row.dataset.chatId === chatId);
     if (row) row.dataset.runStatus = "read";
+    syncChatActivity.history?.set(chatId, {status:"read", seen:true});
   }
   syncChatActivity();
   if (job) {
@@ -744,6 +772,7 @@ async function trashChat(chatId, row) {
   try {
     const response = await fetch(`/chat/${chatId}`, { method: "DELETE" });
     if (!response.ok) throw new Error("Could not move the conversation to Trash.");
+    syncChatActivity.history?.delete(chatId);
     if (chatId === currentChatId) {
       chatRequestController?.abort();
       await chatRequestDone;
@@ -796,12 +825,15 @@ async function refreshChatList() {
   }
   if (trashView !== showingTrash) return [];
   const rows = [];
+  if (!trashView) syncChatActivity.history = new Map(chatList.map(chat=>[chat.chat_id,
+    {status:(chat.run || chat.preparation)?.status || "read", seen:!!(chat.run || chat.preparation)?.seen}]));
 
   for (const chat of chatList) {
     if (!trashView && chat.run?.status === "running") resumeChatRun(chat);
     const li = document.createElement("li");
     li.dataset.chatId = chat.chat_id;
-    li.dataset.runStatus = chat.run && !chat.run.seen ? chat.run.status : "read";
+    const activity=chat.run || chat.preparation;
+    li.dataset.runStatus = activity && !activity.seen ? activity.status : "read";
 
     const nameSpan = document.createElement("span");
     nameSpan.className = "chat-name";
@@ -917,6 +949,10 @@ async function refreshChatList() {
   syncChatActivity();
   selectChatListItem(currentChatId);
   window.workspace?.refreshTrash();
+  clearTimeout(refreshChatList.preparationTimer);
+  if (!trashView && chatList.some(chat=>chat.preparation?.status === "running")) {
+    refreshChatList.preparationTimer = setTimeout(() => refreshChatList(), 3000);
+  }
   return chatList;
 }
 
@@ -1058,7 +1094,7 @@ async function sendMessage(edit = {}) {
   let isRagResponse = false;
   let finalRagCode = null;
   let replyBuffer = "";
-  let replyMode = null;
+  let replyMode = null, replyFormat = null;
 
   try {
     const res = await fetch(`/chat/${chatId}/stream`, edit.resume ? {signal:requestController.signal} : {
@@ -1096,6 +1132,10 @@ async function sendMessage(edit = {}) {
 
     for await (const part of readChatReply(res.body)) {
       if (part.type === "status") {
+        if (part.content.startsWith("__FORMAT__:")) {
+          replyFormat = part.content.slice("__FORMAT__:".length);
+          continue;
+        }
         if (part.content.startsWith("__DEVICE__:")) {
           const device = part.content.slice("__DEVICE__:".length);
           window.preloadHardwareCatalog?.(device);
@@ -1133,7 +1173,8 @@ async function sendMessage(edit = {}) {
         const markers = ["__QUESTIONS__:", "__FAILED_CODE__:"];
         if (markers.some(marker => marker.startsWith(replyBuffer) && marker !== replyBuffer)) continue;
         replyMode = replyBuffer.startsWith(markers[0]) ? "questions"
-          : replyBuffer.startsWith(markers[1]) ? "failed" : isRagResponse ? "code" : "text";
+          : replyBuffer.startsWith(markers[1]) ? "failed"
+          : replyFormat ? (replyFormat === "text" ? "text" : "code") : isRagResponse ? "code" : "text";
       }
       if (replyMode === "text") {
         appendChunkToBotMessage(botDiv, replyBuffer);
@@ -1172,7 +1213,13 @@ async function sendMessage(edit = {}) {
     if (currentChatId === chatId && finalRagCode && window.parseDeckFromCode) {
       const links = botDiv.querySelectorAll(".protocol-deck-link");
       const link = links.length ? links[links.length - 1] : null;
-      window.parseDeckFromCode(finalRagCode, link);
+      const deck = await window.parseDeckFromCode(finalRagCode, link);
+      if (deck === false) throw new Error("The protocol was generated, but its deck could not be loaded. Use Retry in the workspace.");
+    }
+    if (replyMode === "code" && job.status !== "error") {
+      const confirmation = document.createElement("p");
+      confirmation.textContent = "Your protocol, deck and playback are ready.";
+      botDiv.appendChild(confirmation);
     }
     await refreshChatList();
     if (requestController.signal.aborted) return;
@@ -1206,7 +1253,7 @@ document.getElementById("stop-btn")?.addEventListener("click", async () => {
   try { await fetch(`/chat/${currentChatId}/stop`, {method: "POST"}); } catch (_) {}
 });
 userInputElem.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.shiftKey) {
+  if (e.key === "Enter" && !e.isComposing && (!e.shiftKey || document.body.classList.contains("landing"))) {
     e.preventDefault();
     sendMessage();
   }

@@ -6,6 +6,8 @@ import time
 import os
 import json
 import secrets
+from contextvars import copy_context
+from api_budget import BudgetError, set_user, reset_user
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 
@@ -14,7 +16,8 @@ import psycopg2.extras
 import psycopg2.errors
 
 from engine import process_user_query, dispatch_device, DeviceIncomplete
-from config import get_api_key, get_db_connection, biobot_model, get_flask_secret_key
+from config import get_api_key, get_db_connection, get_flask_secret_key
+from model_settings import model_for
 from crypt import generate_salt, derive_key, encrypt, decrypt
 from handlers import detect_handler, load_handlers_config
 
@@ -47,6 +50,25 @@ def check_session_version():
     if not user or session.get("session_version", 0) != user["session_version"]:
         session.clear()
         return jsonify({"error": "Your account was reset. Please sign in again."}), 401
+
+
+@app.before_request
+def api_budget_context():
+    from flask import g
+    g.api_budget_token = set_user(session.get('user'))
+
+
+@app.teardown_request
+def clear_api_budget_context(error):
+    from flask import g
+    token = g.pop('api_budget_token', None)
+    if token is not None:
+        reset_user(token)
+
+
+@app.errorhandler(BudgetError)
+def api_budget_error(error):
+    return jsonify({'error': str(error)}), 429
 
 
 # ---------------------
@@ -194,7 +216,7 @@ def register():
         email = request.form["email"]
         raw_password = request.form["password"]
         password = generate_password_hash(raw_password)
-        api_key = request.form.get("api_key", "").strip() or get_api_key(required=False)
+        api_key = request.form.get("api_key", "").strip()
         role = request.form.get("role", "")
         country = request.form.get("country", "")
         salt = generate_salt()
@@ -399,11 +421,9 @@ def reset_password(token):
         conn = get_db_connection()
         new_hash = generate_password_hash(new_password)
 
-        # Re-encrypt the default API key with the new password
+        # Personal credentials are cleared on reset; shared access is resolved server-side.
         new_salt = generate_salt()
-        new_enc_key = derive_key(new_password, new_salt)
-        default_api_key = get_api_key(required=False)
-        encrypted_default = encrypt(default_api_key, new_enc_key)
+        encrypted_default = None
 
         execute(conn,
             "UPDATE users SET password = %s, api_key = %s, encryption_salt = %s WHERE id = %s",
@@ -634,6 +654,48 @@ def admin_reset_device_database():
         return jsonify({'error': str(error)}), 400
 
 
+@app.route("/admin/models", methods=["GET", "PATCH"])
+def admin_models():
+    """OpenAI models per role, their prices and the installation-wide API key (never returned)."""
+    import model_settings
+    if request.method == "PATCH":
+        actor, error = _admin_write()
+        if error:
+            return error
+        data = request.get_json(silent=True) or {}
+        try:
+            if "system_api_key" in data:
+                model_settings.set_system_api_key(data.pop("system_api_key"), actor)
+            if data:
+                model_settings.set_models(data, actor)
+        except ValueError as error:
+            return jsonify({"error": str(error)}), 400
+        return jsonify(model_settings.settings())
+    actor = _admin_or_403()
+    if not actor:
+        return jsonify({"error": "Admins only"}), 403
+    return jsonify(model_settings.settings())
+
+
+@app.route("/admin/models/refresh", methods=["POST"])
+def admin_models_refresh():
+    """List available OpenAI models and their official prices now (otherwise done daily)."""
+    actor, error = _admin_write()
+    if error:
+        return error
+    import model_settings
+    try:
+        api_key, _ = _deck_request_context({}, actor)
+        key = api_key or get_api_key(required=False)
+        if not key:
+            return jsonify({"error": "Add an OpenAI API key first."}), 400
+        model_settings.refresh_catalog(key, force=True)
+        return jsonify(model_settings.settings())
+    except Exception as error:
+        app.logger.exception("OpenAI model catalog refresh failed")
+        return jsonify({"error": f"Could not refresh the OpenAI models and prices ({type(error).__name__}: {str(error)[:200]}). Please retry."}), 502
+
+
 @app.route("/admin/requests", methods=["GET"])
 def admin_requests():
     if not _admin_or_403():
@@ -752,6 +814,17 @@ def create_chat():
         return jsonify({"error": "Invalid device."}), 400
     device = device.strip()
 
+    if data.get('prepare_device') is True and device:
+        from device_catalog import request_device
+        try:
+            api_key, _ = _deck_request_context({}, user_id)
+            result = request_device(device, api_key)
+            if result.get('incomplete'):
+                return jsonify({'error': 'Choose an exact physical model before describing the protocol.'}), 400
+            return jsonify({'chat_id': _track_device_preparation(user_id, result)}), 201
+        except ValueError as error:
+            return jsonify({'error': str(error)}), 400
+
     conn = None
     try:
         conn = get_db_connection()
@@ -847,7 +920,7 @@ def chat(chat_id):
     messages = [{"role": r["role"], "content": decrypt_message(r["content"])} for r in rows]
 
     # call your engine
-    bot_reply = process_user_query(user_message, messages, biobot_model, api_key=user_api_key)
+    bot_reply = process_user_query(user_message, messages, model_for("main"), api_key=user_api_key)
 
     # save bot response (encrypted)
     conn = None
@@ -881,10 +954,39 @@ def chat(chat_id):
 
     return jsonify({"reply": bot_reply})
 
+def recover_interrupted_chat_runs(user_id):
+    """A live task holds its run lock, including while it waits for documentation or the API."""
+    conn = get_db_connection()
+    message = 'Preparation was interrupted by a server restart. Regenerate your prompt to continue; saved device preparation is kept.'
+    try:
+        with conn:
+            runs = fetchall_dict(conn, """SELECT chat_id,id::text,message_id,output FROM chat_runs
+                WHERE user_id=%s AND status='running' AND updated_at < NOW()-INTERVAL '30 seconds'""", (user_id,))
+            for run in runs:
+                lock = fetchone_dict(conn, 'SELECT pg_try_advisory_xact_lock(hashtextextended(%s,0)) AS acquired',
+                                     ('chat-run:' + run['id'],))
+                if not lock['acquired']:
+                    continue
+                changed = execute(conn, """UPDATE chat_runs SET status='error',seen=FALSE,output=%s,updated_at=NOW()
+                    WHERE chat_id=%s AND id=%s AND status='running' RETURNING chat_id""",
+                    (encrypt_message((decrypt_message(run['output']) or '') + '\n__FAILED_CODE__:' + message),
+                     run['chat_id'],run['id']), returning=True)
+                if changed and run['message_id']:
+                    execute(conn, """INSERT INTO chat_history(user_id,chat_id,role,content,created_at)
+                        SELECT %s,%s,'assistant',%s,NOW() WHERE NOT EXISTS
+                        (SELECT 1 FROM chat_history WHERE user_id=%s AND chat_id=%s AND role='assistant' AND id>%s)""",
+                        (user_id,run['chat_id'],encrypt_message(message),user_id,run['chat_id'],run['message_id']))
+    finally:
+        conn.close()
+
+
 def chat_run_response(chat_id, user_id, run_id, message_id):
     def replay():
-        offset = 0
+        offset, checked = 0, 0
         while True:
+            if time.monotonic() - checked > 5:
+                recover_interrupted_chat_runs(user_id)
+                checked = time.monotonic()
             conn = get_db_connection()
             try:
                 run = fetchone_dict(conn, "SELECT output, status FROM chat_runs WHERE chat_id = %s AND user_id = %s AND id = %s", (chat_id, user_id, run_id))
@@ -929,6 +1031,10 @@ def mark_chat_read(chat_id):
     conn = get_db_connection()
     try:
         execute(conn, "UPDATE chat_runs SET seen = TRUE WHERE chat_id = %s AND user_id = %s AND status <> 'running'", (chat_id, user_id), commit=True)
+        execute(conn, """UPDATE chat_names c SET device_job_seen=TRUE WHERE c.chat_id=%s AND c.user_id=%s
+                        AND EXISTS (SELECT 1 FROM device_catalog_jobs j LEFT JOIN device_catalog_jobs canonical
+                          ON canonical.lookup_key=j.canonical_key WHERE j.lookup_key=c.device_job
+                          AND COALESCE(canonical.status,j.status) IN ('ready','failed'))""", (chat_id,user_id),commit=True)
     finally:
         conn.close()
     return jsonify({"success": True})
@@ -966,6 +1072,7 @@ def chat_stream(chat_id):
         session.clear()
         return jsonify({"error": "Your session has expired. Please log in again."}), 401
 
+    recover_interrupted_chat_runs(user_id)
     conn = None
     try:
         conn = get_db_connection()
@@ -980,6 +1087,7 @@ def chat_stream(chat_id):
 
         user = fetchone_dict(conn, "SELECT api_key FROM users WHERE id = %s", (user_id,))
         user_api_key = decrypt_text(user["api_key"]) if user and user.get("api_key") else None
+        user_api_key = user_api_key or get_api_key(required=False)
         if not user_api_key or not user_api_key.startswith("sk-"):
             return jsonify({"error": "Please add a valid OpenAI API key in Settings."}), 400
 
@@ -991,12 +1099,13 @@ def chat_stream(chat_id):
             ON CONFLICT (chat_id) DO UPDATE SET id = EXCLUDED.id, message_id = NULL, status = 'running', output = '', seen = FALSE, updated_at = NOW()""", (chat_id, run_id, user_id))
 
         # A chat's device is locked: set once, never overwritten by what the page sends.
-        stored = fetchone_dict(conn, "SELECT device_name FROM chat_names WHERE chat_id = %s AND user_id = %s", (chat_id, user_id))
+        stored = fetchone_dict(conn, "SELECT device_name,device_job FROM chat_names WHERE chat_id = %s AND user_id = %s", (chat_id, user_id))
         if stored and stored["device_name"]:
             device = stored["device_name"]
         elif device:
             execute(conn, "UPDATE chat_names SET device_name = %s WHERE chat_id = %s AND user_id = %s AND device_name IS NULL", (device, chat_id, user_id))
-        if device:
+        preparing_device_job = stored.get("device_job") if stored else None
+        if device and not preparing_device_job:
             # Each request on a device also checks online for new or changed documentation (background, next requests benefit).
             from documentation_index import preload_documentation
             preload_documentation(device, user_api_key)
@@ -1061,24 +1170,41 @@ def chat_stream(chat_id):
         messages.insert(max(0, len(messages) - 1), {"role": "assistant", "content": f"The device for this chat is locked to: {device}. Work only for this device."})
     if deck_layout is not None:
         import json
-        messages.insert(max(0, len(messages) - 1), {"role": "assistant", "content": "The user selected this physical deck configuration. Preserve its hardware and positions when generating the protocol: " + json.dumps(deck_layout)})
+        messages.insert(max(0, len(messages) - 1), {"role": "assistant", "content": "The user selected this physical deck configuration. Preserve its hardware and positions when generating the protocol. Coordinates describe displayed loading positions, not internal operating geometry: " + json.dumps(deck_layout)})
 
     # ---- STREAM RESPONSE ----
     def generate():
         full_reply = ""
-        is_rag = False
         detected_format = "text"
 
         from engine import RAG_STATUS_PREFIX, FAILED_CODE_MARKER, FORMAT_MARKER
         
         try:
-            result = process_user_query(user_message, messages, biobot_model, api_key=user_api_key, debug=debug_logs,
+            if preparing_device_job:
+                from device_catalog import request_device, job_status
+                entry = request_device(device, user_api_key)
+                while entry['status'] != 'ready':
+                    if entry.get('incomplete'):
+                        raise ValueError('Choose an exact physical model for this protocol.')
+                    if entry['status'] == 'failed':
+                        raise ValueError(entry.get('error') or 'Could not prepare the selected device.')
+                    yield "__STATUS__:" + entry.get('message', 'Preparing your device workspace…') + "\n"
+                    if stop.is_set():
+                        raise RuntimeError('Stopped by the user.')
+                    time.sleep(1)
+                    entry = job_status(entry['catalog_job'])
+                ready_conn = get_db_connection()
+                try:
+                    execute(ready_conn, "UPDATE chat_names SET device_job=NULL,device_job_seen=TRUE WHERE chat_id=%s AND user_id=%s",
+                            (chat_id,user_id),commit=True)
+                finally:
+                    ready_conn.close()
+            result = process_user_query(user_message, messages, model_for("main"), api_key=user_api_key, debug=debug_logs,
                                         device=device or _chat_device({"chat_id": chat_id}, user_id), run_key=chat_id)
             if result is None:
                 raise RuntimeError("Couldn't process your request. Please try again.")
             for chunk in result:
                 if chunk.startswith(RAG_STATUS_PREFIX):
-                    is_rag = True
                     status_text = chunk[len(RAG_STATUS_PREFIX):]
                     yield "__STATUS__:" + status_text + " " * 256 + "\n"
                     continue
@@ -1091,16 +1217,35 @@ def chat_stream(chat_id):
                         chunk = rest[newline_idx + 1:]
                     else:
                         detected_format = rest.strip()
+                        chunk = ""
+                    yield "__STATUS__:__FORMAT__:" + detected_format + "\n"
+                    if not chunk:
                         continue
                 full_reply += chunk
-                yield chunk
+                # Protocol output is delivered only after its deck and playback are persisted.
+                if detected_format == "text":
+                    yield chunk
             if not full_reply.strip():
                 raise RuntimeError("No answer was returned. Please retry your request.")
+            if detected_format != "text":
+                if not full_reply.startswith(FAILED_CODE_MARKER):
+                    yield "__STATUS__:Preparing deck and playback…\n"
+                    import re
+                    from deck_library import get_deck
+                    fenced = re.fullmatch(r"```[^\n]*\n([\s\S]*?)\n?```\s*", full_reply.strip())
+                    code = fenced[1] if fenced else full_reply
+                    state = get_deck(code, user_id, user_api_key, messages, refresh_parameters=True,
+                                     device_name=device or _chat_device({"chat_id": chat_id}, user_id))
+                    if state.get("_parameters_pending") or state.get("_playback_pending"):
+                        raise RuntimeError("The deck is still being prepared. Please retry your request.")
+                yield full_reply
         except Exception as e:
             import sys
             print(f"Stream error: {e}", file=sys.stderr, flush=True)
             error_msg = str(e).lower()
-            if "auth" in error_msg or "api key" in error_msg or "401" in error_msg or "403" in error_msg:
+            if isinstance(e, BudgetError) or "allowance" in error_msg:
+                reply = str(e)
+            elif "auth" in error_msg or "api key" in error_msg or "401" in error_msg or "403" in error_msg:
                 reply = "Your API key appears to be invalid or expired. Please update it in Settings."
             elif "credit_balance_exhausted" in error_msg:
                 reply = "Your OpenAI API account has no credits remaining. Add credits in OpenAI billing, or use another API key in Settings."
@@ -1116,7 +1261,6 @@ def chat_stream(chat_id):
                 reply = f"An error occurred: {str(e)}"
             # A failed generation is a chat answer too: show it and keep it in history.
             full_reply = FAILED_CODE_MARKER + reply
-            is_rag = False
             detected_format = "text"
             yield full_reply
 
@@ -1143,16 +1287,13 @@ def chat_stream(chat_id):
                     # Content already has markdown fences — save as-is
                     save_content = full_reply
 
-                elif is_rag:
-                    # RAG output without fences — always wrap as code
-                    fmt = detected_format
-                    save_content = f"```{fmt}\n" + full_reply + "\n```"
-
                 elif detected_format != "text":
-                    # Non-RAG output with detected format — wrap it
+                    # Only an explicit code format makes the result a protocol file
                     save_content = f"```{detected_format}\n" + full_reply + "\n```"
 
                 # else: normal text (general/out response) — save as-is
+                if detected_format != "text" and not full_reply.startswith(FAILED_CODE_MARKER):
+                    save_content = "Your protocol, deck and playback are ready.\n\n" + save_content
 
             # Encrypt before saving (using server key — survives password resets)
             encrypted_content = encrypt_message(save_content)
@@ -1216,7 +1357,10 @@ def chat_stream(chat_id):
                 conn.close()
         with app.app_context():
             chunks = generate()
+            owner = None
             try:
+                owner = get_db_connection()
+                execute(owner, "SELECT pg_advisory_lock(hashtextextended(%s,0))", ("chat-run:" + run_id,), commit=True)
                 for chunk in chunks:
                     if stop.is_set():  # stopped by the user: discard the rest
                         output += "__FAILED_CODE__:Stopped by the user."
@@ -1233,12 +1377,16 @@ def chat_stream(chat_id):
                 output += "__FAILED_CODE__:The response could not be saved. Please retry."
                 app.logger.exception("Chat task failed: %s", error)
             finally:
-                chunks.close()
-                _chat_stops.pop(chat_id, None)
-                save(status)
+                try:
+                    chunks.close()
+                    _chat_stops.pop(chat_id, None)
+                    save(status)
+                finally:
+                    if owner is not None:
+                        owner.close()
     from threading import Thread, Event
     stop = _chat_stops[chat_id] = Event()
-    Thread(target=run_task, name=f"chat-{chat_id}", daemon=False).start()
+    Thread(target=copy_context().run, args=(run_task,), name=f"chat-{chat_id}", daemon=False).start()
     return chat_run_response(chat_id, user_id, run_id, message_id)
 
 
@@ -1329,18 +1477,24 @@ def list_chats():
     user_id = session.get("user")
     if not user_id:
         return jsonify({"error": "Not logged in"}), 403
+    recover_interrupted_chat_runs(user_id)
     predicate = "IS NOT NULL" if request.args.get("trashed") == "1" else "IS NULL"
     conn = get_db_connection()
     try:
-        rows = fetchall_dict(conn, f"""SELECT chat_id, name, device_name, deleted_at,
-            EXISTS (SELECT 1 FROM chat_history h WHERE h.chat_id = chat_names.chat_id AND h.role = 'user') AS has_messages
-            FROM chat_names WHERE user_id = %s AND deleted_at {predicate}
-            ORDER BY (SELECT MAX(id) FROM chat_history WHERE chat_id = chat_names.chat_id) DESC NULLS LAST""", (user_id,))
+        rows = fetchall_dict(conn, f"""SELECT c.chat_id, c.name, c.device_name, c.deleted_at, c.device_job, c.device_job_seen,
+            COALESCE(canonical.status,j.status) AS preparation_status,
+            EXISTS (SELECT 1 FROM chat_history h WHERE h.chat_id = c.chat_id AND h.role = 'user') AS has_messages
+            FROM chat_names c LEFT JOIN device_catalog_jobs j ON j.lookup_key=c.device_job
+            LEFT JOIN device_catalog_jobs canonical ON canonical.lookup_key=j.canonical_key
+            WHERE c.user_id = %s AND c.deleted_at {predicate}
+            ORDER BY (SELECT MAX(id) FROM chat_history WHERE chat_id = c.chat_id) DESC NULLS LAST""", (user_id,))
         runs = {row["chat_id"]: row for row in fetchall_dict(conn,
             "SELECT chat_id, id::text, message_id, status, seen FROM chat_runs WHERE user_id = %s", (user_id,))}
     finally:
         conn.close()
     return jsonify([{"chat_id": row["chat_id"], "name": decrypt_message(row["name"]), "device": row["device_name"], "run": runs.get(row["chat_id"]),
+                     "preparation": {"job": row['device_job'], "seen": row['device_job_seen'],
+                         "status": 'done' if row['preparation_status']=='ready' else 'running' if row['preparation_status'] in {'queued','building'} else 'error'} if row['device_job'] else None,
                      "has_messages": row["has_messages"], "deleted_at": row["deleted_at"].isoformat() if row["deleted_at"] else None} for row in rows])
 
 
@@ -1392,6 +1546,8 @@ def get_user_profile():
 
     user_dict = dict(user)
     user_dict["api_key"] = decrypt_text(user_dict.get("api_key", ""))
+    if user_dict["api_key"] == get_api_key(required=False):
+        user_dict["api_key"] = ""  # older accounts may contain a copy of the installation key
     user_dict["is_admin"] = is_admin(user_dict)
     response = jsonify(user_dict)
     response.headers["Cache-Control"] = "no-store"
@@ -1570,14 +1726,55 @@ def used_devices():
 def available_equipment():
     if not session.get('user'):
         return jsonify({'error': 'Not logged in'}), 403
-    from admin_console import devices
-    rows = [{'key': row['key'], 'name': row['device_name'],
-             'categories': row['categories'] or ['Other equipment'], 'status': row['status'],
-             'manufacturer': row['identity'].get('manufacturer', ''), 'model': row['identity'].get('model', '')}
-            for row in devices() if row['device_id'] and row['status'] == 'ready']
+    from admin_console import devices, _local_profile
+    from equipment_categories import categories_for
+    from handlers import load_handlers_config
+    profiles, rows = load_handlers_config(), []
+    for row in devices():
+        if row.get('clarification'):
+            rows.append({'key': row['key'], 'name': row['device_name'], 'status': 'local', 'kind': 'family',
+                         'members': [{'kind': 'model', 'name': name} for name in row['clarification']['options']]})
+            continue
+        if not row['device_id'] or (row['status'] != 'ready' and not row.get('has_layout')):
+            continue
+        # A failed refresh does not erase a saved shared workspace or its last known metadata.
+        previous = _local_profile(row['device_id'], profiles) if row.get('has_layout') else {}
+        identity = row['identity'] or previous.get('identity') or {}
+        rows.append({'key': row['key'], 'name': row['device_name'],
+                     'categories': row['categories'] or categories_for(previous) or ['Other equipment'],
+                     'status': 'ready' if row['status'] == 'ready' else 'local',
+                     'manufacturer': identity.get('manufacturer', ''), 'model': identity.get('model', ''),
+                     'search_terms': [value for field in ('features', 'search_terms')
+                         for value in (row.get(field) if isinstance(row.get(field), list) else []) if isinstance(value, str)]})
+    if request.args.get('series') == '1':
+        from device_series import suggestion_choices
+        rows = suggestion_choices(rows)
     response = jsonify(rows)
     response.headers['Cache-Control'] = 'no-store'
     return response
+
+
+def _track_device_preparation(user_id, result):
+    """Attach a shared device job to a private, reopenable chat immediately."""
+    conn = get_db_connection()
+    try:
+        with conn:
+            execute(conn, "SELECT pg_advisory_xact_lock(hashtextextended(%s,0))",
+                    (f"device-preparation:{user_id}:{result['catalog_job']}",))
+            previous = fetchone_dict(conn, "SELECT chat_id FROM chat_names WHERE user_id=%s AND device_job=%s AND deleted_at IS NULL",
+                                     (user_id, result['catalog_job']))
+            if previous:
+                return previous['chat_id']
+            chat_id = str(uuid.uuid4())
+            execute(conn, "INSERT INTO chat_names(chat_id,user_id,name,device_name,device_job) VALUES (%s,%s,%s,%s,%s)",
+                    (chat_id,user_id,encrypt_message('New chat'),result['name'],result['catalog_job']))
+            for role, content in [('system', SYSTEM_PROMPT['content']),
+                                  ('assistant', "Hello, I'm Biobot 🤖 — your assistant specialized in lab automation.\nSelected device: " + result['name'])]:
+                execute(conn, "INSERT INTO chat_history(user_id,chat_id,role,content) VALUES (%s,%s,%s,%s)",
+                        (user_id,chat_id,role,encrypt_message(content)))
+            return chat_id
+    finally:
+        conn.close()
 
 
 @app.route("/devices/validate", methods=["POST"])
@@ -1585,30 +1782,54 @@ def validate_device():
     user_id = session.get("user")
     if not user_id:
         return jsonify({"error": "Not logged in"}), 403
-    name = (request.get_json(silent=True) or {}).get("device")
-    if not isinstance(name, str) or not 1 <= len(name.strip()) <= 200:
+    data = request.get_json(silent=True) or {}
+    name = data.get("device")
+    prompt = data.get("prompt", name)
+    if (not isinstance(name, str) or not 1 <= len(name.strip()) <= 20000
+            or not isinstance(prompt, str) or not 1 <= len(prompt.strip()) <= 20000):
         return jsonify({"error": "Enter a biology device name and model."}), 400
     try:
         api_key, _ = _deck_request_context({}, user_id)
         conn = get_db_connection()
         try:
-            known = fetchall_dict(conn, "SELECT DISTINCT device_id, device_name AS name FROM deck_templates")
+            known = fetchall_dict(conn, "SELECT device_id, device_name AS name FROM deck_templates WHERE is_default ORDER BY device_name")
         finally:
             conn.close()
         from device_catalog import find_device, request_device
         cached = find_device(name.strip())
-        if cached:
+        has_protocol_request = False
+        if cached and prompt.strip() == name.strip():
             selected_name = cached["requested_name"]
         else:
-            selected_name = dispatch_device(name.strip(), [dict(row) for row in known], api_key)["name"]
-        result = request_device(selected_name, api_key)
+            choice = dispatch_device(prompt.strip(), [dict(row) for row in known], api_key)
+            selected_name = choice["name"]
+            has_protocol_request = choice.get("has_protocol_request") is True
+        result = {**request_device(selected_name, api_key), "has_protocol_request": has_protocol_request}
+        if result['status'] in {'queued', 'building'} and not result.get('incomplete'):
+            result['chat_id'] = _track_device_preparation(user_id, result)
         if result["status"] == "ready":
+            from documentation_index import preload_documentation
+            preload_documentation(result["name"], api_key, check_updates=False)
             session["validated_device"] = {"name": result["name"], "device_id": result["device_id"]}
         return jsonify(result), 200 if result["status"] == "ready" else 202
 
     except DeviceIncomplete as error:
-        from engine import list_device_models
-        return jsonify({"incomplete": True, "message": str(error), "options": list_device_models(error.query, api_key)})
+        from engine import list_device_models, matching_device_models
+        from device_series import series_choices, model_names
+        if error.scope == "description":
+            return jsonify({"incomplete": True, "scope": error.scope, "query": error.query,
+                            "message": str(error), "options": list_device_models(error.query, api_key, scope="description"),
+                            "options_source": "online"})
+        saved = matching_device_models(error.query, [dict(row) for row in known])
+        try:
+            choices = series_choices(error.query, saved, api_key)
+        except Exception:
+            app.logger.warning("Could not discover programming series; keeping exact model choices", exc_info=True)
+            choices = []
+        options = model_names(choices) if choices else saved or list_device_models(error.query, api_key)
+        return jsonify({"incomplete": True, "scope": error.scope, "query": error.query,
+                        "message": str(error), "options": options, "choices": choices,
+                        "options_source": "saved" if saved else "online"})
     except ValueError as error:
         return jsonify({"error": str(error)}), 400
     except Exception:
@@ -1668,21 +1889,21 @@ def select_device(chat_id):
         conn = get_db_connection()
         try:
             # Store device context with the chat so future prompts need not repeat it.
-            previous = fetchone_dict(conn, "SELECT device_name FROM chat_names WHERE chat_id = %s AND user_id = %s AND deleted_at IS NULL", (chat_id, user_id))
+            previous = fetchone_dict(conn, "SELECT device_name, device_job FROM chat_names WHERE chat_id = %s AND user_id = %s AND deleted_at IS NULL", (chat_id, user_id))
             if not previous:
                 return jsonify({"error": "Chat not found"}), 404
             from deck_library import known_device
             if previous["device_name"] and not known_device([{"device_name": state["platform"]}], previous["device_name"]):
                 # The chat's device is locked: another device needs a new chat.
                 return jsonify({"error": f"This chat works with {previous['device_name']}. Start a new chat for another device."}), 400
-            if previous["device_name"] != state["platform"]:
-                execute(conn, "UPDATE chat_names SET device_name = %s WHERE chat_id = %s AND user_id = %s", (state["platform"], chat_id, user_id))
+            if previous["device_name"] != state["platform"] or previous["device_job"]:
+                execute(conn, "UPDATE chat_names SET device_name = %s, device_job=NULL, device_job_seen=TRUE WHERE chat_id = %s AND user_id = %s", (state["platform"], chat_id, user_id))
                 execute(conn, "INSERT INTO chat_history (user_id, chat_id, role, content) VALUES (%s, %s, 'assistant', %s)",
                         (user_id, chat_id, encrypt_message(f"Your {state['platform']} workspace is ready. What would you like to prepare?")), commit=True)
         finally:
             conn.close()
         from documentation_index import preload_documentation
-        preload_documentation(state["platform"], api_key)
+        preload_documentation(state["platform"], api_key, check_updates=False)
         return jsonify(state)
     except ValueError as error:
         return jsonify({"error": str(error)}), 400
@@ -1829,7 +2050,7 @@ def _run_export(key, job, protocol, api_key, history, debug=False, device=None):
     from engine import RAG_STATUS_PREFIX, FAILED_CODE_MARKER, FORMAT_MARKER
     try:
         chunks = []
-        for chunk in process_user_query(protocol, history, biobot_model, api_key=api_key, export=True, debug=debug, device=device):
+        for chunk in process_user_query(protocol, history, model_for("main"), api_key=api_key, export=True, debug=debug, device=device):
             if not chunk.startswith(RAG_STATUS_PREFIX):
                 chunks.append(chunk)
             elif chunk[len(RAG_STATUS_PREFIX):].startswith("__WARNING__:"):
@@ -1881,7 +2102,7 @@ def export_protocol():
             except ValueError as error:
                 return jsonify({"error": str(error)}), 400
             job = _exports[key] = {"state": "running", "step": "Starting…", "chat_id": data.get("chat_id")}
-            Thread(target=_run_export, args=(key, job, protocol, api_key, history, debug, _chat_device(data, user_id)), name="export", daemon=True).start()
+            Thread(target=copy_context().run, args=(_run_export, key, job, protocol, api_key, history, debug, _chat_device(data, user_id)), name="export", daemon=True).start()
         reply = {k: v for k, v in (job or {"state": "none"}).items() if k != "protocol"}
     if reply["state"] != "done" and data.get("chat_id"):
         # The chat's last generated code, so the user can go back to its protocol.
@@ -2008,7 +2229,7 @@ def deck_catalog():
 
     from deck_library import get_hardware_catalog
     try:
-        catalog = get_hardware_catalog(platform, position_type, api_key=user_api_key)
+        catalog = get_hardware_catalog(platform, position_type, api_key=user_api_key, position=data.get("position"))
         return jsonify(catalog)
     except Exception as e:
         return jsonify({"error": f"Catalog error: {str(e)}"}), 400
@@ -2149,6 +2370,8 @@ def _invalidate_rag_cache(platform):
 if os.environ.get("BIOBOT_TEST_DB") != "1":
     from device_catalog import start_catalog
     start_catalog()
+    from model_settings import start_daily_refresh
+    start_daily_refresh(lambda: get_api_key(required=False))
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)

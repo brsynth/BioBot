@@ -2,7 +2,9 @@
 import json
 import re
 from openai import OpenAI
-from config import biobot_model
+from api_budget import metered_openai
+OpenAI = metered_openai(OpenAI)
+from model_settings import model_for
 
 
 def get_openai_client(api_key):
@@ -122,7 +124,7 @@ Only return correction questions for an actual unresolved blocker. In message, e
 
     # One bounded repair covers malformed questionnaires and missing unit metadata.
     for attempt in range(2):
-        response = client.responses.create(model=biobot_model, input=messages)
+        response = client.responses.create(model=model_for("main"), input=messages)
         answer = response.output_text.strip()
         if answer == "SUFFICIENT" and (attempt == 0 or submitted):
             return None

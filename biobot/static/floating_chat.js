@@ -18,7 +18,7 @@
   function remember() {
     try {sessionStorage.setItem("biobot-floating-chat", JSON.stringify({...position, alignment:"deck-center"}));} catch (_) {}
     const chats = collapsedChats();
-    if (collapsed) chats[chatKey()] = true; else delete chats[chatKey()];
+    chats[chatKey()] = collapsed;
     try {localStorage.setItem("biobot-chat-collapsed", JSON.stringify(chats));} catch (_) {}
   }
   function place(x, y) {
@@ -34,13 +34,12 @@
   function collapse(value) {
     collapsed = value;
     panel.classList.toggle("chat-collapsed", value);
-    // Collapsed, the card is as wide as the code bar under it (Generate code and its icons).
-    const bar = document.getElementById("code-actions");
-    panel.style.width = value && bar ? `${Math.max(bar.scrollWidth, 160)}px` : "";
+    panel.style.width = value ? "210px" : "";
     toggle.setAttribute("aria-expanded", String(!value));
     toggle.setAttribute("aria-label", value ? "Expand chat" : "Collapse chat");
     requestAnimationFrame(fit);
     remember();
+    window.syncChatActivity?.();
   }
   toggle.addEventListener("click", () => collapse(!collapsed));
   handle.addEventListener("pointerdown", event => {
@@ -66,7 +65,7 @@
       if (window.workspace?.readOnly) return;
       if (panel.parentElement !== frame) frame.appendChild(panel);
       panel.classList.add("floating-chat"); document.body.classList.add("floating-chat-workspace");
-      collapse(!!collapsedChats()[chatKey()]);
+      collapse(collapsedChats()[chatKey()] ?? false);
       requestAnimationFrame(fit);
     },
     detach() {

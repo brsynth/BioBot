@@ -9,11 +9,15 @@ import types
 import unittest
 from unittest.mock import Mock, patch
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'biobot'))
+
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("tested_handlers", ROOT / "biobot/handlers.py")
 handlers = importlib.util.module_from_spec(spec)
 with patch.dict(sys.modules, {
     "config": types.SimpleNamespace(biobot_model="test-model", light_functions_model="test-model"),
+
+    "model_settings": types.SimpleNamespace(model_for=lambda role: {'main': "test-model", 'light': "test-model"}.get(role, 'doc-model')),
     "openai": types.SimpleNamespace(OpenAI=Mock()),
 }):
     spec.loader.exec_module(handlers)

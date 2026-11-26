@@ -35,8 +35,38 @@ Device brands and models are runtime knowledge, never application rules. BioBot 
 - **Resumable and shared.** PostgreSQL stores the discovery queue, profiles, features, constraints, instruction formats, source evidence and build progress. Per-device locks prevent duplicate integration across server processes. An interrupted build resumes on launch or the next authenticated request; API keys are never stored in catalog rows.
 - **Initial scope.** The initial inventory targets 50 models by default, across discovered manufacturers and applications, without a fixed list of device kinds. `BIOBOT_CATALOG_INITIAL_LIMIT` changes this initial batch size (`0` searches until no additional models are found). This is a growing catalog, not a claim to exhaustively list every instrument. Other models remain available on request. Set `BIOBOT_CATALOG_ENABLED=0` to disable the automatic inventory build while retaining on-demand discovery.
 
-### Category landing constellation
-The landing page uses available catalog categories rather than previously used devices. Floating category bubbles stay outside the title/composer area. An opened bubble expands around its original center while the other categories move aside; closing it restores their original constellation. Connected device links float around the opened bubble, with paging adjusted to the available space. Device links open the saved workspace, including when opened in a new tab. Reduced-motion preferences disable floating animation. Smaller screens gain vertical space without overlapping the composer. The signed-in catalog endpoint exposes only ready device names, keys, categories and status.
+### Device search on the landing page
+The landing page asks **On what device?** above a slim, single-line textbox.
+Typing filters all matching exact models in one dropdown at the textbox's width,
+without family drill-downs or API calls per keystroke. Search uses names and
+source-backed capability descriptions across manufacturers; Enter can discover
+additional matching physical models online. Categories do not restrict visibility.
+
+Choosing a model attaches it to the textbox as an editable device chip and changes
+the title to **What protocol would you like to prepare?** Device verification,
+workspace preparation and documentation indexing start in the background while
+the user writes. Clicking the attachment changes the device while preserving the
+protocol draft. The chat opens only when the protocol description is submitted.
+That prompt is saved immediately, and generation waits for the selected device
+if it is still preparing. A pending preparation and the resulting protocol reuse
+the same private chat rather than creating duplicates.
+
+Every physical model remains independently selectable even when documented models
+share a programming engine. Manufacturer sources must establish compatible APIs
+and protocol formats before BioBot learns a shared programming series; shared
+languages, names or file extensions alone are insufficient. Learned grouping
+metadata stays outside source control in `biobot/data/device_series.json`.
+Hardware, consumables and physical limits remain model-specific. A discovered
+family is offered as exact models instead of an error or an executable device.
+
+History and account tools open from the top-right icons. History keeps background
+preparations and shows unread completion counts, including failures. Protocol tasks
+finish only after their deck, parameters and playback are prepared and saved.
+Transient discovery and layout API failures are retried twice; failed attempts
+preserve completed work and report their cause. Chats and saved protocols use a
+single header row for the home logo, chat name, playback and actions. The inspector
+starts hidden and overlays the deck without resizing its items, the chat textbox stays on one line, and the funding note remains at
+the bottom without a divider.
 
 ### Administration
 Set `BIOBOT_ADMINS` to the server owners' comma-separated email addresses, then use the shield button in the account menu to open the dedicated `/admin` workspace. Its interface is separate from protocol chat, with Users and Devices sections. The User/Admin switch returns to the regular workspace. Approved administrators also have access.
@@ -49,6 +79,27 @@ Set `BIOBOT_ADMINS` to the server owners' comma-separated email addresses, then 
 - **RESET DB (Devices tab):** confirms a catalog-wide reset, clears learned profiles and requeues all saved device identities, then rebuilds categories, constraints, instruction profiles and shared decks from sources. Users, chats, saved protocols, personal decks and stable model aliases are preserved; existing shared decks remain available until their replacements are ready. Active discovery or editing blocks reset to prevent conflicting writes. The rebuild has live progress and is recorded in the administrator audit log. An explicit reset starts rebuilding even when automatic startup discovery is disabled.
 - **Reset from sources:** queues fresh verification, instruction discovery and default workspace generation for that device. It replaces administrator corrections after discovery succeeds, retains personal layout copies and saved protocols, and keeps the previous default geometry until the replacement is ready. Active builders cannot be edited or reset concurrently. Administrators can refresh the device list to follow progress.
 - **Runtime corrections:** saved profile changes inform future protocol generation and export. Explicit simulator formulas are carried into structured protocol validation; descriptive constraints without formulas inform generation. Administrator mutations require a session token and are recorded in `admin_audit` without passwords or API keys.
+
+### Model settings
+
+In **Administration → Models**, select the model for each task. The Documentation
+model defaults to `gpt-6.2-sol`. Existing explicit administrator selections are
+preserved. Automatic updates are off by default and can be enabled separately for
+Main, Light and Documentation:
+
+- **Off:** keep the selected model.
+- **Same price or cheaper:** choose a newer model in the same class only when
+  input, output and published cached-input rates do not increase. Equal prices
+  are eligible. Missing prices keep the current model.
+- **Regardless of price:** choose the newest eligible model in the same class.
+
+Updates run after the daily catalog refresh or **Refresh models and prices**.
+Only models available to the installation's API key and documented as stable are
+eligible. Main and Documentation require web-search support. Named model classes
+stay separate; renamed equivalents need official documentation establishing the
+same class. Automatic changes are recorded in the administrator audit log. A
+failed catalog lookup leaves selections unchanged. The price comparison uses
+Standard token rates, rather than estimating total workload or tool costs.
 
 ### Device workspaces
 - **Any programmable biology instrument.** Device discovery covers sample preparation, imaging, measurement, thermal control, cultivation, separation, fabrication and robotic manipulation; these are examples, not a fixed device list. Specify the manufacturer and physical model.
@@ -238,3 +289,5 @@ and `validation_strategy` in the runtime registry when needed. Resetting with
 `docker compose down -v` also removes downloaded documentation and the registry.
 
 ---
+
+Administrators can change the shared API key’s **daily allowance per user** in **Admin → Users → Edit user** (default **$0.50 USD**, **0** disables shared access, **Unlimited** removes the cap). It resets at **00:00 UTC**. Personal API keys and shared catalog maintenance are excluded. User requests, including background device preparation and protocol generation, reserve allowance before API calls; completed calls are charged using reported tokens and web-search fees. Search content costs are estimated before completion, so an in-flight call may exceed the remaining allowance. Interrupted calls conservatively keep their reservation for the day. Models need published prices in the admin catalog when a finite allowance applies.

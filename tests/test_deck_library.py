@@ -24,6 +24,20 @@ def layout():
 
 
 class DeckGeometryTests(unittest.TestCase):
+    def test_configurability_survives_layout_storage_and_protocol_composition(self):
+        state = layout()
+        state['positions'][0].update(fixed=True, configurable=True)
+        state['positions'][1].update(fixed=True, configurable=False)
+        state['instruments'] = [{'name':'Internal mechanism','fixed':True,'configurable':False}]
+        saved = library.clean_layout(state)
+        composed = library.compose_state(saved, {})
+        self.assertTrue(composed['positions'][0]['configurable'])
+        self.assertFalse(composed['positions'][1]['configurable'])
+        self.assertFalse(composed['instruments'][0]['configurable'])
+        state['positions'][0]['configurable'] = 'yes'
+        with self.assertRaises(ValueError):
+            library.clean_layout(state)
+
     def test_catalog_refresh_keeps_existing_options_and_enriches_matching_items(self):
         previous = {"categories": [{"name": "Plates", "items": [
             {"id": "a", "name": "Plate A", "well_count": 96},
@@ -138,6 +152,25 @@ class DeckGeometryTests(unittest.TestCase):
         for count, expected in (("384-well", 384), ("96", 96), (None, None), (100000000, None)):
             state = library.compose_state(layout(), {"plates": {"source": {"format": count}}})
             self.assertEqual(state["plates"]["source"]["format"], expected)
+
+
+class TransferPhysicsTests(unittest.TestCase):
+    def test_physics_comes_from_documented_capability_and_quantum_not_model_name(self):
+        profile={'features':['Acoustic Droplet Ejection'],'constraints':[{'name':'Drop transfer resolution','unit':'nL','multiple_of':2.5,'source':'manufacturer manual'}]}
+        self.assertEqual(library.transfer_physics(profile),{'mechanism':'acoustic_droplets','droplet_volume_nl':2.5})
+        profile['constraints'][0]['multiple_of']=25
+        self.assertEqual(library.transfer_physics(profile)['droplet_volume_nl'],25)
+        profile['features']=['Pipetting']
+        self.assertIsNone(library.transfer_physics(profile))
+
+    def test_unknown_or_conflicting_droplet_sizes_are_not_invented(self):
+        profile={'features':['acoustic droplet ejection'],'constraints':[]}
+        self.assertNotIn('droplet_volume_nl',library.transfer_physics(profile))
+        profile['constraints']=[{'name':'Drop resolution','multiple_of':2.5,'unit':'nL'}]
+        self.assertNotIn('droplet_volume_nl',library.transfer_physics(profile))
+        profile['constraints'][0]['source']='manual'
+        profile['constraints'].append({**profile['constraints'][0],'multiple_of':25})
+        self.assertNotIn('droplet_volume_nl',library.transfer_physics(profile))
 
 
 if __name__ == "__main__":

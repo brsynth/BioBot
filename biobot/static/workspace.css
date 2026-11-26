@@ -65,8 +65,8 @@
 .bench-plate { fill:var(--protocol-soft); stroke:var(--protocol-accent); stroke-width:1.7; }
 .bench-head { fill:var(--chat-soft); stroke:currentColor; stroke-width:2; }
 .bench-drop { fill:var(--warm-accent); opacity:0; }
-.is-analyzing .bench-carriage { animation:bench-pipette 1.8s ease-in-out infinite; }
-.is-analyzing .bench-drop { animation:bench-droplet 1.8s ease-in-out infinite; }
+.is-analyzing .bench-carriage { animation:bench-pipette 5.4s ease-in-out infinite; }
+.is-analyzing .bench-drop { animation:bench-droplet 5.4s ease-in-out infinite; }
 @keyframes bench-pipette { 0%,25%,100% {transform:translateX(-12px)} 12% {transform:translate(-12px,5px)} 40%,65% {transform:translateX(12px)} 50% {transform:translate(12px,5px)} }
 @keyframes bench-droplet { 0%,42%,80%,100% {opacity:0;transform:translate(12px,0)} 52% {opacity:1;transform:translate(12px,0)} 73% {opacity:0;transform:translate(12px,10px)} }
 .workspace-app .new-chat-btn { border:1px solid var(--accent); background:var(--accent); color:var(--text-on-accent); border-radius:14px; margin-bottom:20px; font-weight:600; }
@@ -572,3 +572,7 @@ body:not(.landing) .device-bubbles {display:none}
 .recent-chat-count {font-size:11px;opacity:.7;margin-left:4px}
 .refresh-chats-btn {margin-left:auto;border:0;background:transparent;color:inherit;font:18px/1 var(--font-sans);cursor:pointer;padding:2px 6px;border-radius:5px}
 .refresh-chats-btn:hover {background:var(--chat-soft)}
+
+.workspace-app .anim-tip-overlay.anim-droplet-stream {display:block;width:0;height:0;transform:none;transition:none}
+.anim-droplet-stream .droplet {position:absolute;width:7px;height:7px;border-radius:50%;opacity:0;box-shadow:0 0 5px #7058bb50}
+.anim-droplet-summary {display:block;flex-basis:100%;font-size:12px;color:var(--text-secondary);margin-top:4px}

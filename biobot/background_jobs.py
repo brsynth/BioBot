@@ -4,6 +4,7 @@ Unlike ThreadPoolExecutor, these workers do not register an interpreter-exit
 join. Web-worker reloads can finish while interrupted catalog/documentation jobs
 are recovered from their existing durable state by the next worker.
 """
+from contextvars import copy_context
 from concurrent.futures import Future
 from queue import Queue
 from threading import Lock, Thread
@@ -30,7 +31,7 @@ class BackgroundExecutor:
                     worker = Thread(target=self._work, name=f'{self._prefix}-{index}', daemon=True)
                     self._threads.append(worker)
                     worker.start()
-            self._queue.put((future, function, args, kwargs))
+            self._queue.put((future, copy_context(), function, args, kwargs))
         return future
 
     def _work(self):
@@ -39,11 +40,11 @@ class BackgroundExecutor:
             try:
                 if item is None:
                     return
-                future, function, args, kwargs = item
+                future, context, function, args, kwargs = item
                 if not future.set_running_or_notify_cancel():
                     continue
                 try:
-                    result = function(*args, **kwargs)
+                    result = context.run(function, *args, **kwargs)
                 except BaseException as error:
                     future.set_exception(error)
                 else:

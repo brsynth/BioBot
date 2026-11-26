@@ -7,7 +7,7 @@ const questions = fs.readFileSync(`${__dirname}/../biobot/static/questions_rende
 const quantityParser = questions.slice(questions.indexOf('function parseQuestionQuantity('), questions.indexOf('// Numeric relationships'));
 
 function element(tag) {
-  const node = { tag, children: [], dataset: {}, style: {}, attributes: {}, events: {}, className: '',
+  const node = { tag, children: [], dataset: {}, style: { setProperty(name, value) { this[name] = value; } }, attributes: {}, events: {}, className: '',
     appendChild(child) { this.children.push(child); },
     append(...children) { this.children.push(...children); },
     setAttribute(name, value) { this.attributes[name] = value; },
@@ -88,7 +88,7 @@ test('saved protocols keep parameters and hardware fixed while their playback re
   const nodes={'protocol-parameters':panel,'protocol-parameter-fields':fields};
   w.context.document.getElementById=id=>nodes[id] || null;
   w.context.state.parameters=[{id:'volume',label:'Volume',value:'10 µL'}];
-  w.context.state.instruments=[{name:'Pipette',model:'instrument_model'}];
+  w.context.state.instruments=[{name:'Pipette',model:'instrument_model',configurable:true}];
   vm.runInContext('_renderApplyBar=function(){}; _validateProtocolParameters=function(){};',w.context);
   w.context._renderProtocolParameters(w.context.state);
   assert.equal(fields.querySelector('input').readOnly,true);
@@ -96,7 +96,7 @@ test('saved protocols keep parameters and hardware fixed while their playback re
   const area=element('div');
   w.context._bindDeckArea(area,'a',{labware:'plate'});
   assert.equal(area.draggable,undefined);
-  assert.deepEqual(Object.keys(area.events),[]);
+  assert.deepEqual(Object.keys(area.events),['mousemove','mouseleave']);
   const before=JSON.stringify(w.context.state);
   w.context._moveDeckArea('a','b');
   w.context._applyChange('a','other plate','plate');
@@ -329,7 +329,8 @@ test('cached decks refresh playback and parameters without losing pending edits'
   const parameters = new Promise(resolve=>finishParameters=resolve);
   w.context.fetch = async (url, options) => ({ok:true,json:async()=>JSON.parse(options.body).refresh_parameters
     ? await parameters : cached});
-  await w.context.parseDeckFromCode('protocol');
+  const opening=w.context.parseDeckFromCode('protocol');
+  await new Promise(setImmediate);
   assert.equal(w.context.rendered, cached);
   assert.equal(cached._parameters_pending, true);
   vm.runInContext('_pendingChanges = [{type:"set_parameter",parameter_id:"amount",label:"Amount",new_value:"20 µL",old_value:"10 µL"}];', w.context);
@@ -339,7 +340,7 @@ test('cached decks refresh playback and parameters without losing pending edits'
   ]).flat();
   cached.positions[0].labware='custom';
   finishParameters({...cached,positions:[{id:'a',labware:'custom',well_count:20,well_rows:4,well_columns:5}],steps,initial_wells:[{slot:'a',well:'A1',occupied:true}],parameters:[{id:'amount',label:'Amount',value:'10 µL'}]});
-  await new Promise(setImmediate);
+  await opening;
   assert.equal(cached.parameters[0].value, '20 µL');
   assert.equal(vm.runInContext('_originalState.parameters[0].value', w.context), '10 µL');
   assert.equal(cached._parameters_pending, false);
@@ -579,13 +580,14 @@ test('linear carrier positions show the same plate visuals on first display', ()
   assert.equal(slot.dataset.id, 'carrier_0');
 });
 
-test('deck hardware has permanent labels and no hover tooltip handlers', () => {
+test('filled deck positions show only the item; details are a hover tooltip', () => {
   const w = setup();
   for (const type of ['plate', 'tiprack', 'tuberack', 'reservoir', 'module', 'trash', 'empty']) {
     const slot = w.context._createSlot({ id: 'a', type, labware: type === 'empty' ? null : '96_well_plate', labware_display: 'Sample plate' });
-    assert.equal(slot.events.pointerenter, undefined, type);
-    assert.equal(slot.events.focus, undefined, type);
-    if (type !== 'empty') assert.equal(slot.children.find(child => child.className === 'slot-labware-name').textContent, 'Sample plate');
+    assert.equal(slot.children.some(child => child.className === 'slot-labware-name'), false, type);
+    if (type === 'empty') { assert.equal(slot.events.mousemove, undefined); continue; }
+    assert.equal(typeof slot.events.mousemove, 'function', type);
+    assert.match(slot.dataset.tip, /Position a[\s\S]*Sample plate/, type);
   }
 });
 
@@ -1022,21 +1024,27 @@ test('fullscreen shows the current protocol below the deck and restores the norm
   assert.equal(button.attributes['aria-pressed'], 'false');
 });
 
-test('discovered workspaces render physical coordinates and shapes without selecting a device context', () => {
+test('discovered workspaces are cropped and compacted for readability, keeping item proportions', () => {
   const w = setup();
   const state = { platform: 'Instrument', workspace: { width: 200, height: 100, label: 'Documented context', shape: 'ellipse' },
-    positions: [{id:'stage',x:20,y:15,width:80,height:25,shape:'ellipse'}] };
+    positions: [{id:'stage',x:20,y:15,width:80,height:25,shape:'ellipse'},
+      {id:'plate',x:120,y:15,width:60,height:60,labware:'plate',type:'plate',aspect_ratio:1.5}] };
   const deck = w.context._renderSpatial(state);
-  assert.equal(deck.style.aspectRatio, '2');
-  assert.equal(deck.style.borderRadius, '50%');
+  // The plate hugs its footprint (120..180 x 25..65); the 20-unit empty gap shrinks to 0.15 x 80 = 12.
+  const m = 0.04 * 152, box = {x: 20 - m, y: 15 - m, width: 152 + 2 * m, height: 50 + 2 * m};
+  assert.equal(Number(deck.style.aspectRatio), box.width / box.height);
+  assert.equal(deck.style.borderRadius, '12px');
   assert.equal(deck.attributes['aria-label'], 'Documented context');
-  const slot = deck.children[0];
-  assert.equal(slot.dataset.id, 'stage');
-  assert.equal(slot.style.left, '10%');
-  assert.equal(slot.style.top, '15%');
-  assert.equal(slot.style.width, '40%');
-  assert.equal(slot.style.height, '25%');
-  assert.equal(slot.style.borderRadius, '50%');
+  const [stage, plate] = deck.children;
+  assert.equal(stage.dataset.id, 'stage');
+  assert.equal(stage.style.left, `${100 * m / box.width}%`);
+  assert.equal(stage.style.width, `${100 * 80 / box.width}%`);
+  assert.equal(stage.style.borderRadius, '50%');
+  // The loaded plate hugs its 1.5 footprint, centred in its 60 x 60 position.
+  assert.equal(plate.style.width, `${100 * 60 / box.width}%`);
+  assert.equal(plate.style.height, `${100 * 40 / box.height}%`);
+  assert.equal(plate.style.top, `${100 * (25 - box.y) / box.height}%`);
+  assert.equal(plate.style.left, `${100 * (112 - box.x) / box.width}%`);
 });
 
 test('unknown physical geometry is explicit and does not invent positions', () => {
@@ -1060,7 +1068,205 @@ test('saved linear positions render even before any carriers are loaded', () => 
   assert.equal(map.children.length,3);
   assert.deepEqual(Array.from(map.children,slot=>slot.dataset.id),['track-a','track-b','fixed-station']);
   assert.equal(map.children[2].dataset.fixed,'true');
-  assert.equal(map.children[2].children.at(-1).textContent,'Fixed station');
-  assert.match(deck.children[0].textContent,/schematic/);
+  assert.match(map.children[2].dataset.tip,/Fixed station/);
+  assert.match(deck.children[0].textContent,/wrapped across rows/);
   assert.equal(JSON.stringify(state),before);
+});
+
+test('acoustic playback resolves total volume into documented droplet counts',()=>{
+  const w=setup();w.context.state._transfer_physics={mechanism:'acoustic_droplets',droplet_volume_nl:2.5};
+  const step={action:'transfer',volume:'4.2 µL',source:{slot:'source'},destination:{slot:'destination'}};
+  const transfer=w.context._dropletTransfer(step);
+  assert.equal(transfer.count,1680);assert.equal(transfer.dropNl,2.5);
+  assert.match(w.context._dropletSummary(transfer),/1,680 × 2.5 nL droplets/);
+  assert.match(w.context._dropletSummary(transfer),/4.2 µL total/);
+  assert.equal(w.context._dropletTransfer({...step,volume:'4200 nL'}).count,1680);
+  w.context.state._transfer_physics.droplet_volume_nl=25;
+  assert.equal(w.context._dropletTransfer(step).count,168);
+  assert.equal(w.context._dropletTransfer({...step,volume:'4.201 µL'}).invalid,true);
+  delete w.context.state._transfer_physics;
+  assert.equal(w.context._dropletTransfer(step),null);
+});
+test('spatial acoustic decks animate a bounded droplet stream rather than a full-volume pipette',()=>{
+  const w=setup(),animations=[];
+  w.context.state.layout_type='spatial';w.context.state._transfer_physics={mechanism:'acoustic_droplets',droplet_volume_nl:2.5};
+  const slots=['source','destination'].map((id,i)=>({dataset:{id},querySelector:()=>null,
+    getBoundingClientRect:()=>({left:10,top:100-i*80,width:20,height:20})}));
+  const container=element('div');container.scrollLeft=0;container.scrollTop=0;
+  container.querySelectorAll=()=>slots;container.getBoundingClientRect=()=>({left:0,top:0});
+  w.context.document.getElementById=id=>id==='deck-svg-container'?container:null;
+  w.context.document.createElement=tag=>{const e=element(tag);e.animate=(frames,options)=>animations.push({frames,options});return e;};
+  w.context._showTipAnimation({action:'transfer',volume:'4.2 µL',source:{slot:'source'},destination:{slot:'destination'}},{fill:'#7058bb'});
+  assert.equal(container.children.length,1);
+  const stream=container.children[0];assert.equal(stream.className,'anim-tip-overlay anim-droplet-stream');
+  assert.equal(stream.children.length,12);assert.equal(animations.length,12);
+  assert.ok(animations[11].options.delay>animations[0].options.delay);
+  assert.match(stream.attributes['aria-label'],/1,680/);
+  assert.ok(stream.children.every(drop=>drop.className==='droplet' && !drop.innerHTML));
+});
+
+test('fixed integrated instruments are excluded while configurable pipettes remain editable', () => {
+  const {context} = setup();
+  const state = {positions:[{id:'transducer',fixed:true,labware:'Acoustic transducer'}]};
+  assert.equal(context._configurableInstrument({name:'Acoustic transducer',model:'Integrated generator'},state),false);
+  assert.equal(context._configurableInstrument({name:'Pipette',model:'p300',mount:'left'},state),true);
+  assert.equal(context._configurableInstrument({model:'integrated',configurable:false},state),false);
+});
+
+test('paired inspection uses transfer physics and position evidence rather than manufacturer names', () => {
+  const {context} = setup();
+  const state = {platform:'Unlisted acoustic device',_transfer_physics:{mechanism:'acoustic_droplets'},positions:[
+    {id:'a',role:'source'},{id:'b',role:'destination'},{id:'fixed',fixed:true}
+  ]};
+  assert.equal(context._hasPairedInspection(state),true);
+  assert.equal(context._hasPairedInspection({...state,_transfer_physics:{mechanism:'pipetting'}}),false);
+  assert.equal(context._hasPairedInspection({...state,positions:[state.positions[0]]}),false);
+});
+
+test('photographic plates retain exact data-defined well counts and coordinates', () => {
+  const {context} = setup();
+  context.Image = class {};
+  for (const [rows,cols,role] of [[8,12,'destination'],[16,24,'source'],[32,48,'source']]) {
+    const surface=context._photographicPlate(rows,cols,role,1.5);
+    assert.equal(surface.style['--item-ratio'],'1.5');
+    const wells=surface.querySelectorAll('.deck-well');
+    assert.equal(wells.length,rows*cols);
+    assert.equal(wells[0].dataset.well,'A1');
+    assert.equal(wells.at(-1).dataset.well,rows===32?'AF48':rows===16?'P24':'H12');
+    assert.equal(wells[0].tag,'button');
+  }
+});
+
+test('photographic plate materials work in generic slots without changing physical coordinates', () => {
+  const {context} = setup();
+  context.Image = class {};
+  context.document.getElementById=id=>id==='deck-inspector'?element('aside'):null;
+  const pos={id:'stage-3',x:17,y:22,width:42,height:30,type:'plate',labware:'sample',well_count:96,well_rows:8,well_columns:12};
+  const before=JSON.stringify(pos);
+  const slot=context._createSlot(pos);
+  assert.equal(slot.dataset.id,'stage-3');
+  assert.equal(slot.querySelectorAll('.deck-well').length,96);
+  assert.equal(slot.querySelectorAll('canvas').length,1);
+  assert.equal(JSON.stringify(pos),before);
+});
+
+test('unknown well geometry is never replaced with a guessed photographic grid', () => {
+  const {context} = setup();
+  context.Image = class {};
+  context.document.getElementById=id=>id==='deck-inspector'?element('aside'):null;
+  const slot=context._createSlot({id:'unknown',type:'plate',labware:'Unknown plate',well_count:96});
+  assert.equal(slot.querySelectorAll('canvas').length,0);
+  assert.equal(slot.querySelectorAll('.deck-well').length,0);
+});
+
+test('inspector condenses item identity and contents into two lines', () => {
+  const {context,state} = setup();
+  const panel=element('section'); panel.replaceChildren=function(){this.children=[];};
+  context.document.getElementById=id=>id==='deck-inspector'?element('aside'):id==='well-details'?panel:null;
+  vm.runInContext('_selectedWell={slot:"1",well:"A1"};',context);
+  const selectedState={positions:[{id:'1',labware:'Sample plate',type:'plate'}]};
+  const contents=new Map([['1',new Map([['A1',{occupied:true,volume_ul:4.2,liquids:[{name:'Buffer',volume_ul:4.2}]}]])]]);
+  context._renderWellDetails(selectedState,contents);
+  const lines=panel.querySelectorAll('p');
+  assert.equal(lines.length,2);
+  assert.equal(lines[0].textContent,'Well A1 · Sample plate · 1');
+  assert.match(lines[1].textContent,/Liquid present · 4.2 µL · Buffer: 4.2 µL/);
+  assert.equal(panel.querySelectorAll('.well-detail-drawing').length,0);
+});
+
+test('empty deck positions open the chooser by click or keyboard with the inspector present', () => {
+  const {context}=setup();
+  context.document.getElementById=id=>id==='deck-inspector'?element('aside'):null;
+  const calls=[];
+  context._showSelector=(...args)=>calls.push(args);
+  context._inspectDeckItem=()=>assert.fail('Empty position should open the chooser directly');
+  for (const pos of [{id:'a',type:'empty'},{id:'holder',type:'empty',module:'Integrated plate holder'}]) {
+    const area=context._createSlot(pos);
+    area.events.click();
+    area.events.keydown({target:area,key:'Enter',preventDefault(){}});
+    assert.deepEqual(calls.splice(0),[[pos.id,null],[pos.id,null]]);
+  }
+});
+
+test('loading labware preserves wrapped track cell dimensions and physical addresses', () => {
+  const w=setup();
+  const positions=Array.from({length:55},(_,i)=>({id:String(i+1),row:0,col:i,type:'carrier_track',labware:null}));
+  const state={layout_type:'linear',carriers:{items:[]},positions};
+  w.context.state=state;
+  vm.runInContext('_currentState=state; _renderApplyBar=function(){};',w.context);
+  const before=w.context._renderLinear(state);
+  w.context._applyChange('4','sample_plate',null,{type:'plate',name:'Sample plate',well_count:96,well_rows:8,well_columns:12,aspect_ratio:1.5});
+  const after=w.context._renderLinear(state);
+  assert.equal(after.children[1].children.length,55);
+  assert.equal(after.children[1].style.gridTemplateColumns,before.children[1].style.gridTemplateColumns);
+  const item=after.children[1].children[3];
+  assert.equal(item.dataset.id,'4');
+  assert.equal(item.style.height,'180px');
+  assert.equal(item.style.height,before.children[1].children[3].style.height);
+  assert.equal(after.children[1].classList.contains('deck-track-overview'),true);
+  assert.deepEqual(Array.from(state.positions,pos=>[pos.id,pos.row,pos.col]),Array.from(positions,pos=>[pos.id,0,Number(pos.id)-1]));
+});
+
+test('a clean acoustic plate holder restricts suggestions to plates without brand-name rules', () => {
+  const {context}=setup();
+  const state={platform:'Any acoustic device',positions:[{id:'Source Plate Gripper Stage',type:'empty',module:'Universal Insert'}],_transfer_physics:{mechanism:'acoustic_droplets'}};
+  context.state=state; vm.runInContext('_currentState=state;',context);
+  const position=context._catalogPosition('Source Plate Gripper Stage');
+  assert.deepEqual(Array.from(position.allowed_types),['plate']);
+  const catalog={categories:[{name:'Plates',items:[{id:'source',name:'Source plate',type:'plate'}]},
+    {name:'Tips',items:[{id:'tips',name:'Tips',type:'tiprack'}]},
+    {name:'Reservoirs',items:[{id:'reservoir',name:'Reservoir',type:'reservoir'}]},
+    {name:'Unknown',items:[{id:'unknown',name:'Unclassified hardware'}]}]};
+  const result=context._catalogForPosition(catalog,position);
+  assert.equal(result.categories.length,1);
+  assert.equal(result.categories[0].items[0].id,'source');
+  assert.equal(catalog.categories.length,4);
+  assert.equal(context._catalogForPosition(catalog,null),catalog);
+});
+
+test('integrated plate interfaces remain plate-only without an attached protocol or physics', () => {
+  const {context}=setup();
+  context.state={positions:[{id:'Destination Plate Gripper',type:'empty',module:'Integrated inversion mechanism'}]};
+  vm.runInContext('_currentState=state;',context);
+  assert.deepEqual(Array.from(context._catalogPosition('Destination Plate Gripper').allowed_types),['plate']);
+});
+
+test('deck preparation displays an animated brand item and keeps an existing deck during updates',()=>{
+  const w=setup(),container=element('div');
+  const existing=element('section');container.appendChild(existing);
+  w.context.document.getElementById=id=>id==='deck-svg-container'?container:null;
+  w.context.window.workspace={analyzingIcon:()=>{const icon=element('svg');icon.className='liquid-handler-logo is-analyzing';return icon;}};
+  w.context._showLoading(true);
+  assert.equal(container.children[0],existing);
+  const loading=container.children[1];
+  assert.equal(loading.className,'deck-loading-inline');
+  assert.equal(loading.attributes.role,'status');
+  assert.equal(loading.children[0].className,'liquid-handler-logo is-analyzing');
+  assert.match(loading.children[1].textContent,/Preparing/);
+});
+
+test('spatial decks retain fixed positions before and after a chat reply without protocol steps', () => {
+  const w = setup(), inspector = element('aside');
+  w.context.document.getElementById = id => id === 'deck-inspector' ? inspector : null;
+  const state = {platform:'Device',layout_type:'spatial',workspace:{width:100,height:80},steps:[],positions:[
+    {id:'upper',x:10,y:10,width:60,height:12,type:'fixed',fixed:true,labware:'Upper loading support'},
+    {id:'lower',x:10,y:40,width:60,height:12,type:'fixed',fixed:true,labware:'Lower loading support'}]};
+  const before = JSON.stringify(state);
+  const deck = w.context._renderSpatial(state);
+  assert.deepEqual(Array.from(deck.children, slot => slot.dataset.id), ['upper','lower']);
+  assert.equal(deck.children[0].draggable, false);
+  assert.equal(deck.children[1].draggable, false);
+  assert.equal(JSON.stringify(state), before);
+});
+
+test('nonconfigurable hardware is hidden while fixed loadable interfaces remain visible', () => {
+  const w = setup();
+  const state = {workspace:{width:100,height:100},positions:[
+    {id:'loading-interface',fixed:true,configurable:true,x:0,y:0,width:40,height:20},
+    {id:'internal-mechanism',fixed:true,configurable:false,labware:'Built-in mechanism',x:10,y:60,width:20,height:20}]};
+  assert.deepEqual(Array.from(w.context._renderSpatial(state).children, item => item.dataset.id), ['loading-interface']);
+  assert.equal(w.context._configurableInstrument({name:'Internal mechanism',mount:null},state),false);
+  assert.equal(w.context._configurableInstrument({name:'User accessory',configurable:true},state),true);
+  assert.equal(w.context._configurableInstrument({name:'Built-in mechanism',configurable:false,mount:'internal'},state),false);
+  assert.equal(w.context._renderInstruments([]).children.length,0);
 });

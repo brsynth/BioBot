@@ -1,175 +1,136 @@
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {groupsFor,plan,overlaps,bubblesOverlap,matchingDevices,seriesFor}=require('../biobot/static/landing_equipment.js');
-const rows=Array.from({length:12},(_,i)=>({key:`device-${i}`,name:`Device ${i}`,status:'ready',categories:[`Category ${i}`]}));
+const {devicesFor,matchingDevices,resolveDeviceMatch}=require('../biobot/static/landing_equipment.js');
 
-test('landing categories come from the available catalog and deduplicate physical device links',()=>{
-  const groups=groupsFor([
-    {key:'a',name:'Instrument A',status:'ready',categories:['Liquid handling','Analysis']},
-    {key:'a',name:'Alias A',status:'ready',categories:['Liquid handling']},
-    {key:'b',name:'Building instrument',status:'queued',categories:['Imaging']}
+test('all saved devices are listed once regardless of missing, wrong or multiple categories',()=>{
+  const devices=devicesFor([
+    {key:'a',name:'Maker Model 10',status:'ready',categories:['Wrong family']},
+    {key:'a',name:'Duplicate alias',status:'ready',categories:[]},
+    {key:'b',name:'Maker Model 20',status:'local'},
+    {key:'c',name:'Maker Model 30',status:'queued'},
+    {key:'d',name:'Maker Model 40',status:'failed'},
   ]);
-  assert.deepEqual(groups.map(group=>group.name),['Analysis','Liquid handling']);
-  assert.equal(groups[0].devices.length,1);assert.equal(groups[1].devices.length,1);
-});
-test('constellation keeps categories outside the title and composer and prevents bubble collisions',()=>{
-  const protectedRect={x:310,y:230,w:480,h:270};
-  {
-    const items=plan({width:1100,height:820,protectedRect,groups:groupsFor(rows)});
-    assert.ok(items);assert.equal(items.length,12);
-    for(const [i,item] of items.entries()) {
-      assert.equal(overlaps(item,protectedRect,20),false);
-      assert.ok(item.x>=0 && item.y>=0 && item.x+item.w<=1100 && item.y+item.h<=820);
-      for(const other of items.slice(i+1))assert.equal(bubblesOverlap(item,other,18),false);
-    }
-  }
-});
-test('series expands every model at once with no pages or omitted devices',()=>{
-  const groups=groupsFor(Array.from({length:15},(_,i)=>({key:`device-${i}`,manufacturer:'Maker',model:`Series ${i}`,name:`Device ${String(i).padStart(2,'0')}`,status:'ready',categories:['Liquid handling']})));
-  const items=plan({width:1500,height:1700,protectedRect:{x:520,y:350,w:460,h:260},groups,open:'Liquid handling',openSeries:'Series'});
-  assert.ok(items);
-  const devices=items.filter(item=>item.kind==='device');
-  assert.equal(devices.length,15);assert.equal(new Set(devices.map(item=>item.name)).size,15);
-});
-test('narrow screens can fit all categories around the protected center using vertical space',()=>{
-  const protectedRect={x:14,y:800,w:272,h:300};
-  const items=plan({width:300,height:1950,protectedRect,groups:groupsFor(rows)});
-  assert.ok(items);assert.equal(items.length,12);
-  for(const item of items)assert.equal(overlaps(item,protectedRect,20),false);
+  assert.deepEqual(devices.map(device=>device.name),['Maker Model 10','Maker Model 20']);
+  assert.equal(matchingDevices(devices,'Wrong family').length,0);
 });
 
-test('opening a series keeps the selected category centered on its closed anchor, and closing restores others',()=>{
-  const groups=groupsFor([
-    ...Array.from({length:13},(_,i)=>({key:`liquid-${i}`,name:`Liquid ${i}`,status:'ready',categories:['Liquid handling']})),
-    ...rows.slice(0,6)
+test('identity search and Enter resolution keep exact models separate without using categories',()=>{
+  const devices=devicesFor([{key:'a',name:'Maker Model 10',manufacturer:'Maker',model:'Model 10',status:'ready'},
+    {key:'b',name:'Maker Model 20',model:'Model 20',status:'local',categories:['Imaging']}]);
+  assert.equal(resolveDeviceMatch(devices,' MAKER model 10 '),devices[0]);
+  assert.equal(resolveDeviceMatch(devices,'Model 20'),devices[1]);
+  assert.equal(resolveDeviceMatch(devices,'20 model'),null);
+  for(const query of ['Maker','unknown','Imaging',''])assert.equal(resolveDeviceMatch(devices,query),null);
+  assert.deepEqual(matchingDevices(devices,'Maker').map(device=>device.key),['a','b']);
+});
+
+test('landing suggestions filter locally, highlight names, support keyboard navigation, and open exact devices',async()=>{
+  const vm=require('node:vm'),fs=require('node:fs');
+  let focused=null;
+  class Element {
+    constructor(tag='div'){this.tag=tag;this.children=[];this.events={};this.dataset={};this.value='';this.textContent='';this.classes=new Set();
+      this.classList={contains:name=>this.classes.has(name)};}
+    append(...nodes){this.children.push(...nodes);}
+    appendChild(node){this.children.push(node);return node;}
+    replaceChildren(...nodes){this.children=nodes;this.textContent='';}
+    addEventListener(name,fn){this.events[name]=fn;}
+    contains(other){return this===other || this.children.some(child=>child.contains?.(other));}
+    focus(){focused=this;}
+  }
+  const elements=new Map(),get=id=>{if(!elements.has(id))elements.set(id,new Element());return elements.get(id);};
+  const body=new Element();body.classes.add('landing');
+  let requests=0;const chosen=[];
+  const devices=[{key:'a',name:'Maker Model 10',status:'ready',categories:['Wrong family']},
+    {key:'b',name:'Maker Model 20',status:'local',categories:[]}];
+  const input=get('user-input'),menu=get('landing-device-suggestions'),composer=get('landing-composer');
+  composer.append(input,menu);
+  const context=vm.createContext({document:{body,getElementById:get,createElement:tag=>new Element(tag),createTextNode:text=>({textContent:text,children:[]})},
+    window:{workspace:{chooseDevice:(...args)=>chosen.push(args)}},AbortController,setTimeout:()=>1,clearTimeout(){},setInterval(){},
+    MutationObserver:class{observe(){}},fetch:async()=>{requests++;return {ok:true,json:async()=>devices};}});
+  vm.runInContext(fs.readFileSync(`${__dirname}/../biobot/static/landing_equipment.js`,'utf8'),context);
+  await new Promise(setImmediate);
+  assert.equal(menu.hidden,true);
+  input.value='model 10';input.events.input();
+  assert.equal(menu.children.length,1);assert.equal(menu.hidden,false);
+  assert.ok(menu.children[0].children.some(child=>child.tag==='mark'));
+  const suggestion=menu.children[0];
+  let prevented=false;
+  suggestion.events.pointerdown({button:0,preventDefault(){prevented=true;}});
+  // Safari blurs the textbox to the page on pointerdown unless that default is prevented.
+  if(!prevented)composer.events.focusout({currentTarget:composer,relatedTarget:null});
+  assert.equal(prevented,true);
+  assert.equal(menu.hidden,false);
+  assert.equal(menu.children[0],suggestion);
+  suggestion.events.click();
+  assert.deepEqual(chosen[0],['Maker Model 10',null,true]);assert.equal(menu.hidden,true);
+  input.value='Maker';input.events.input();assert.equal(menu.children.length,2);
+  input.events.keydown({key:'ArrowDown',preventDefault(){}});assert.equal(focused,menu.children[0]);
+  menu.children[0].events.keydown({key:'ArrowDown',preventDefault(){}});assert.equal(focused,menu.children[1]);
+  menu.children[0].events.keydown({key:'ArrowUp',preventDefault(){}});assert.equal(focused,input);
+  composer.events.focusout({currentTarget:composer,relatedTarget:menu.children[0]});assert.equal(menu.hidden,false);
+  composer.events.focusout({currentTarget:composer,relatedTarget:null});assert.equal(menu.hidden,true);
+  input.value='unknown';input.events.input();assert.equal(menu.hidden,true);
+  assert.match(get('landing-equipment-status').textContent,/Enter.*online/);
+  input.value='Wrong family';input.events.input();assert.equal(menu.hidden,true);
+  input.value='';input.events.input();assert.equal(menu.hidden,true);
+  input.value='Maker\nModel 20';input.events.input();assert.equal(input.value,'Maker Model 20');assert.equal(menu.children.length,1);
+  input.events.keydown({key:'Escape'});assert.equal(menu.hidden,true);
+  assert.equal(requests,1);assert.equal(elements.has('landing-equipment-bubbles'),false);
+  input.value='Maker';input.events.input();assert.equal(menu.hidden,false);
+  context.window.landingEquipment.beginCheck();assert.equal(menu.hidden,true);
+  input.events.focus();assert.equal(menu.hidden,true);
+  await context.window.landingEquipment.refresh();assert.equal(menu.hidden,true);
+  input.value='Maker Model 10';input.events.input();assert.equal(menu.hidden,false);
+  const series={key:'series:a',name:'Maker A Series',kind:'family',status:'local',members:[{name:'Maker A10'},{name:'Maker A20'}]};
+  devices.splice(0,devices.length,series);
+  const groups=[];context.window.workspace.chooseSeries=group=>groups.push(group);
+  await context.window.landingEquipment.refresh();
+  input.value='Maker';input.events.input();
+  assert.equal(menu.children.length,2); // Both exact models appear immediately, without a family or Back row.
+  assert.equal(groups.length,0);assert.equal(chosen.length,1);
+  menu.children[1].events.pointerdown({button:0,preventDefault(){}});
+  menu.children[1].events.click();
+  assert.deepEqual(chosen[1],['Maker A20',null,true]);assert.equal(menu.hidden,true);
+
+});
+
+
+test('one saved model never turns a family-only query into a specific device',()=>{
+  const devices=[{key:'a',name:'Maker SeriesA 10',manufacturer:'Maker',model:'SeriesA 10',status:'ready'}];
+  assert.equal(resolveDeviceMatch(devices,'SeriesA'),null);
+  assert.equal(resolveDeviceMatch(devices,'Maker'),null);
+  assert.equal(resolveDeviceMatch(devices,'SeriesA 10'),devices[0]);
+});
+
+test('series suggestions match exact member names but cannot resolve as physical devices',()=>{
+  const group={kind:'series',name:'Maker A Series',status:'local',members:[{name:'Maker A10T Plus'}]};
+  assert.deepEqual(matchingDevices([group],'A10T Plus'),[group]);
+  assert.equal(resolveDeviceMatch([group],'Maker A Series'),null);
+  assert.equal(resolveDeviceMatch([group],'Maker A10T Plus'),null);
+});
+
+test('device descriptions match cached capabilities across manufacturers without using categories',()=>{
+  const devices=devicesFor([
+    {key:'a',name:'Maker A100',model:'A100',status:'ready',search_terms:['Microplate reader','absorbance measurement']},
+    {key:'b',name:'Other B200',model:'B200',status:'local',search_terms:['Multi-mode plate-reader fluorescence detection']},
+    {key:'c',name:'Maker C300',model:'C300',status:'ready',search_terms:['Plate washing and dispensing','barcode reader'],categories:['Plate reader']},
   ]);
-  const options={width:1100,height:1000,protectedRect:{x:320,y:350,w:460,h:260},groups};
-  const closed=plan(options);assert.ok(closed);
-  const anchor=closed.find(item=>item.name==='Liquid handling');
-  for(const openSeries of [null,'Liquid']) {
-    const expanded=plan({...options,open:'Liquid handling',openSeries});assert.ok(expanded);
-    const active=expanded.find(item=>item.kind==='category' && item.open);
-    assert.equal(active.x+active.w/2,anchor.x+anchor.w/2);
-    assert.equal(active.y+active.h/2,anchor.y+anchor.h/2);
-    for(const item of expanded)assert.equal(overlaps(item,options.protectedRect),false);
-    for(const item of expanded.filter(item=>item.kind==='category' && !item.open)) {
-      const before=closed.find(old=>old.name===item.name);
-      assert.equal(item.w,before.w);assert.equal(item.h,before.h);
-      assert.ok(item.x>=0 && item.y>=0);
-    }
+  for(const query of ['plate reader','Plate Readers','plate-reader']) {
+    assert.deepEqual(matchingDevices(devices,query).map(device=>device.key),['a','b']);
+    assert.equal(resolveDeviceMatch(devices,query),null);
   }
-  assert.deepEqual(plan(options),closed);
+  assert.deepEqual(matchingDevices(devices,'absorbance').map(device=>device.key),['a']);
+  assert.deepEqual(matchingDevices(devices,'plate fluorescence').map(device=>device.key),['b']);
+  assert.equal(resolveDeviceMatch(devices,'absorbance'),null);
+  assert.equal(resolveDeviceMatch(devices,'A100'),devices[0]);
 });
 
-test('every category can expand at its existing anchor in a dense desktop constellation',()=>{
-  const groups=groupsFor([
-    ...Array.from({length:19},(_,i)=>({key:`liquid-${i}`,name:`Liquid ${i}`,status:'ready',categories:['Liquid handling']})),
-    ...Array.from({length:10},(_,i)=>({key:`other-${i}`,name:`Other ${i}`,status:'ready',categories:[`Category ${i}`]}))
+test('all series and family members appear together in the original suggestion list',()=>{
+  const devices=devicesFor([
+    {name:'Maker Family',kind:'family',status:'local',members:[{name:'Maker A10'},{name:'Maker A20'}]},
+    {name:'Other Series',kind:'series',status:'local',search_terms:['plate reader'],members:[{name:'Other B10'},{name:'Other B20'}]},
   ]);
-  const options={width:1035,height:920,protectedRect:{x:277.5,y:273,w:480,h:374},groups};
-  const closed=plan(options);assert.ok(closed);
-  for(const group of groups) {
-    const expanded=plan({...options,open:group.name});assert.ok(expanded,group.name);
-    const anchor=closed.find(item=>item.name===group.name);
-    const active=expanded.find(item=>item.kind==='category' && item.open);
-    assert.equal(active.x+active.w/2,anchor.x+anchor.w/2);
-    assert.equal(active.y+active.h/2,anchor.y+anchor.h/2);
-    const others=expanded.filter(item=>item.kind==='category' && !item.open);
-    for(const item of others) {
-      const before=closed.find(old=>old.name===item.name);
-      assert.equal(item.w,before.w);assert.equal(item.h,before.h);
-      assert.ok(item.x>=0 && item.y>=0);
-    }
-    for(const [i,item] of expanded.entries()) {
-      assert.equal(overlaps(item,options.protectedRect),false);
-      for(const other of expanded.slice(i+1))assert.equal(bubblesOverlap(item,other),false);
-    }
-  }
-});
-
-test('switching from one opened category anchors the next at its current displaced position',()=>{
-  const groups=groupsFor([
-    ...Array.from({length:19},(_,i)=>({key:`liquid-${i}`,name:`Liquid ${i}`,status:'ready',categories:['Liquid handling']})),
-    ...Array.from({length:10},(_,i)=>({key:`other-${i}`,name:`Other ${i}`,status:'ready',categories:[`Category ${i}`]}))
-  ]);
-  const options={width:1035,height:920,protectedRect:{x:277.5,y:273,w:480,h:374},groups};
-  const closed=plan(options),first=plan({...options,open:'Liquid handling'});assert.ok(first);
-  for(const clicked of first.filter(item=>item.kind==='category' && !item.open)) {
-    const currentAnchor={x:clicked.x,y:clicked.y-2.5,w:clicked.w,h:clicked.h};
-    const second=plan({...options,open:clicked.name,openAnchor:currentAnchor});assert.ok(second,clicked.name);
-    const expanded=second.find(item=>item.kind==='category' && item.open);
-    assert.equal(expanded.x+expanded.w/2,currentAnchor.x+currentAnchor.w/2);
-    assert.equal(expanded.y+expanded.h/2,currentAnchor.y+currentAnchor.h/2);
-    assert.equal(overlaps(expanded,options.protectedRect),false);
-    const paged=plan({...options,open:clicked.name,openAnchor:currentAnchor,openSeries:seriesFor(groups.find(group=>group.name===clicked.name).devices)[0].name});
-    const pagedBubble=paged.find(item=>item.kind==='category' && item.open);
-    assert.deepEqual(pagedBubble,expanded);
-  }
-  assert.deepEqual(plan(options),closed);
-});
-
- test('opening visibly repels nearby categories even without a collision',()=>{
-  const groups=groupsFor(rows.slice(0,6));
-  const options={width:1400,height:1000,protectedRect:{x:500,y:380,w:400,h:240},groups};
-  const closed=plan(options);
-  let moved=0;
-  for(const group of groups){
-    const expanded=plan({...options,open:group.name,pageSize:1});assert.ok(expanded);
-    const anchor=closed.find(item=>item.name===group.name);
-    for(const item of expanded.filter(item=>item.kind==='category' && !item.open)){
-      const before=closed.find(old=>old.name===item.name);
-      const distance=Math.hypot(before.x-anchor.x,before.y-anchor.y);
-      if(distance<360 && Math.hypot(item.x-before.x,item.y-before.y)>=34)moved++;
-    }
-  }
-  assert.ok(moved>=4,'Nearby categories should visibly move, including when they already fit');
-});
-
-test('saved category centers are restored and scale with the available space',()=>{
-  const groups=groupsFor(rows.slice(0,1));
-  const options={width:1100,height:1000,protectedRect:{x:400,y:350,w:300,h:280},groups,
-    positions:{'category:Category 0':{x:.2,y:.25}}};
-  const restored=plan(options)[0];
-  assert.equal(restored.x+restored.w/2,220);
-  assert.equal(restored.y+restored.h/2,250);
-  const resized=plan({...options,width:1300,height:1200})[0];
-  assert.equal(resized.x+resized.w/2,260);
-  assert.equal(resized.y+resized.h/2,300);
-  const opened=plan({...options,open:'Category 0'})[0];
-  assert.equal(opened.x+opened.w/2,220);
-  assert.equal(opened.y+opened.h/2,250);
-});
-test('saved drops inside the composer or outside the window are safely repositioned',()=>{
-  const groups=groupsFor(rows.slice(0,2));
-  const protectedRect={x:350,y:300,w:400,h:300};
-  const items=plan({width:1100,height:1000,protectedRect,groups,positions:{
-    'category:Category 0':{x:.5,y:.45},'category:Category 1':{x:10,y:-5}}});
-  assert.ok(items);
-  for(const item of items){
-    assert.equal(overlaps(item,protectedRect,20),false);
-    assert.ok(item.x>=14 && item.x+item.w<=1086 && item.y>=14);
-  }
-});
-
-test('the full category browser finds devices beyond the floating page without losing either Opentrons model',()=>{
-  const devices=[...rows.map(row=>({...row,categories:['Liquid handling']})),...['Opentrons OT-2','Opentrons Flex'].map(name=>({key:name,name,status:'ready',categories:['Liquid handling']}))];
-  const group=groupsFor(devices).find(group=>group.name==='Liquid handling');
-  assert.ok(group.devices.slice(0,6).every(device=>!device.name.includes('Opentrons')));
-  assert.deepEqual(matchingDevices(group.devices,'opentrons').map(device=>device.name),['Opentrons Flex','Opentrons OT-2']);
-  assert.deepEqual(matchingDevices(group.devices,'ot-2 opentrons').map(device=>device.name),['Opentrons OT-2']);
-  assert.equal(matchingDevices(group.devices,'missing').length,0);
-  assert.equal(matchingDevices(group.devices,'').length,group.devices.length);
-});
-
-test('series grouping discovers shared product roots and manufacturers without merging hardware',()=>{
-  const devices=[
-    {name:'Opentrons OT-2',manufacturer:'Opentrons',model:'OT-2'},
-    {name:'Opentrons Flex',manufacturer:'Opentrons',model:'Flex'},
-    {name:'Labcyte Echo 525',manufacturer:'Labcyte',model:'Echo 525'},
-    {name:'Beckman Coulter Echo 650',manufacturer:'Beckman Coulter',model:'Echo 650'},
-  ];
-  const branches=seriesFor(devices);
-  assert.deepEqual(branches.map(branch=>branch.name),['Echo','Opentrons']);
-  assert.equal(branches[0].devices.length,2);assert.equal(branches[1].devices.length,2);
-  assert.equal(new Set(branches.flatMap(branch=>branch.devices)).size,4);
+  assert.deepEqual(devices.map(device=>device.name),['Maker A10','Maker A20','Other B10','Other B20']);
+  assert.deepEqual(matchingDevices(devices,'Maker Family').map(device=>device.name),['Maker A10','Maker A20']);
+  assert.deepEqual(matchingDevices(devices,'plate reader').map(device=>device.name),['Other B10','Other B20']);
 });

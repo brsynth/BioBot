@@ -1,0 +1,240 @@
+/* Workbench: a shared header, full canvas, and an information-first inspector. */
+.workspace-app .deck-panel {display:flex; flex-direction:column}
+.workspace-app .deck-panel.hidden {display:none}
+.workspace-app .deck-panel-header {padding:14px 20px; gap:12px; flex-wrap:wrap; flex:none}
+.workbench-identity {flex:1; min-width:160px}
+.workbench-model {font-size:11px; color:var(--text-secondary); letter-spacing:.08em; text-transform:uppercase; margin-bottom:5px}
+.workspace-app .deck-panel-header #deck-name {max-width:100%; margin:0}
+.workspace-app .deck-panel-header #code-actions {position:static; display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+.workspace-app #deck-playback-host {flex:none; border-bottom:1px solid var(--border); background:var(--deck-chrome)}
+#deck-playback-host:empty {display:none}
+.workspace-app #deck-playback-host .anim-playback-bar {position:static; margin:0; padding:8px 20px; width:auto; border:0; border-radius:0; box-shadow:none; display:flex; align-items:center; gap:20px}
+#deck-playback-host .anim-step-desc {flex:1; min-width:100px; margin:0; font-size:12px}
+#deck-playback-host .anim-controls-row {flex:2; min-width:260px}
+.deck-body {display:flex; flex:1; min-height:0; min-width:0; overflow:hidden}
+.deck-body > .deck-workspace {flex:1; min-width:0; background:radial-gradient(ellipse at 50% 40%,var(--bg-elevated),var(--deck-background)); overflow:hidden}
+.deck-inspector {width:285px; flex:0 0 285px; border-left:1px solid var(--border); background:var(--deck-chrome); overflow:auto; padding:22px 20px; box-sizing:border-box}
+.inspector-heading {font-size:11px; text-transform:uppercase; letter-spacing:.12em; color:var(--text-secondary); margin-bottom:20px}
+.inspector-empty {font-size:13px; line-height:1.7; color:var(--text-secondary); padding:20px 0}
+.workspace-app #deck-inspector .well-details {position:static; width:auto; max-width:none; max-height:none; inset:auto; transform:none; padding:0 0 22px; margin:0; border:0; border-radius:0; background:transparent; box-shadow:none; cursor:default}
+#deck-inspector .well-details-header {cursor:default}
+#deck-inspector .well-details p {font-size:12px; line-height:1.6; overflow-wrap:anywhere}
+#deck-inspector .well-detail-drawing svg {max-height:110px}
+#deck-inspector .well-detail-drawing {margin:12px 0}
+#deck-inspector .protocol-parameters {margin:16px 0 0; padding:18px 0 0; border:0; border-top:1px solid var(--border); border-radius:0; background:transparent; max-height:none; overflow:visible}
+#deck-inspector .protocol-parameter-fields {display:grid; grid-template-columns:minmax(0,1fr); gap:15px}
+#deck-inspector .protocol-parameter-fields input,#deck-inspector .protocol-parameter-fields select {width:100%; box-sizing:border-box}
+#deck-inspector .protocol-parameter-fields label {font-size:12px}
+.workspace-app .deck-wrapper {padding:14px}
+.workspace-app .deck-wrapper > .deck-title {display:none}
+.workspace-app .deck-device-frame > .inspection-projection {display:flex; flex-direction:column; align-items:center; gap:22px; padding:0; background:transparent}
+.inspection-projection > .plate-dest {order:0}
+.inspection-projection > .plate-source {order:1}
+.inspection-projection > .inspection-caption {order:3}
+.workspace-app .photographic-plate.deck-slot {position:relative; width:min(100%,600px); padding:0; margin:0; border:0; border-radius:16px; background:transparent; box-shadow:none; aspect-ratio:auto; min-height:0; overflow:visible}
+.workspace-app .photographic-plate.selected {outline:2px solid var(--accent); outline-offset:5px}
+.photographic-plate .deck-plate-header {padding:0 8px; margin:0; min-height:24px; font-size:12px}
+.photographic-plate > .slot-role {position:static; padding:0 8px; font-size:10px; letter-spacing:.1em; text-transform:uppercase}
+.photographic-plate > .slot-well-count {position:static; display:block; margin:0 8px 4px; font-size:10px}
+.photographic-surface {position:relative; width:100%; overflow:hidden; border-radius:12px; filter:drop-shadow(0 12px 12px #17233a22); background:linear-gradient(135deg,#e9eaed,#b5bcc7)}
+.photographic-surface canvas {display:block; width:100%; height:100%}
+.workspace-app .photographic-wells {position:absolute; display:grid; gap:0; aspect-ratio:auto; padding:0; margin:0; background:transparent}
+.workspace-app .photographic-wells .deck-well {display:block; width:72%; height:72%; align-self:center; justify-self:center; min-width:0; min-height:0; border:0; padding:0; border-radius:50%; background:transparent; box-shadow:none; cursor:pointer; aspect-ratio:auto}
+.workspace-app .photographic-wells .deck-well.well-occupied {background:radial-gradient(circle at 35% 30%,#99f3de99,#28b8a477 55%,#136e7477); box-shadow:inset 0 1px 3px #ffffff66}
+.workspace-app .photographic-wells .deck-well.well-dest {background:radial-gradient(circle at 35% 30%,#e0c9ff99,#9e73df88 55%,#6840af66)}
+.workspace-app #deck-svg-container .photographic-wells .deck-well.well-selected {outline:3px solid var(--accent); outline-offset:1px; box-shadow:0 0 0 5px #a991ea33}
+.photographic-wells .deck-well:focus-visible {outline:3px solid var(--accent)}
+.inspection-caption {max-width:520px; font-size:11px; line-height:1.6; text-align:center; color:var(--text-secondary); margin:0}
+.workspace-app .inspection-projection .deck-slot-remove {top:0; right:0}
+.workspace-app .chat-window.floating-chat {top:auto; bottom:20px; left:20px; transform:none; width:340px; max-height:calc(100% - 40px)}
+.workspace-app .deck-panel-header .deck-apply-bar {display:flex; position:static; flex:none; margin:0; padding:0; border:0; background:transparent; box-shadow:none}
+@media(max-width:1000px) { .deck-inspector {width:235px; flex-basis:235px; padding:18px 14px} #deck-playback-host .anim-playback-bar {flex-wrap:wrap; gap:4px} }
+@media(max-width:700px) { .deck-body {overflow:auto; flex-direction:column} .deck-body > .deck-workspace {flex:none; min-height:550px} .deck-inspector {width:100%; flex:none; border-left:0; border-top:1px solid var(--border)} .workspace-app .deck-panel-header {padding:10px} }
+@media(prefers-reduced-motion:reduce) { .photographic-surface {transition:none} }
+/* Material treatments are shared across every catalog device and physical layout. */
+.workspace-app .deck-slot.filled {background:linear-gradient(145deg,color-mix(in srgb,var(--bg-elevated) 95%,#fff),color-mix(in srgb,var(--device-background) 86%,#8994a3)); box-shadow:inset 0 1px 1px #ffffff88,0 5px 10px #16243b19; border-color:color-mix(in srgb,var(--border) 70%,#8292a6)}
+.workspace-app .deck-slot.material-labware .photographic-surface {width:85%; min-height:0; flex:1; max-height:75%; background:transparent; filter:drop-shadow(0 3px 3px #17233a33)}
+.workspace-app .deck-slot.material-labware .photographic-surface canvas {object-fit:fill}
+.workspace-app .deck-slot.tiprack .slot-mini-grid,.workspace-app .deck-slot.tuberack .slot-mini-grid {background:linear-gradient(135deg,#f8f5e9,#c9c1a6 55%,#eee8d5); padding:5%; border:2px solid #c0b89f; border-radius:7px; box-shadow:inset 0 2px 4px #40391c44,0 4px 5px #17233a22}
+.workspace-app .deck-slot.tuberack .slot-mini-grid {background:linear-gradient(140deg,#dce6ed,#829caa,#c5d7e1); border-color:#8ca2ae}
+.workspace-app .slot-mini-grid .mini-tip {fill:#706344; stroke:#ded6ad; stroke-width:2px; filter:drop-shadow(0 1px 1px #0005)}
+.workspace-app .slot-mini-grid .mini-tube {fill:#d9e9ef; stroke:#8aabbc; stroke-width:2px; filter:drop-shadow(0 1px 1px #0005)}
+.workspace-app .slot-reservoir-visual {background:linear-gradient(145deg,#fff,#acb7c1); padding:8%; border-radius:6px; box-shadow:0 4px 6px #17233a22}
+.workspace-app .reservoir-trough {background:linear-gradient(90deg,#8998a7,#e4eaf0 20%,#b1c8ce 75%,#788b98); box-shadow:inset 0 3px 6px #24374866; border-radius:4px}
+.workspace-app .slot-hardware-visual {filter:drop-shadow(1px 4px 2px #17233a33)}
+.workspace-app .slot-hardware-visual .hardware-body {fill:#c7d1dd; stroke:#7b8c9f; stroke-width:1px}
+.workspace-app .slot-hardware-visual .hardware-inset {fill:#6f8295; stroke:#e2edf7; stroke-width:1px}
+.workspace-app .slot-hardware-visual .hardware-accent {fill:#b5a2d8; stroke:#e4d8f7; stroke-width:1px}
+/* The full plate frame supplies its own photographic material. */
+.workspace-app .deck-slot.photographic-plate.filled {background:transparent; box-shadow:none; border:0}
+.workspace-app .deck-panel:not(.hidden):not(.deck-fullscreen) {position:relative; inset:auto; height:100%; min-height:0; width:auto; flex:1; box-shadow:none}
+.workspace-app .deck-panel .deck-device-frame > .inspection-projection {width:100%; max-width:100%}
+@media(max-width:900px) {
+  .deck-body {overflow:auto; flex-direction:column}
+  .deck-body > .deck-workspace {flex:none; min-height:600px}
+  .deck-inspector {width:100%; flex:none; border-left:0; border-top:1px solid var(--border)}
+}
+.workspace-app .deck-panel:not(.hidden):not(.deck-fullscreen) {max-width:none}
+.workspace-app .deck-slot.material-labware .photographic-surface {flex:0 0 auto; height:auto; max-height:none; width:80%}
+.workspace-app .deck-slot.material-labware {display:grid; grid-template-columns:minmax(0,1fr); grid-template-rows:auto auto minmax(0,1fr) auto; justify-items:center; gap:2px}
+.workspace-app .deck-slot.material-labware .photographic-surface {align-self:center; justify-self:center; height:100%; width:auto; max-width:90%; min-width:0; aspect-ratio:1.51; overflow:hidden}
+.workspace-app .deck-slot.material-labware .photographic-surface canvas {position:absolute; inset:0; width:100%; height:100%}
+/* Keep the approved clean canvas: labware supplies the visible material,
+   while layout containers provide geometry without an extra backing layer. */
+.workspace-app .deck-panel:not(.hidden),
+.workspace-app .deck-panel-header,
+.workspace-app #deck-playback-host,
+.workspace-app .deck-body > .deck-workspace,
+.workspace-app #deck-inspector {background:#fff; color:#283447}
+.workspace-app .deck-panel .deck-device-frame,
+.workspace-app .deck-panel .deck-device-frame > :is(.deck-grid,.deck-linear,.deck-plates,.deck-spatial),
+.workspace-app .deck-panel .deck-plates-extras,
+.workspace-app .deck-panel .deck-carrier,
+.workspace-app .deck-panel .deck-grid-cell {background:transparent; box-shadow:none; border-color:transparent}
+.workspace-app .deck-panel .deck-slot.filled {background:transparent; border-color:transparent; box-shadow:none}
+.workspace-app .deck-panel .deck-slot.filled:hover {border-color:#d6ccec}
+.workspace-app .deck-panel .deck-slot.empty {background:transparent; border:1px dashed #d7dce3}
+.workspace-app .deck-panel .deck-plate-section,
+.workspace-app .deck-panel .inspection-projection {background:transparent; box-shadow:none}
+.workspace-app .deck-panel .photographic-surface {background:transparent}
+.workspace-app .deck-panel .slot-role,
+.workspace-app .deck-panel .slot-labware-name,
+.workspace-app .deck-panel .slot-well-count,
+.workspace-app .deck-panel .workbench-model,
+.workspace-app .deck-panel .inspector-heading,
+.workspace-app .deck-panel .inspector-empty {color:#78818f}
+.workspace-app #deck-inspector .protocol-parameters {background:transparent}
+/* Playback is a compact header action group, alongside generation and export. */
+.workspace-app .deck-panel-header {align-items:center; gap:10px}
+.workspace-app .deck-panel-header .workbench-identity {flex:1 1 180px}
+.workspace-app .deck-panel-header #deck-playback-host {flex:0 1 350px; min-width:270px; border:0; background:transparent}
+.workspace-app #deck-playback-host .anim-playback-bar {position:relative; display:block; padding:0; margin:0; background:transparent}
+.workspace-app #deck-playback-host .anim-controls-row {display:flex; flex-wrap:nowrap; gap:5px; min-width:0; margin:0}
+.workspace-app #deck-playback-host .anim-step-desc {position:absolute; top:calc(100% + 9px); left:0; max-width:420px; padding:10px 12px; border:1px solid #e6e8ed; border-radius:8px; background:white; box-shadow:0 4px 12px #20304915; display:none; z-index:30}
+.workspace-app #deck-playback-host:hover .anim-step-desc,.workspace-app #deck-playback-host:focus-within .anim-step-desc {display:block}
+#deck-playback-host .anim-scrubber {flex:1; min-width:35px; width:70px}
+#deck-playback-host .anim-transport {gap:2px; flex:none}
+#deck-playback-host .anim-btn {width:27px; height:30px; min-width:0; padding:2px}
+#deck-playback-host .anim-counter {font-size:11px; white-space:nowrap}
+.workspace-app #deck-inspector .well-details-header {display:flex; justify-content:space-between; align-items:center; gap:12px; padding:0; margin:0 0 20px; border:0}
+#deck-inspector .well-details-header h3 {font-size:20px; margin:0; line-height:1.3}
+#deck-inspector .well-details-header button {flex:none; width:28px; height:28px; border:0; background:transparent; cursor:pointer; color:#78818f}
+.inspector-fact {display:grid; grid-template-columns:minmax(0,1fr); gap:5px; padding:12px 0; border-bottom:1px solid #f0f1f4}
+.inspector-fact-label {font-size:11px; font-weight:600; letter-spacing:.04em; color:#78818f}
+.inspector-fact-value {font-size:13px; color:#283447; line-height:1.5; overflow-wrap:anywhere; white-space:normal}
+#deck-inspector .well-details h4 {font-size:12px; margin:20px 0 0; color:#78818f}
+.workspace-app .photographic-plate .deck-plate-header {display:flex; flex-wrap:wrap; width:100%; justify-content:space-between; align-items:center; gap:6px; min-height:0; padding:4px 12px; box-sizing:border-box}
+.workspace-app .photographic-plate .deck-plate-name {font-size:16px; line-height:1.4; overflow-wrap:anywhere}
+.workspace-app .photographic-plate .deck-plate-format {font-size:13px}
+.workspace-app .photographic-plate > .slot-role {font-size:13px; align-self:flex-start; padding:0 12px}
+.workspace-app .photographic-plate > .slot-well-count {font-size:13px; padding:0 12px; margin:2px 0 8px; align-self:flex-start}
+.workspace-app .inspection-projection .plate-dest .deck-plate-header::after {content:none}
+@media(max-width:1100px) { .workspace-app .deck-panel-header #deck-playback-host {flex:1 1 270px} }
+/* Preserve functional visibility against the inspector's more specific layout rules. */
+#deck-inspector #protocol-parameter-fields[hidden],
+#deck-inspector .protocol-parameters.collapsed > :not(.parameters-toggle),
+#deck-inspector #well-details[hidden],
+#deck-inspector #inspector-empty[hidden] {display:none!important}
+#deck-inspector #well-details:not([hidden]) {display:block}
+/* Keep selected-item information on screen rather than below a tall canvas. */
+@media(min-width:601px) and (max-width:900px) {
+  .workspace-app .deck-body {flex-direction:row; overflow:hidden}
+  .workspace-app .deck-body > .deck-workspace {flex:1; min-height:0}
+  .workspace-app #deck-inspector {width:210px; flex:0 0 210px; border-left:1px solid var(--border); border-top:0; padding:18px 14px}
+}
+@media(max-width:600px) {
+  .workspace-app .deck-body {flex-direction:column; overflow:hidden}
+  .workspace-app .deck-body > .deck-workspace {flex:1; min-height:160px}
+  .workspace-app #deck-inspector {flex:0 1 45%; min-height:140px; width:100%; overflow:auto}
+}
+/* Selection precedes expanded parameters and wraps to keep every detail visible. */
+.workspace-app #deck-inspector {display:flex; flex-direction:column; gap:12px}
+#deck-inspector > .inspector-heading {order:0; margin-bottom:0; flex:none}
+#deck-inspector > #inspector-empty {order:1; flex:none}
+.workspace-app #deck-inspector > #well-details {order:1; flex:none; position:relative; padding:0 52px 0 0; overflow:visible; min-width:0}
+#deck-inspector > #protocol-parameters {order:2; flex:none; margin-top:4px}
+.workspace-app #deck-inspector #well-details > p {margin:0; padding:0; font-size:12px; line-height:20px; white-space:normal; overflow:visible; overflow-wrap:anywhere; text-overflow:clip}
+#deck-inspector #well-details .inspector-summary-name {font-weight:600; color:#554176}
+#deck-inspector #well-details .inspector-summary-details {font-weight:400; color:#78818f}
+#deck-inspector #well-details :is(.inspector-close,.inspector-change) {position:absolute; top:0; right:0; display:grid; place-items:center; width:24px; height:24px; padding:0; border:0; background:transparent; color:#78818f; font-size:18px; cursor:pointer; box-shadow:none}
+#deck-inspector #well-details .inspector-change {right:25px; font-size:15px}
+/* Wrapped track overview changes presentation, never saved physical addresses. */
+.workspace-app .deck-track-map.deck-track-overview {display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); grid-auto-rows:180px; gap:12px; min-width:0; width:100%}
+.workspace-app .deck-track-overview > .deck-slot {min-width:0; max-width:100%; overflow:hidden; box-sizing:border-box}
+.workspace-app .deck-track-overview .slot-number {position:absolute; top:4px; left:6px; font-size:11px}
+.workspace-app .deck-panel .deck-svg-container.deck-scroll-overview {display:block; overflow-y:auto; overflow-x:hidden}
+.workspace-app .deck-scroll-overview .deck-wrapper {box-sizing:border-box}
+/* Filled positions: the item occupies the whole position; its details are a hover tooltip. */
+.workspace-app .deck-grid .deck-slot.filled {padding:3px; display:flex; align-items:center; justify-content:center}
+.workspace-app .deck-slot.filled:not(.deck-plate-section) > :is(.slot-mini-grid,.slot-hardware-visual,.photographic-surface,.slot-reservoir-visual) {width:100%; height:100%; max-width:100%; max-height:100%; flex:1 1 auto}
+/* An item with a documented footprint keeps its real proportions, as large as its area allows. */
+.workspace-app .deck-slot.filled:not(.deck-plate-section):has(> .fit-item) {container-type:size}
+.workspace-app .deck-slot.filled:not(.deck-plate-section) > .fit-item {flex:none; width:min(100cqw, 100cqh * var(--item-ratio)); height:auto; max-width:none; max-height:none; aspect-ratio:var(--item-ratio); align-self:center; justify-self:center}
+.workspace-app .photographic-surface.fit-item {aspect-ratio:var(--item-ratio)}
+/* The spatial deck is cropped to its positions and scaled to fill the frame (width and, through its ratio, height). */
+.workspace-app .deck-device-frame:has(> .deck-spatial) {width:100%}
+.workspace-app .deck-workspace:has(.deck-spatial) {container-type:size}
+.workspace-app .deck-panel .deck-device-frame > .deck-spatial {width:min(100%, calc((100cqh - 64px) * var(--deck-ratio, 1.5))); margin-inline:auto}
+.workspace-app .deck-panel .deck-svg-container.deck-scroll-wide {overflow:auto}
+.workspace-app .deck-panel .deck-scroll-wide .deck-device-frame > .deck-spatial {width:100%}
+/* The selected-item panel keeps a fixed height, so the parameters below it never jump; long contents scroll. */
+.workspace-app #deck-inspector :is(.well-details,.inspector-empty) {height:14rem; overflow-y:auto; box-sizing:border-box}
+/* Narrow empty positions keep the + only; the label would be clipped. */
+.workspace-app .deck-spatial .deck-slot.empty {container-type:inline-size}
+@container (max-width:64px) { .workspace-app .deck-spatial .slot-empty-label {display:none} }
+/* A few compatible items: an in-place drop-down on the position. */
+.workspace-app .deck-slot-choice {position:absolute; left:50%; bottom:6px; transform:translateX(-50%); z-index:2; max-width:calc(100% - 12px); padding:3px 6px; border:1px solid var(--border); border-radius:7px; background:var(--bg-elevated); color:var(--text-primary); font:500 12px var(--font-sans); cursor:pointer; opacity:.92}
+.workspace-app .deck-slot-choice:focus-visible {outline:2px solid var(--accent); outline-offset:1px}
+.workspace-app .deck-slot:has(> .deck-slot-choice) .slot-empty-label {display:none}
+/* A single row of slim positions wrapped for readability: physical order kept, each position readable. */
+.workspace-app .deck-track-map.deck-wrapped-row {grid-template-columns:repeat(auto-fill,minmax(64px,1fr)); grid-auto-rows:150px; gap:8px}
+.workspace-app .deck-wrapped-row > .deck-slot {position:relative; width:100%; height:100%; aspect-ratio:auto; padding:22px 4px 6px}
+.workspace-app .deck-device-frame:has(> .deck-wrapped-row) {width:100%}
+
+/* Deck controls share the model row, below the global navigation. */
+.workspace-app #deck-inspector[hidden] {display:none!important}
+body.clean-shell .app-banner {flex-wrap:nowrap;gap:10px}
+body.clean-shell #deck-panel .deck-panel-header {display:flex;align-items:center;flex:none;min-width:0;height:auto;min-height:54px;padding:8px 20px;border:0;box-shadow:none;gap:10px;flex-wrap:nowrap;background:transparent}
+body.clean-shell #deck-panel .workbench-identity {display:contents}
+body.clean-shell #deck-panel #deck-device-name {display:block;flex:0 1 260px;min-width:100px;max-width:28vw;margin:0;font-size:14px;letter-spacing:0;text-transform:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+body.clean-shell #deck-panel #deck-name {display:flex;align-items:center;flex:0 1 220px;gap:4px;min-width:100px;white-space:nowrap}
+body.clean-shell #deck-panel #deck-heading {font-size:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+body.clean-shell #deck-panel #deck-playback-host {flex:1 1 260px;min-width:180px;max-width:420px;background:transparent;border:0}
+body.clean-shell #deck-panel #deck-playback-host .anim-controls-row {min-width:0}
+body.clean-shell #deck-panel #code-actions {flex:none;flex-wrap:nowrap;gap:4px}
+body.clean-shell #deck-panel .deck-panel-actions {display:flex;align-items:center;flex:none;gap:4px}
+body.clean-shell #deck-panel .deck-apply-bar {display:flex;position:static;flex:none;gap:4px;margin:0;padding:0;border:0;box-shadow:none;background:transparent}
+body.clean-shell .app-banner .account-menu {margin-left:auto;flex:none}
+body.clean-shell.landing .app-banner .account-menu {margin-left:auto}
+body.clean-shell #deck-panel .export-progress {position:absolute;top:100%;right:20px}
+body.clean-shell .floating-chat .input-wrapper {flex-direction:row;align-items:center;gap:8px;padding:6px 10px;border-radius:10px}
+body.clean-shell .floating-chat #user-input {flex:1;min-width:0;width:auto;height:22px!important;min-height:22px;max-height:22px;line-height:22px;white-space:pre;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;resize:none}
+body.clean-shell .floating-chat #user-input::-webkit-scrollbar {display:none}
+body.clean-shell .floating-chat .composer-footer {flex:none}
+body.clean-shell .floating-chat #send-btn {width:28px;height:28px;min-width:28px;border-radius:6px}
+@media(max-width:1050px) {
+  body.clean-shell #deck-panel .deck-panel-header {overflow-x:auto;justify-content:flex-start}
+  body.clean-shell #deck-panel #deck-device-name {flex:none;width:180px}
+  body.clean-shell #deck-panel #deck-name {flex:none;width:140px}
+  body.clean-shell #deck-panel #deck-playback-host {width:230px;flex:none}
+}
+
+body.clean-shell #deck-panel .deck-history {position:static;flex:none;gap:4px}
+
+.workspace-app .deck-loading {min-height:240px;height:100%;box-sizing:border-box;text-align:center;gap:14px}
+.workspace-app .deck-loading > .liquid-handler-logo {width:100px;height:82px}
+.workspace-app .deck-loading-inline {display:flex;align-items:center;gap:8px}
+.workspace-app .deck-loading-inline > .liquid-handler-logo {width:32px;height:26px}
+@media(prefers-reduced-motion:reduce) {.deck-loading-spinner {animation:none}}
+
+/* The inspector overlays the canvas without changing the device's available space. */
+.workspace-app .deck-body {position:relative}
+.workspace-app #deck-inspector {
+  position:absolute;z-index:30;top:12px;right:12px;bottom:auto;left:auto;
+  width:min(320px,calc(100% - 24px));max-height:calc(100% - 24px);min-height:0;
+  flex:none;overflow:auto;padding:18px;border:1px solid var(--border-light);
+  border-radius:10px;box-shadow:var(--shadow-lg);
+}
+
+/* A documented position without a detailed schematic still has a visible footprint and name. */
+.workspace-app .slot-hardware-placeholder {display:grid;place-items:center;width:100%;height:100%;min-height:0;box-sizing:border-box;padding:4px;border:1px solid var(--border);border-radius:inherit;background:var(--bg-elevated);color:var(--text-primary);font:500 12px/1.3 var(--font-sans);overflow:hidden;text-align:center}

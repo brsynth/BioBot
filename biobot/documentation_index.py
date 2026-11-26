@@ -12,6 +12,8 @@ import time
 import faiss
 import numpy as np
 from openai import OpenAI
+from api_budget import metered_openai
+OpenAI = metered_openai(OpenAI)
 from config import get_api_key
 from doc_loader import load_and_chunk_docs, get_supported_extensions
 from doc_fetcher import fetch_documentation, update_documentation
@@ -127,9 +129,10 @@ def refresh_index(handler_config, chunk_size=3000, api_key=None):
     return changed
 
 
-def preload_documentation(device, api_key=None):
-    """Prepare only the selected public device, without delaying the deck response."""
+def preload_documentation(device, api_key=None, check_updates=True):
+    """Return a shared future for preparing the selected device documentation."""
     key = re.sub(r"[^a-z0-9]", "", device.casefold())
+    job_key = key if check_updates else key + ":initial"
     def prepare():
         from handlers import load_handlers_config, detect_handler
         handlers = load_handlers_config()
@@ -139,18 +142,22 @@ def preload_documentation(device, api_key=None):
             handler_id, handlers = detect_handler(device, [], api_key)
         if handler_id:
             existed = (SCRIPT_DIR / handlers[handler_id]["docs_path"] / handlers[handler_id]["store_path"]).exists()
-            load_or_build_index(handler_id, handlers[handler_id], api_key=api_key)
-            if existed:  # each request also checks online for new or changed documentation, in the background
+            _, _, index = load_or_build_index(handler_id, handlers[handler_id], api_key=api_key)
+            if index is None:
+                raise ValueError("No usable device documentation was downloaded. Please retry.")
+            if existed and check_updates:  # each request also checks online for new or changed documentation, in the background
                 refresh_index(handlers[handler_id], api_key=api_key)
+            return True
+        raise ValueError("Could not prepare documentation for this device.")
     with _pending_lock:
-        if key in _pending and not _pending[key].done():
-            return _pending[key]
+        if job_key in _pending and not _pending[job_key].done():
+            return _pending[job_key]
         future = _executor.submit(prepare)
-        _pending[key] = future
+        _pending[job_key] = future
     def finished(result):
         with _pending_lock:
-            if _pending.get(key) is result:
-                del _pending[key]
+            if _pending.get(job_key) is result:
+                del _pending[job_key]
         try:
             result.result()
         except Exception:

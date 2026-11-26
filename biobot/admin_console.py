@@ -24,18 +24,28 @@ def users():
     conn = get_db_connection()
     try:
         with conn, conn.cursor(cursor_factory=RealDictCursor) as cursor:
-            cursor.execute("SELECT id, first_name, last_name, email, role, country, admin_status, created_at FROM users ORDER BY id")
-            return [dict(row) for row in cursor.fetchall()]
+            cursor.execute("""SELECT u.id,first_name,last_name,email,role,country,admin_status,u.created_at,
+                COALESCE(u.daily_api_limit,'{\"usd\":0.5}'::jsonb) AS daily_api_limit,
+                COALESCE(usage.amount,0) AS daily_api_spent
+                FROM users u
+                LEFT JOIN (SELECT user_id,SUM(amount) AS amount FROM api_usage
+                           WHERE day=(NOW() AT TIME ZONE 'UTC')::date GROUP BY user_id) usage ON usage.user_id=u.id
+                ORDER BY u.id""")
+            return [{**dict(row), 'daily_api_limit': row['daily_api_limit']['usd'],
+                     'daily_api_spent': float(row['daily_api_spent'])} for row in cursor.fetchall()]
     finally:
         conn.close()
 
 
 def edit_user(target, data, actor, is_owner):
-    allowed = {'first_name', 'last_name', 'email', 'role', 'country', 'admin_status'}
+    allowed = {'first_name', 'last_name', 'email', 'role', 'country', 'admin_status', 'daily_api_limit'}
     if not isinstance(data, dict) or not data or set(data) - allowed:
         raise ValueError('Unsupported user fields.')
     for key, value in data.items():
-        if key == 'admin_status':
+        if key == 'daily_api_limit':
+            from api_budget import validate_limit
+            validate_limit(value)
+        elif key == 'admin_status':
             if value not in (None, 'requested', 'approved'):
                 raise ValueError('Invalid administrator status.')
         elif not isinstance(value, str) or len(value) > 200:
@@ -59,6 +69,9 @@ def edit_user(target, data, actor, is_owner):
                 data['email'] = email
             if 'admin_status' in data and data['admin_status'] != 'approved' and (target == actor or is_owner(row['email'])):
                 raise ValueError('You cannot remove your own administrator access or change a server owner’s access.')
+            if 'daily_api_limit' in data:
+                from api_budget import validate_limit
+                data = {**data, 'daily_api_limit': Json({'usd': validate_limit(data['daily_api_limit'])})}
             columns = ', '.join(f'{key} = %s' for key in data)  # whitelist above, values remain parameters
             cursor.execute(f'UPDATE users SET {columns} WHERE id = %s', (*data.values(), target))
             audit(cursor, actor, 'edit_user', target, list(data))
@@ -99,17 +112,18 @@ def _local_profile(identifier, profiles, catalog_profile=None):
 
 
 def devices():
-    from device_catalog import _read, lookup_key
+    from device_catalog import _read, lookup_key, family_clarification
     from handlers import load_handlers_config
     profiles = load_handlers_config()
     jobs = _read('SELECT * FROM device_catalog_jobs WHERE canonical_key IS NULL ORDER BY requested_name')
     layouts = _read('SELECT device_id, device_name, layout FROM deck_templates WHERE is_default ORDER BY device_name')
     result, seen = [], set()
+    layout_ids = {row['device_id'] for row in layouts}
     for row in jobs:
         profile = {} if row['reset_layout'] else _local_profile(row['device_id'], profiles, row['profile'])
         result.append({'key': row['lookup_key'], 'device_id': row['device_id'], 'device_name': row['device_name'] or row['requested_name'],
-                       'identity': profile.get('identity') or {}, 'status': row['status'], 'features': profile.get('features', []), 'categories': categories_for(profile), 'constraints': profile.get('constraints', []),
-                       'output_type': profile.get('output_type', ''), 'output_format': profile.get('output_format', ''), 'error': row['error']})
+                       'identity': profile.get('identity') or {}, 'has_layout': row['device_id'] in layout_ids, 'status': row['status'], 'features': profile.get('features', []), 'search_terms': profile.get('search_terms', []), 'categories': categories_for(profile), 'constraints': profile.get('constraints', []),
+                       'output_type': profile.get('output_type', ''), 'output_format': profile.get('output_format', ''), 'error': row['error'], 'clarification': family_clarification(row)})
         if row['device_id']:
             seen.add(row['device_id'])
     for row in layouts:
@@ -117,7 +131,7 @@ def devices():
             continue
         profile = _local_profile(row['device_id'], profiles)
         result.append({'key': lookup_key(row['device_name']), 'device_id': row['device_id'], 'device_name': row['device_name'],
-                       'identity': profile.get('identity') or {}, 'status': 'local', 'features': profile.get('features', []), 'categories': categories_for(profile), 'constraints': profile.get('constraints', []),
+                       'identity': profile.get('identity') or {}, 'has_layout': True, 'status': 'local', 'features': profile.get('features', []), 'search_terms': profile.get('search_terms', []), 'categories': categories_for(profile), 'constraints': profile.get('constraints', []),
                        'output_type': profile.get('output_type', ''), 'output_format': profile.get('output_format', ''), 'error': None})
     return result
 

@@ -20,6 +20,7 @@
       <nav class="admin-nav" role="tablist" aria-label="Administration" aria-orientation="vertical">
         <button id="admin-tab-users" role="tab" aria-selected="true" aria-controls="admin-panel-users" tabindex="0"><span>Users</span><span id="admin-count-users" class="admin-count">—</span></button>
         <button id="admin-tab-devices" role="tab" aria-selected="false" aria-controls="admin-panel-devices" tabindex="-1"><span>Devices</span><span id="admin-count-devices" class="admin-count">—</span></button>
+        <button id="admin-tab-models" role="tab" aria-selected="false" aria-controls="admin-panel-models" tabindex="-1"><span>Models</span></button>
       </nav>
       <p class="admin-sidebar-note">Shared device knowledge and physical layouts.<br>BioBot {{ version }}</p>
     </aside>
@@ -28,8 +29,9 @@
       <p id="admin-feedback" role="status" aria-live="polite"></p>
       <p id="admin-catalog-progress" class="admin-help" role="status" aria-live="polite"></p>
       <section id="admin-panel-users" role="tabpanel" aria-labelledby="admin-tab-users">
-        <div class="admin-page-heading"><div><p class="admin-eyebrow">Access & accounts</p><h1>Users</h1><p>Manage accounts, administrator access and password resets.</p></div><button id="admin-refresh-users" class="btn" type="button">Refresh users</button></div>
+        <div class="admin-page-heading"><div><p class="admin-eyebrow">Access & accounts</p><h1>Users</h1><p>Manage accounts, daily API allowances, administrator access and password resets.</p></div><button id="admin-refresh-users" class="btn" type="button">Refresh users</button></div>
         <div class="admin-section"><h2>Access requests</h2><div id="admin-requests"></div></div>
+        <p class="admin-help">Each user starts with their own $0.50/day allowance for the shared API key; resets at 00:00 UTC. Edit a user to set any amount, 0, or Unlimited. Personal API keys are excluded. Running requests reserve allowance; web-search costs are estimates until completion and can exceed the remaining amount. Shared catalog maintenance is excluded.</p>
         <div id="admin-users" class="admin-record-list"></div>
         <details class="admin-section"><summary>Diagnostic settings</summary><label class="admin-toggle"><input id="debug-logs" type="checkbox"> Keep logs for successful runs</label></details>
       </section>
@@ -55,6 +57,10 @@
             <details class="admin-section"><summary>Layout sources</summary><div id="admin-deck-sources"></div></details>
           </div>
         </section>
+      </section>
+      <section id="admin-panel-models" role="tabpanel" aria-labelledby="admin-tab-models" hidden>
+        <div class="admin-page-heading"><div><p class="admin-eyebrow">OpenAI</p><h1>Models</h1><p>Choose the OpenAI model for each task and the installation's default API key. Available models and prices are refreshed daily from OpenAI.</p></div><button id="admin-refresh-models" class="btn" type="button">Refresh models and prices</button></div>
+        <div id="admin-models" class="admin-record-list"></div>
       </section>
     </main>
   </div>

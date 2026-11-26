@@ -10,7 +10,10 @@ Uses the configured review model.
 
 import json
 from openai import OpenAI
-from config import get_api_key, light_functions_model
+from api_budget import metered_openai
+OpenAI = metered_openai(OpenAI)
+from config import get_api_key
+from model_settings import model_for
 
 # ------------------------------------------------------------------ #
 #  System prompt sent to the feasibility-check LLM                    #
@@ -23,6 +26,8 @@ Your job is to determine whether the described protocol is **physically
 and logically feasible** given standard lab-automation constraints.
 
 Derive the relevant feasibility checks from the selected instrument and requested operations. Do not require liquid-handling hardware, wells, tips or volumes for operations that do not use them. Check documented operation settings, timing, capacities, targets and instrument compatibility. The categories below are examples to use when relevant, not requirements for every device.
+
+Reject only concrete contradictions supported by supplied facts or documentation. Routine choices the model can make are not infeasibility. Schematic loading positions do not establish internal operating geometry; do not infer alignment failures or collisions from drawing coordinates alone.
 
 Check the following categories when applicable:
 
@@ -134,7 +139,7 @@ def check_feasibility(consolidated_query: str, api_key: str | None = None) -> di
     client = OpenAI(api_key=api_key or get_api_key())
 
     response = client.responses.create(
-        model=light_functions_model,
+        model=model_for("light"),
         input=[
             {"role": "system", "content": FEASIBILITY_PROMPT},
             {

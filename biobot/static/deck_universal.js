@@ -99,22 +99,24 @@ async function parseDeckFromCode(code, sourceBlock, templateId = null) {
       if (_deckAbort !== controller) return;
       console.error("Deck server error:", res.status, errMsg);
       _currentState = null; _showError(errMsg, retry);
-      return;
+      return false;
     }
 
     const state = await res.json();
     if (_deckAbort !== controller || parseForChat && currentChatId !== parseForChat) return;
-    if (state.error) { console.error("Deck state error:", state.error); _currentState = null; _showError(state.error, retry); return; }
+    if (state.error) { console.error("Deck state error:", state.error); _currentState = null; _showError(state.error, retry); return false; }
 
     _currentState = state;
     _originalState = JSON.parse(JSON.stringify(state));  // deep copy for discard
     _renderDeck(state);
-    if (state._parameters_pending) _loadProtocolParameters(code, state, chatId);
+    if (state._parameters_pending && await _loadProtocolParameters(code, state, chatId) === false) return false;
+    return state;
   } catch (e) {
     if (_deckAbort !== controller || e.name === "AbortError" && !timedOut) return;
     console.error("Deck fetch error:", e);
     _currentState = null;
     _showError(timedOut ? "Loading the deck timed out. Please try again." : "Could not load the deck: " + e.message, retry);
+    return false;
   } finally {
     clearTimeout(timeout);
     if (_deckAbort === controller) {
@@ -178,6 +180,7 @@ async function _loadProtocolParameters(code, state, chatId) {
     _renderDeck(state);
     if (playbackIndex >= 0) _animGoTo(playbackIndex);
     if (wasPlaying) _animTogglePlay();
+    return true;
   } catch (error) {
     if (_currentState !== state) return;
     state._parameters_pending = false;
@@ -193,6 +196,7 @@ async function _loadProtocolParameters(code, state, chatId) {
       const retry = _libraryButton("Retry", () => parseDeckFromCode(_currentCode, _sourceCodeBlock));
       playback.appendChild(retry);
     }
+    return false;
   } finally {
     clearTimeout(timeout);
     if (_parameterAbort === controller) _parameterAbort = null;
@@ -383,6 +387,7 @@ async function _publishLibraryDeck() {
 // ============================================================
 
 function _renderDeck(state) {
+  state = {...state, positions:(state.positions || []).filter(pos => pos.configurable !== false)};
   _closeWellDetails();
   _plateSlotRoles.clear();
   _hideDeckTooltip();
@@ -393,6 +398,9 @@ function _renderDeck(state) {
 
   const wrapper = document.createElement("div");
   wrapper.className = "deck-wrapper";
+
+  const modelHeading = document.getElementById("deck-device-name");
+  if (modelHeading) modelHeading.textContent = state.platform || "Device workspace";
 
   // Title
   const title = document.createElement("div");
@@ -407,7 +415,7 @@ function _renderDeck(state) {
     const instruments = document.createElement("details");
     const summary = document.createElement("summary");
     summary.textContent = "Instruments";
-    instruments.append(summary, _renderInstruments(state.instruments || []));
+    instruments.append(summary, _renderInstruments((state.instruments || []).filter(item => _configurableInstrument(item, state))));
     libraryPanel.appendChild(instruments);
   }
 
@@ -418,7 +426,9 @@ function _renderDeck(state) {
   frame.dataset.layout = layoutType;
   wrapper.appendChild(frame);
 
-  if (layoutType === "spatial") {
+  if (!_libraryEditing && document.getElementById("deck-inspector") && _hasPairedInspection(state)) {
+    frame.appendChild(_renderPairedInspection(state));
+  } else if (layoutType === "spatial") {
     frame.appendChild(_renderSpatial(state));
   } else if (layoutType === "grid") {
     frame.appendChild(_renderGrid(state));
@@ -465,8 +475,62 @@ function _renderDeck(state) {
   _paintProtocolWells(state, -1);
   _watchDeckFit();
   preloadHardwareCatalog(state.platform);
+  _loadPositionChoices(state);
   window.workspace?.deckChanged(state);
   _renderApplyBar();
+}
+
+// A position whose documented interface admits only a few items offers them in place, for every device:
+// a single option is loaded when the device deck opens; up to 15 are a drop-down on the position; more keep the selector.
+const _positionChoices = new Map();  // "platform:position" -> compatible items (null while loading)
+const POSITION_CHOICE_LIMIT = 15;
+
+function _loadPositionChoices(state) {
+  if (window.workspace?.readOnly || _libraryEditing || !state?.platform) return;
+  for (const pos of state.positions || []) {
+    const key = `${state.platform}:${pos.id}`, position = _catalogPosition(pos.id);
+    if (!position) continue;
+    if (_positionChoices.has(key)) {
+      if (_positionChoices.get(key)?.length === 1) queueMicrotask(() => _showPositionChoices(state.platform, pos.id));
+      continue;
+    }
+    _positionChoices.set(key, null);
+    _loadHardwareCatalog(state.platform, position).then(catalog => {
+      _positionChoices.set(key, _catalogForPosition(catalog, position).categories.flatMap(category => category.items || []));
+      _showPositionChoices(state.platform, pos.id);
+    }).catch(() => _positionChoices.delete(key));
+  }
+}
+
+function _showPositionChoices(platform, id) {
+  const shown = _currentState, items = _positionChoices.get(`${platform}:${id}`);  // the deck on screen now
+  if (shown?.platform !== platform || !items?.length || _libraryEditing) return;
+  const current = (shown.positions || []).find(item => String(item.id) === String(id));
+  if (items.length === 1) {
+    if (!current || current.labware || (shown.steps || []).length) return;
+    _applyChange(current.id, items[0].id, null, items[0]);
+    _pendingChanges.pop();  // part of the device's opening deck, not a user edit
+    _originalState = JSON.parse(JSON.stringify(shown));
+    _renderApplyBar();
+  } else if (items.length <= POSITION_CHOICE_LIMIT) _renderDeck(shown);
+}
+
+function _positionChoiceMenu(id, pos) {
+  const choices = _currentState?.platform && _positionChoices.get(`${_currentState.platform}:${id}`);
+  if (!(choices?.length > 1 && choices.length <= POSITION_CHOICE_LIMIT)) return null;
+  const select = document.createElement("select");
+  select.className = "deck-slot-choice";
+  select.setAttribute("aria-label", `Item at position ${id}`);
+  // The item already there stays shown as the selection, even when it is not among the suggestions.
+  if (!pos.labware) select.append(new Option("Choose…", "", true, true));
+  else if (!choices.some(item => item.id === pos.labware)) select.append(new Option(pos.labware_display || pos.labware, "", true, true));
+  for (const item of choices) select.append(new Option(item.name || item.id, item.id, false, item.id === pos.labware));
+  for (const name of ["click", "dblclick", "pointerdown", "keydown"]) select.addEventListener(name, event => event.stopPropagation());
+  select.addEventListener("change", () => {
+    const item = choices.find(choice => choice.id === select.value);
+    if (item) { _stopDeckAnimation(); _applyChange(id, item.id, pos.labware || null, item); }
+  });
+  return select;
 }
 
 // ============================================================
@@ -479,15 +543,67 @@ function _renderSpatial(state) {
   deck.className = "deck-spatial";
   deck.dataset.view = workspace.view || "top";
   deck.setAttribute("aria-label", workspace.label || state.platform || "Device workspace");
-  deck.style.aspectRatio = String(workspace.width / workspace.height);
-  deck.style.borderRadius = workspace.shape === "ellipse" ? "50%" : "12px";
-  for (const pos of state.positions || []) {
+  // The saved layout defines visible positions; fixed hardware remains visible before any protocol runs.
+  const shown = (state.positions || []).filter(pos => pos.configurable !== false);
+  // A loaded item with a known footprint: its position hugs the item, centred where the device holds it.
+  const drawn = shown.map(pos => {
     const slot = _createSlot(pos);
+    let {x, y, width, height} = pos;
+    const ratio = pos.labware && (_footprintRatio(pos)
+      || _itemRatio(slot.querySelector?.(".fit-item")?.style.getPropertyValue?.("--item-ratio")));
+    if (ratio) {
+      if (width / height > ratio) { x += (width - height * ratio) / 2; width = height * ratio; }
+      else { y += (height - width / ratio) / 2; height = width / ratio; }
+    }
+    return {pos, slot, ratio, x, y, width, height};
+  });
+  // Readability first: empty space between items shrinks to a small gap; items keep their size,
+  // proportions and relative arrangement. The library editor keeps true coordinates.
+  if (!_libraryEditing && drawn.every(d => [d.x, d.y, d.width, d.height].every(Number.isFinite))) for (const [p, size] of [["x", "width"], ["y", "height"]]) {
+    const segments = [];
+    for (const d of [...drawn].sort((a, b) => a[p] - b[p])) {
+      const last = segments.at(-1);
+      if (last && d[p] <= last.end) last.end = Math.max(last.end, d[p] + d[size]);
+      else segments.push({start: d[p], end: d[p] + d[size], shift: 0});
+    }
+    const gap = 0.15 * Math.max(...drawn.map(d => d[size]));
+    for (let i = 1; i < segments.length; i++)
+      segments[i].shift = segments[i - 1].shift + Math.max(0, segments[i].start - segments[i - 1].end - gap);
+    for (const d of drawn) d[p] -= segments.findLast(seg => seg.start <= d[p])?.shift || 0;
+  }
+  // Readability first: a single row of positions too narrow to read at the frame's width (e.g. many slim
+  // tracks) is wrapped across rows, in physical order, each position at a readable size.
+  const narrowest = Math.min(...drawn.map(d => Math.min(d.width, d.height)));
+  const across = Math.max(...drawn.map(d => d.x + d.width)) - Math.min(...drawn.map(d => d.x));
+  const oneRow = drawn.every(d => d.y < drawn[0].y + drawn[0].height && drawn[0].y < d.y + d.height);
+  const frameWidth = (document.getElementById?.("deck-svg-container")?.clientWidth || 0) - 52;
+  if (!_libraryEditing && oneRow && drawn.length > 1 && frameWidth > 0 && 48 * across / narrowest > frameWidth) {
+    const wrapped = document.createElement("div");
+    wrapped.className = "deck-track-map deck-track-overview deck-wrapped-row";
+    wrapped.setAttribute("aria-label", deck.getAttribute("aria-label"));
+    for (const {slot} of [...drawn].sort((a, b) => a.x - b.x)) wrapped.appendChild(slot);
+    return wrapped;
+  }
+  // Zoom on what is drawn (with a small margin) so the deck fills its frame.
+  let box = {x: 0, y: 0, width: workspace.width, height: workspace.height};
+  if (drawn.length && !_libraryEditing) {
+    const x0 = Math.min(...drawn.map(d => d.x)), y0 = Math.min(...drawn.map(d => d.y));
+    const x1 = Math.max(...drawn.map(d => d.x + d.width)), y1 = Math.max(...drawn.map(d => d.y + d.height));
+    const margin = 0.04 * Math.max(x1 - x0, y1 - y0);
+    if ([x0, y0, x1, y1].every(Number.isFinite) && x1 > x0 && y1 > y0)
+      box = {x: x0 - margin, y: y0 - margin, width: x1 - x0 + 2 * margin, height: y1 - y0 + 2 * margin};
+  }
+  deck.style.aspectRatio = String(box.width / box.height);
+  deck.style.setProperty("--deck-ratio", String(box.width / box.height));
+  // Readability floor: the deck is never drawn so small that its narrowest item is under 32 px; it scrolls instead.
+  if (narrowest > 0) deck.dataset.minWidth = String(Math.ceil(32 * box.width / narrowest));
+  deck.style.borderRadius = workspace.shape === "ellipse" && box.width === workspace.width ? "50%" : "12px";
+  for (const {pos, slot, ratio, x, y, width, height} of drawn) {
     Object.assign(slot.style, {
-      position: "absolute", left: `${100 * pos.x / workspace.width}%`,
-      top: `${100 * pos.y / workspace.height}%`, width: `${100 * pos.width / workspace.width}%`,
-      height: `${100 * pos.height / workspace.height}%`, aspectRatio: "auto",
-      minWidth: "0", minHeight: "0", padding: "4px", borderRadius: pos.shape === "ellipse" ? "50%" : "6px",
+      position: "absolute", left: `${100 * (x - box.x) / box.width}%`,
+      top: `${100 * (y - box.y) / box.height}%`, width: `${100 * width / box.width}%`,
+      height: `${100 * height / box.height}%`, aspectRatio: "auto",
+      minWidth: "0", minHeight: "0", padding: ratio ? "0" : "4px", borderRadius: pos.shape === "ellipse" ? "50%" : "6px",
     });
     deck.appendChild(slot);
   }
@@ -601,26 +717,14 @@ function _renderLinear(state) {
     container.classList.add("deck-linear-unloaded");
     const caption = document.createElement("p");
     caption.className = "deck-position-caption";
-    caption.textContent = "Saved physical positions · no carriers loaded · schematic view";
+    caption.textContent = "Track overview · wrapped across rows for inspection; physical track numbers are unchanged";
     container.appendChild(caption);
     const map = document.createElement("div");
-    map.className = "deck-track-map";
-    const located = positions.every(pos => Number.isInteger(pos.row) && Number.isInteger(pos.col));
-    const columns = located ? Math.max(...positions.map(pos => pos.col)) + 1 : positions.length;
-    map.style.gridTemplateColumns = `repeat(${columns}, minmax(16px, 1fr))`;
-    map.style.minWidth = `${columns * 16}px`;
-    for (const [index, pos] of positions.entries()) {
+    map.className = "deck-track-map deck-track-overview";
+    for (const pos of positions) {
       const slot = _createSlot(pos);
-      Object.assign(slot.style, {width:"100%", height:"100%", minHeight:"0", aspectRatio:"auto", padding:"3px",
-        gridColumn:String((located ? pos.col : index) + 1), gridRow:String((located ? pos.row : 0) + 1)});
-      slot.title = [pos.id, pos.labware_display || pos.module || pos.labware].filter(Boolean).join(" · ");
-      if (pos.fixed || pos.module) {
-        slot.dataset.fixed = "true";
-        const label = document.createElement("span");
-        label.className = "track-fixed-label";
-        label.textContent = pos.labware_display || pos.module || pos.type || pos.id;
-        slot.appendChild(label);
-      }
+      Object.assign(slot.style, {width:"100%", height:"180px", minHeight:"0", aspectRatio:"auto", padding:"22px 8px 8px"});
+      if (pos.fixed || pos.module) slot.dataset.fixed = "true";
       map.appendChild(slot);
     }
     container.appendChild(map);
@@ -753,25 +857,22 @@ function _renderPlateMap(plate, role, slotId, posData) {
   section.dataset.id = slotId;
   if (_selectedSlot === slotId) section.classList.add("selected");
 
-  // Header with plate info
-  const header = document.createElement("div");
-  header.className = "deck-plate-header";
   const plateName = plate.name || (role === "source" ? "Source Plate" : "Destination Plate");
-  header.innerHTML = `
-    <span class="deck-plate-name">${plateName}</span>
-    ${format ? `<span class="deck-plate-format">${format}-well</span>` : ""}
-  `;
-  const roleLabel = document.createElement("span");
-  roleLabel.className = "slot-role";
-  roleLabel.textContent = role === "source" ? "Source" : "Destination";
-  section.appendChild(roleLabel);
-  section.appendChild(header);
-  const count = document.createElement("span");
-  count.className = "slot-well-count";
-  section.appendChild(count);
+  section.dataset.tip = [`Position ${slotId}`, role === "source" ? "Source" : "Destination", plateName,
+    format && `${format}-well`].filter(Boolean).join("\n");
   if (!declared) {
+    const count = document.createElement("span");
+    count.className = "slot-well-count";
     count.textContent = `${format ? `${format} wells · ` : ""}Well layout unspecified`;
+    section.appendChild(count);
     _bindDeckArea(section, slotId, posData || {fixed:true,labware:plate.type || plateName,type:"plate"});
+    return section;
+  }
+
+  if (document.getElementById("deck-inspector")) {
+    section.classList.add("photographic-plate");
+    section.appendChild(_photographicPlate(rows, cols, role, _footprintRatio({...geometry, type:"plate"})));
+    _bindDeckArea(section, slotId, posData || {fixed:true, labware:plate.type || plateName, type:"plate"});
     return section;
   }
 
@@ -846,7 +947,7 @@ function _renderPlateMap(plate, role, slotId, posData) {
 function _deckAreaType(type, labware) {
   const key = String(type || "").toLowerCase().replace(/[\s_-]/g, "");
   if (key.endsWith("plate")) return "plate";
-  if (key.endsWith("trash")) return "trash";
+  if (key.endsWith("trash") || key.endsWith("waste")) return "trash";
   if (!key || key === "labware" || key === "empty" && labware) return _guessType(labware);
   return key;
 }
@@ -870,33 +971,28 @@ function _createSlot(pos) {
   const slotType = _deckAreaType(pos.type, pos.labware);
   slot.className = `deck-slot ${filled ? "filled" : "empty"} ${slotType}`;
   slot.dataset.id = pos.id;
-  const ratio = Number(pos.aspect_ratio);
-  slot.style.aspectRatio = Number.isFinite(ratio) && ratio >= 0.1 && ratio <= 10 ? String(ratio) : "1.5";
+  slot.style.aspectRatio = String(_itemRatio(pos.aspect_ratio) || 1.5);
   if (_selectedSlot === pos.id) slot.classList.add("selected");
 
-  // Slot number badge
-  slot.innerHTML = `<span class="slot-number">${pos.id}</span>`;
-
   if (filled) {
-    // Module badge if applicable
-    if (pos.module) {
-      slot.innerHTML += `<span class="slot-module-badge">${pos.module}</span>`;
+    const plateGeometry = slotType === "plate" && Number.isInteger(pos.well_rows) && Number.isInteger(pos.well_columns)
+      && pos.well_rows > 0 && pos.well_columns > 0 && pos.well_rows * pos.well_columns === Number(pos.well_count || pos.format);
+    if (document.getElementById("deck-inspector") && plateGeometry) {
+      slot.classList.add("material-labware");
+      slot.appendChild(_photographicPlate(pos.well_rows, pos.well_columns, _inspectionRole(pos, _currentState || {}) || "destination", _footprintRatio(pos)));
+    } else {
+      slot.innerHTML += _renderSlotInterior(slotType, pos);
+      const visual = slot.lastElementChild, ratio = _footprintRatio(pos);
+      if (visual && ratio) { visual.classList.add("fit-item"); visual.style.setProperty("--item-ratio", String(ratio)); }
     }
-
-    const role = document.createElement("span");
-    role.className = "slot-role";
-    role.textContent = _deckRole(pos);
-    slot.appendChild(role);
-    const name = document.createElement("span");
-    name.className = "slot-labware-name";
-    name.textContent = pos.labware_display || _shorten(pos.labware);
-    slot.appendChild(name);
-    slot.innerHTML += _renderSlotInterior(slotType, pos);
-    if (["plate", "tiprack", "tuberack"].includes(slotType)) slot.innerHTML += '<span class="slot-well-count"></span>';
   } else {
+    slot.innerHTML = `<span class="slot-number">${pos.id}</span>`;
     slot.innerHTML += `<span class="slot-icon">${slotType === "trash" ? "🗑" : "+"}</span>`;
     slot.innerHTML += `<span class="slot-empty-label">${slotType === "trash" ? "Trash" : "Empty"}</span>`;
   }
+
+  const placeholder = slot.querySelector(".slot-hardware-placeholder");
+  if (placeholder) placeholder.textContent = pos.labware_display || pos.labware || pos.id;
 
   _bindDeckArea(slot, pos.id, pos);
 
@@ -924,8 +1020,8 @@ function _renderSlotInterior(type, pos) {
   if (type === "trash") {
     return `<div class="slot-trash-visual">🗑</div>`;
   }
-  // module or unknown
-  return `<div class="slot-icon">⬡</div>`;
+  // Keep documented hardware visible even when no detailed drawing is available.
+  return `<div class="slot-hardware-placeholder"></div>`;
 }
 
 function _renderHardwareVisual(visual) {
@@ -1000,7 +1096,7 @@ function _renderInstruments(instruments) {
   }
 
   // Only offer empty mounts already established by this device's instruments.
-  if (!instruments.length) {
+  if (!instruments.length && _currentState?.mounts?.length) {
     const add = _libraryButton("Add instrument", () => _showInstrumentSelector({ name: "", model: "", mount: null, tipracks: [] }, true));
     bar.appendChild(add);
   }
@@ -1213,6 +1309,16 @@ function _applyInstrumentChange(oldInst, newModel, newMount) {
   _renderApplyBar();
 }
 
+function _showDeckTooltip(area, event) {
+  if (document.querySelector(".deck-selector-modal")) return;
+  let tip = document.getElementById("deck-area-tooltip");
+  if (!tip) { tip = document.createElement("div"); tip.id = "deck-area-tooltip"; tip.setAttribute("role", "tooltip"); document.body.appendChild(tip); }
+  tip.textContent = [area.dataset.tip, area.getAttribute("aria-description")].filter(Boolean).join("\n");
+  const x = Math.min(event.clientX + 14, innerWidth - tip.offsetWidth - 8);
+  const y = event.clientY + 14 + tip.offsetHeight > innerHeight ? event.clientY - tip.offsetHeight - 10 : event.clientY + 14;
+  tip.style.left = `${Math.max(8, x)}px`; tip.style.top = `${Math.max(8, y)}px`;
+}
+
 function _hideDeckTooltip() {
   document.getElementById("deck-area-tooltip")?.remove();
 }
@@ -1227,10 +1333,20 @@ function _movableDeckArea(pos) {
 }
 
 function _bindDeckArea(area, id, pos) {
-  if (window.workspace?.readOnly) return;
+  // Every layout draws the item filling its area; its identity is shown on hover.
+  if ((pos.labware || pos.module) && !area.dataset.tip) area.dataset.tip = [`Position ${id}`, _deckRole(pos),
+    pos.labware_display || _shorten(pos.labware), pos.module].filter(Boolean).join("\n");
+  if (area.dataset.tip) {
+    area.addEventListener("mousemove", event => _showDeckTooltip(area, event));
+    area.addEventListener("mouseleave", _hideDeckTooltip);
+  }
+  if (window.workspace?.readOnly) {
+    if (document.getElementById("deck-inspector")) area.addEventListener("click", () => _inspectDeckItem(id, pos, area));
+    return;
+  }
   // A fixed position (e.g. a built-in plate stage) can still receive labware while empty; only built-in hardware
   // (modules, trash) cannot. This is shared by every device.
-  const empty = !pos.labware && !pos.module && !["trash", "module"].includes(_deckAreaType(pos.type, pos.labware));
+  const empty = !pos.labware && !["trash", "module", "instrument"].includes(_deckAreaType(pos.type, pos.labware));
   const movable = _movableDeckArea(pos);
   if (movable) {
     const remove = document.createElement("button");
@@ -1244,6 +1360,8 @@ function _bindDeckArea(area, id, pos) {
     });
     area.appendChild(remove);
   }
+  const menu = (empty || movable || _catalogPosition(id)) && _positionChoiceMenu(id, pos);
+  if (menu) area.appendChild(menu);
   area.tabIndex = 0;
   if (empty || movable) {
     area.setAttribute("role", empty ? "button" : "group");
@@ -1252,10 +1370,13 @@ function _bindDeckArea(area, id, pos) {
   function activate() {
     _hideDeckTooltip();
     if (empty) _showSelector(id, null);
+    else if (document.getElementById("deck-inspector")) _inspectDeckItem(id, pos, area);
   }
   area.addEventListener("click", activate);
   area.addEventListener("keydown", event => {
-    if (event.target !== area || (!empty && !movable) || !["Enter", " "].includes(event.key)) return;
+    if (event.target !== area || !["Enter", " "].includes(event.key)) return;
+    if (document.getElementById("deck-inspector")) { event.preventDefault(); activate(); return; }
+    if (!empty && !movable) return;
     event.preventDefault();
     _hideDeckTooltip();
     _showSelector(id, pos.labware || null);
@@ -1355,16 +1476,16 @@ function preloadHardwareCatalog(platform) {
   if (typeof platform === "string" && platform.trim()) _loadHardwareCatalog(platform).catch(() => {});
 }
 
-function _loadHardwareCatalog(platform) {
-  const key = platform.trim().toLowerCase().replace(/[\s_-]/g, "");
+function _loadHardwareCatalog(platform, position = null) {
+  const key = platform.trim().toLowerCase().replace(/[\s_-]/g, "") + (position ? `:${JSON.stringify(position)}` : "");
   if (_hardwareCatalogs.has(key)) return Promise.resolve(_hardwareCatalogs.get(key));
   if (_hardwareCatalogRequests.has(key)) return _hardwareCatalogRequests.get(key);
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 45000);
+  const timeout = setTimeout(() => controller.abort(), position ? 160000 : 45000);  // position lists search documentation
   const request = (async () => {
     const response = await fetch("/deck/catalog", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ platform, position_type: "labware", current: null }),
+      body: JSON.stringify({ platform, position_type: "labware", current: null, ...(position ? {position} : {}) }),
       signal: controller.signal,
     });
     if (!response.ok) throw new Error("Failed to load catalog");
@@ -1415,9 +1536,12 @@ async function _showSelector(slotId, currentLabware) {
   const list = _renderCatalog(modal, { categories: [] }, slotId, currentLabware);
   list.innerHTML = '<div class="deck-selector-loading"><div class="deck-loading-spinner"></div><span>Loading compatible hardware...</span></div>';
   try {
-    const catalog = await _loadHardwareCatalog(platform);
+    const position = _catalogPosition(slotId);
+    const catalog = await _loadHardwareCatalog(platform, position);
     if (!modal.isConnected) return;
-    _renderCatalogItems(list, catalog, modal, slotId, currentLabware);
+    const compatible = _catalogForPosition(catalog, position);
+    _renderCatalogItems(list, compatible, modal, slotId, currentLabware);
+    if (!compatible.categories.length) list.textContent = "No documented compatible options found for this position.";
     _filterCatalog(modal, modal.querySelector(".deck-selector-search").value);
   } catch (e) {
     if (!modal.isConnected) return;
@@ -1652,7 +1776,7 @@ function _renderProtocolParameters(state) {
   const fields = document.getElementById("protocol-parameter-fields");
   if (!panel || !fields) return;
   const parameters = !_libraryEditing && _currentCode ? state.parameters || [] : [];
-  const instruments = !_libraryEditing ? (state.instruments || []).filter(item => item.model) : [];
+  const instruments = !_libraryEditing ? (state.instruments || []).filter(item => item.model && _configurableInstrument(item, state)) : [];
   panel.hidden = parameters.length === 0 && instruments.length === 0 && !state._parameters_pending;
   fields.replaceChildren();
   if (state._parameters_pending && parameters.length === 0 && instruments.length === 0) fields.textContent = "Loading protocol parameters…";
@@ -1714,7 +1838,7 @@ function _renderApplyBar() {
   _trackEditHistory();
   if (apply) {
     apply.disabled = disabled || !!document.getElementById("protocol-parameter-fields")?.querySelector("input:invalid");
-    apply.textContent = _applyingChanges ? "Applying…" : "Apply";
+    apply.textContent = _applyingChanges ? "Applying…" : (document.getElementById("deck-inspector") ? "Ready" : "Apply");
   }
 }
 
@@ -1905,9 +2029,23 @@ function _fitDeck() {
   const wrapper = container?.querySelector(".deck-wrapper");
   if (!wrapper) return;
   if (!panel || panel.classList.contains("hidden")) return;
+  const overview = wrapper.querySelector?.(".deck-track-overview");
+  container.classList?.toggle("deck-scroll-overview", !!overview);
+  if (overview) {
+    Object.assign(wrapper.style, {width:"100%", transform:"none", left:"0px", top:"0px", position:"relative"});
+    return;
+  }
+  const minWidth = Number(wrapper.querySelector?.(".deck-spatial")?.dataset.minWidth);
+  const wide = minWidth > container.clientWidth - 52;
+  container.classList?.toggle("deck-scroll-wide", wide);
+  if (wide) {
+    Object.assign(wrapper.style, {width:`${minWidth + 28}px`, transform:"none", left:"0px", top:"0px", position:"relative"});
+    return;
+  }
+  wrapper.style.position = "absolute";
   const width = Math.max(1, container.clientWidth - 24);
   // Keep room for the playback bar even before it appears, so the deck does not have to shrink later.
-  const reserve = wrapper.querySelector?.("#anim-playback-bar") ? 0 : 96;
+  const reserve = document.getElementById("deck-playback-host") || wrapper.querySelector?.("#anim-playback-bar") ? 0 : 96;
   const height = Math.max(1, container.clientHeight - 24 - reserve);
   wrapper.style.width = `${Math.max(320, width)}px`;
   const naturalWidth = wrapper.scrollWidth, naturalHeight = wrapper.scrollHeight;
@@ -1952,7 +2090,7 @@ function _ensureDeckSplitter() {
   let startY = 0, startHeight = 0;
   function resize(height) {
     const header = panel.querySelector(".deck-panel-header");
-    const available = panel.clientHeight - header.offsetHeight - splitter.offsetHeight;
+    const available = panel.clientHeight - (header?.offsetHeight || 0) - splitter.offsetHeight;
     const minimum = Math.min(80, available / 2);
     const value = Math.max(minimum, Math.min(height, available - minimum));
     panel.style.setProperty("--deck-code-height", `${value}px`);
@@ -2148,14 +2286,25 @@ function _updateSourceCodeBlock(newCode) {
 function _showLoading(keepDeck = false) {
   const container = document.getElementById("deck-svg-container");
   if (!container) return;
-  if (keepDeck) {
-    container.querySelector(".deck-loading-inline")?.remove();
-    const notice = document.createElement("div");
-    notice.className = "deck-loading-inline"; notice.textContent = "Updating deck…";
-    container.appendChild(notice);
-    return;
+  container.querySelector(".deck-loading-inline")?.remove();
+  const loading = document.createElement("div");
+  loading.className = keepDeck ? "deck-loading-inline" : "deck-loading";
+  loading.setAttribute("role", "status");
+  loading.setAttribute("aria-live", "polite");
+  const icon = window.workspace?.analyzingIcon?.() || document.createElement("div");
+  if (!window.workspace?.analyzingIcon) icon.className = "deck-loading-spinner";
+  loading.appendChild(icon);
+  const label = document.createElement("span");
+  label.textContent = keepDeck ? "Preparing workspace…" : "Preparing your workspace…";
+  loading.appendChild(label);
+  if (!keepDeck) {
+    const note = document.createElement("span");
+    note.className = "deck-loading-sub";
+    note.textContent = "Your device is being prepared in the background.";
+    loading.appendChild(note);
+    container.innerHTML = "";
   }
-  container.innerHTML = '<div class="deck-loading"><div class="deck-loading-spinner"></div><span>Loading deck...</span><span class="deck-loading-sub">Saved device layouts are reused automatically</span></div>';
+  container.appendChild(loading);
 }
 function _showError(msg, retry) {
   const container = document.getElementById("deck-svg-container");
@@ -2319,7 +2468,7 @@ function _renderPlaybackControls(pending = false) {
   }
   bar.appendChild(controls);
 
-  frame.appendChild(bar);
+  (document.getElementById("deck-playback-host") || frame).appendChild(bar);
 }
 
 function _makeAnimBtn(icon, title, onClick) {
@@ -2436,6 +2585,8 @@ function _paintProtocolWells(state, stepIndex) {
         const inspect = event => {
           if (event.type === "keydown" && !["Enter", " "].includes(event.key)) return;
           event.preventDefault(); event.stopPropagation();
+          _selectedSlot = null;
+          container.querySelectorAll(".deck-slot.selected").forEach(item => item.classList.remove("selected"));
           _selectedWell = {slot:String(slot.dataset.id), well:well.dataset.well};
           _paintProtocolWells(_currentState || state, _animStepIndex);
         };
@@ -2446,17 +2597,32 @@ function _paintProtocolWells(state, stepIndex) {
       }
       if (present) occupied++;
     });
-    const count=slot.querySelector(".slot-well-count");
-    if (count && wells.length) {
-      count.textContent=`${occupied} / ${wells.length} ${tips?"tips present":"with liquid"}`;
-      slot.setAttribute("aria-description",count.textContent);
+    if (wells.length) {
+      const text=`${occupied} / ${wells.length} ${tips?"tips present":"with liquid"}`;
+      const count=slot.querySelector(".slot-well-count");
+      if (count) count.textContent=text;
+      slot.setAttribute("aria-description",text);
     }
   });
   if (_selectedWell) _renderWellDetails(state, contents);
 }
 
+function setInspectorVisible(visible) {
+  const inspector = document.getElementById("deck-inspector");
+  if (inspector) inspector.hidden = !visible;
+  const toggle = document.getElementById("inspector-toggle");
+  toggle?.setAttribute("aria-expanded", String(visible));
+  toggle?.setAttribute("aria-label", visible ? "Hide inspector" : "Show inspector");
+}
+window.setInspectorVisible = setInspectorVisible;
+
 function _closeWellDetails() {
+  setInspectorVisible(false);
   _selectedWell = null;
+  _selectedSlot = null;
+  document.getElementById("deck-svg-container")?.querySelectorAll(".deck-slot.selected").forEach(item => item.classList.remove("selected"));
+  const empty = document.getElementById("inspector-empty");
+  if (empty) empty.hidden = false;
   const panel = document.getElementById("well-details");
   if (panel) { panel.hidden = true; panel.replaceChildren(); }
   document.getElementById("deck-svg-container")?.querySelectorAll(".well-selected").forEach(well => {
@@ -2477,6 +2643,19 @@ function _renderWellDetails(state, contents) {
   const tips = _deckAreaType(pos?.type, pos?.labware) === "tiprack";
   const present = value?.occupied ?? tips;
   panel.replaceChildren(); panel.hidden = false;
+  setInspectorVisible(true);
+  const empty = document.getElementById("inspector-empty");
+  if (empty) empty.hidden = true;
+  if (document.getElementById("deck-inspector")) {
+    const name = pos?.labware_display || pos?.labware || "Plate";
+    const status = tips ? (present ? "Tip present" : "No tip") : (present ? "Liquid present" : "Empty");
+    const volume = !tips && (present || Number.isFinite(value?.volume_ul))
+      ? (Number.isFinite(value?.volume_ul) ? _formatWellVolume(value.volume_ul) : "Volume unspecified") : "";
+    const composition = present && !tips && value?.liquids?.length
+      ? _wellLiquidParts(value).map(liquid => `${liquid.name}: ${_formatWellVolume(liquid.volume_ul)}`).join(", ") : "";
+    _renderInspectorSummary(panel, `Well ${well} · ${name} · ${slot}`, [status, volume, composition].filter(Boolean).join(" · "));
+    return;
+  }
   const header = document.createElement("div"); header.className = "well-details-header";
   if (!panel._dragBound) { _bindWellCardDrag(panel, panel); panel._dragBound = true; }
   const title = document.createElement("h3"); title.textContent = `Well ${well}`;
@@ -2649,6 +2828,12 @@ function _updateStepDescription(step, colors) {
     html += ` <span class="anim-step-vol">${step.volume}</span>`;
   }
   desc.innerHTML = html;
+  const transfer=_dropletTransfer(step);
+  if(transfer) {
+    const detail=document.createElement('span');detail.className='anim-droplet-summary';
+    detail.textContent=`${_dropletSummary(transfer)} · time-compressed schematic stream`;
+    desc.appendChild(detail);
+  }
 }
 
 // ---- Tip overlay ----
@@ -2657,27 +2842,51 @@ function _removeTipOverlay() {
   document.querySelectorAll(".anim-tip-overlay").forEach(el => el.remove());
 }
 
-// Facing plates mean contactless transfer (e.g. acoustic): a droplet rises from the source well to the
-// destination well instead of a pipette moving.
+function _dropletTransfer(step) {
+  if (_currentState?._transfer_physics?.mechanism !== 'acoustic_droplets') return null;
+  if (!step.source?.slot || !step.destination?.slot) return null;
+  const totalUl = Number.isFinite(step.volume_ul) ? step.volume_ul
+    : parseQuestionQuantity(step.volume || '', {unit:'µL',units:{nL:.001,mL:1000,L:1000000}});
+  const dropNl = _currentState._transfer_physics.droplet_volume_nl;
+  const count = Number.isFinite(totalUl) && totalUl>0 && Number.isFinite(dropNl) && dropNl>0 ? totalUl*1000/dropNl : NaN;
+  const valid = Number.isFinite(count) && Number.isSafeInteger(Math.round(count)) && Math.abs(count-Math.round(count))<1e-6;
+  return {totalUl,dropNl,count:valid?Math.round(count):null,invalid:Number.isFinite(count) && !valid};
+}
+
+function _dropletSummary(transfer) {
+  if(transfer.invalid)return 'Transfer volume is not a whole number of documented droplets';
+  if(transfer.count!==null)return `${transfer.count.toLocaleString('en-US')} × ${transfer.dropNl} nL droplets · ${_formatWellVolume(transfer.totalUl)} total per transfer`;
+  return `${Number.isFinite(transfer.totalUl)?_formatWellVolume(transfer.totalUl)+' total · ':''}droplet volume not documented`;
+}
+
+// A bounded stream represents the documented droplet count in time-compressed playback.
 function _showDropletAnimation(step, colors, container) {
   if (!step.source?.slot || !step.destination?.slot) return;
-  const slot = id => [...container.querySelectorAll(".deck-slot[data-id]")].find(s => s.dataset.id === String(id));
+  const slot = id => [...container.querySelectorAll('.deck-slot[data-id]')].find(s => s.dataset.id === String(id));
   const point = (id, wells) => {
     const area = slot(id);
     return area?.querySelector(`.deck-well[data-well="${wells?.[0]}"]`) || area;
   };
   const from = point(step.source.slot, step.source.wells), to = point(step.destination.slot, step.destination.wells);
   if (!from || !to) return;
+  const transfer=_dropletTransfer(step);
+  if(transfer?.invalid)return;
   const box = container.getBoundingClientRect(), a = from.getBoundingClientRect(), b = to.getBoundingClientRect();
-  const drop = document.createElement("div");
-  drop.className = "anim-tip-overlay anim-droplet";
-  drop.innerHTML = `<span class="droplet" style="background:${colors.fill}"></span>${step.volume ? `<span class="tip-vol-label">${step.volume}</span>` : ""}`;
-  Object.assign(drop.style, {position:"absolute", zIndex:"50", pointerEvents:"none",
-    left:`${a.left - box.left + container.scrollLeft + a.width / 2}px`, top:`${a.top - box.top + container.scrollTop + a.height / 2}px`});
-  container.style.position = "relative";
-  container.appendChild(drop);
-  const dx = b.left + b.width / 2 - (a.left + a.width / 2), dy = b.top + b.height / 2 - (a.top + a.height / 2);
-  requestAnimationFrame(() => { drop.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`; });
+  const overlay=document.createElement('div');overlay.className='anim-tip-overlay anim-droplet-stream';
+  overlay.setAttribute('aria-label',transfer?_dropletSummary(transfer):'Schematic droplet stream; total transfer volume shown in playback controls');
+  Object.assign(overlay.style,{position:'absolute',zIndex:'50',pointerEvents:'none',
+    left:`${a.left-box.left+container.scrollLeft+a.width/2}px`,top:`${a.top-box.top+container.scrollTop+a.height/2}px`});
+  container.style.position='relative';container.appendChild(overlay);
+  const dx=b.left+b.width/2-a.left-a.width/2,dy=b.top+b.height/2-a.top-a.height/2;
+  const count=Math.min(12,transfer?.count ?? 12);
+  for(let i=0;i<count;i++) {
+    const drop=document.createElement('span');drop.className='droplet';drop.style.background=colors.fill;overlay.appendChild(drop);
+    if(drop.animate)drop.animate([
+      {transform:'translate(-50%, -50%)',opacity:0},
+      {transform:`translate(calc(-50% + ${dx*.15}px), calc(-50% + ${dy*.15}px))`,opacity:1,offset:.15},
+      {transform:`translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`,opacity:0}
+    ],{duration:_animSpeed*.55,delay:i*_animSpeed*.025,fill:'forwards',easing:'linear'});
+  }
 }
 
 function _showTipAnimation(step, colors) {
@@ -2685,7 +2894,7 @@ function _showTipAnimation(step, colors) {
 
   const container = document.getElementById("deck-svg-container");
   if (!container) return;
-  if (_currentState?.arrangement === "facing") { _showDropletAnimation(step, colors, container); return; }
+  if (_dropletTransfer(step) || _currentState?.arrangement === "facing") { _showDropletAnimation(step, colors, container); return; }
 
   const actionKey = (step.action || "").toLowerCase().replace(/[\s-]+/g, "_");
   // A tip drop without a declared trash goes to the deck's own trash position.
@@ -2940,3 +3149,179 @@ window.preloadHardwareCatalog = preloadHardwareCatalog;
 window.clearDeckPanel = clearDeckPanel;
 window.toggleDeckPanel = toggleDeckPanel;
 window.toggleProtocolDeck = toggleProtocolDeck;
+
+// The inspection projection changes presentation only; physical positions and
+// protocol bindings remain the documentation-derived device layout.
+function _hasPairedInspection(state) {
+  if (state._transfer_physics?.mechanism !== "acoustic_droplets") return false;
+  const positions = (state.positions || []).filter(pos => !pos.fixed);
+  return positions.some(pos => _inspectionRole(pos, state) === "source") &&
+    positions.some(pos => _inspectionRole(pos, state) === "destination");
+}
+
+function _inspectionRole(pos, state) {
+  const role = String(pos.role || "").toLowerCase();
+  if (["source", "destination"].includes(role)) return role;
+  for (const step of state.steps || []) {
+    for (const key of ["source", "destination"]) if (String(step[key]?.slot) === String(pos.id)) return key;
+  }
+  // Position labels are catalog evidence; this is not a device-name lookup.
+  const label = `${pos.id} ${pos.variable || ""}`.toLowerCase();
+  if (/\bsource\b/.test(label)) return "source";
+  if (/\bdest(?:ination)?\b/.test(label)) return "destination";
+  return "";
+}
+
+function _renderPairedInspection(state) {
+  const root = document.createElement("div"); root.className = "deck-plates facing inspection-projection";
+  for (const role of ["destination", "source"]) {
+    const pos = (state.positions || []).find(pos => !pos.fixed && _inspectionRole(pos, state) === role);
+    const plate = state.plates?.[role] || {};
+    _plateSlotRoles.set(String(pos.id), new Set([role]));
+    // A gripper remains integrated, but the plate it holds is configurable.
+    const binding = {...pos, module:null};
+    const item = pos.labware
+      ? _renderPlateMap({...plate, name:pos.labware_display || pos.labware, format:pos.well_count || plate.format}, role, pos.id, binding)
+      : _createSlot(binding);
+    item.classList.add(role === "source" ? "plate-source" : "plate-dest");
+    root.appendChild(item);
+  }
+  for (const pos of state.positions || []) {
+    if (!pos.fixed && !_inspectionRole(pos, state)) root.appendChild(_createSlot(pos));
+  }
+  const caption = document.createElement("p"); caption.className = "inspection-caption";
+  caption.textContent = "Inspection projection · Both plate interiors face you. The destination plate is inverted above the source during transfer. Integrated transfer hardware is fixed.";
+  root.appendChild(caption);
+  return root;
+}
+
+function _configurableInstrument(item, state) {
+  if (item.configurable === false || item.fixed === true) return false;
+  const normalize = value => String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  const identities = [item.name, item.model].filter(Boolean).map(normalize);
+  const integrated = (state.positions || []).some(pos => pos.fixed &&
+    [pos.id, pos.labware, pos.labware_display].filter(Boolean).some(value => identities.includes(normalize(value))));
+  return !integrated && (item.configurable === true || typeof item.mount === "string" && !!item.mount.trim());
+}
+
+function _inspectDeckItem(id, pos, area) {
+  _closeWellDetails();
+  _selectedSlot = id;
+  document.getElementById("deck-svg-container")?.querySelectorAll(".deck-slot.selected").forEach(item => item.classList.remove("selected"));
+  area.classList.add("selected");
+  const panel = document.getElementById("well-details");
+  if (!panel) return;
+  panel.hidden = false;
+  setInspectorVisible(true);
+  const empty = document.getElementById("inspector-empty"); if (empty) empty.hidden = true;
+  _renderInspectorSummary(panel,
+    `${pos.labware_display || pos.labware || "Empty position"} · ${id}`,
+    [pos.labware ? "Loaded" : "Empty", pos.well_count ? `${pos.well_count} wells` : "", pos.module || ""].filter(Boolean).join(" · "));
+  if (!window.workspace?.readOnly && !pos.fixed && !["module", "trash", "instrument"].includes(pos.type)) {
+    const change = document.createElement("button"); change.type = "button"; change.className = "workspace-button";
+    change.classList.add("inspector-change");
+    change.textContent = pos.labware ? "✎" : "+";
+    change.title = pos.labware ? "Change labware" : "Add labware";
+    change.setAttribute("aria-label", change.title);
+    change.addEventListener("click", () => _showSelector(id, pos.labware || null)); panel.appendChild(change);
+  }
+}
+
+// Photographic materials are decorative. Well geometry, hit targets and liquid
+// state are generated from verified catalog dimensions, never from the image.
+// Documented physical width/height of an item, or null: items are drawn at this ratio, never stretched to their area.
+function _itemRatio(value) {
+  const ratio = Number(value);
+  return Number.isFinite(ratio) && ratio >= 0.1 && ratio <= 10 ? ratio : null;
+}
+
+// A plate's footprint follows its own well grid (columns / rows): a stated ratio that contradicts the grid
+// is a data error and is ignored, and an undocumented one is taken from the grid. Other items use their stated ratio.
+function _footprintRatio(item) {
+  const stated = _itemRatio(item?.aspect_ratio);
+  const rows = Number(item?.well_rows), cols = Number(item?.well_columns);
+  if (_deckAreaType(item?.type, item?.labware) !== "plate" || !(rows > 0 && cols > 0)) return stated;
+  const grid = cols / rows;
+  return stated && Math.abs(Math.log(stated / grid)) < Math.log(1.1) ? stated : grid;
+}
+
+function _photographicPlate(rows, cols, role, ratio = null) {
+  const source = role === "source";
+  const atlas = source
+    ? {x:48,y:750,w:990,h:625,gx:67,gy:45,gw:856,gh:550,sx:115,sy:799,sw:36,sh:36}
+    : {x:48,y:35,w:990,h:655,gx:86,gy:71,gw:820,gh:520,sx:134,sy:106,sw:68,sh:65};
+  const surface = document.createElement("div"); surface.className = `photographic-surface ${source ? "dark-plate" : "clear-plate"}`;
+  surface.classList.add("fit-item");
+  // The surface takes the item's documented ratio; the photograph is scaled uniformly inside it (never stretched),
+  // and the wells are laid out on the photograph's well area.
+  const itemRatio = _itemRatio(ratio) || atlas.w / atlas.h;
+  surface.style.setProperty("--item-ratio", String(itemRatio));
+  const cw = atlas.w, ch = Math.round(atlas.w / itemRatio), k = Math.min(cw / atlas.w, ch / atlas.h);
+  const ox = (cw - atlas.w * k) / 2, oy = (ch - atlas.h * k) / 2;
+  const well = {x: ox + atlas.gx * k, y: oy + atlas.gy * k, w: atlas.gw * k, h: atlas.gh * k};
+  const canvas = document.createElement("canvas"); canvas.width = cw; canvas.height = ch; canvas.setAttribute("aria-hidden", "true");
+  surface.appendChild(canvas);
+  const image = new Image();
+  image.onload = () => {
+    const ctx = canvas.getContext("2d"); if (!ctx) return;
+    ctx.drawImage(image, atlas.x, atlas.y, atlas.w, atlas.h, ox, oy, atlas.w * k, atlas.h * k);
+    ctx.fillStyle = source ? "#292d32" : "#e2e5e9";
+    ctx.fillRect(well.x, well.y, well.w, well.h);
+    for (let row=0; row<rows; row++) for (let col=0; col<cols; col++) {
+      ctx.drawImage(image, atlas.sx, atlas.sy, atlas.sw, atlas.sh,
+        well.x+col*well.w/cols, well.y+row*well.h/rows, well.w/cols+.3, well.h/rows+.3);
+    }
+  };
+  image.src = "/static/assets/labware/plate-materials.jpg";
+  const grid = document.createElement("div"); grid.className = "deck-well-grid photographic-wells";
+  Object.assign(grid.style, {left:`${100*well.x/cw}%`,top:`${100*well.y/ch}%`,width:`${100*well.w/cw}%`,height:`${100*well.h/ch}%`,gridTemplateColumns:`repeat(${cols},1fr)`,gridTemplateRows:`repeat(${rows},1fr)`});
+  for (let row=0; row<rows; row++) for (let col=0; col<cols; col++) {
+    let letters="", n=row+1;
+    while(n>0) { n--; letters=String.fromCharCode(65+n%26)+letters; n=Math.floor(n/26); }
+    const well = document.createElement("button"); well.type="button"; well.className="deck-well"; well.dataset.well=`${letters}${col+1}`;
+    well.title=well.dataset.well; grid.appendChild(well);
+  }
+  surface.appendChild(grid);
+  return surface;
+}
+
+function _renderInspectorSummary(panel, identity, details) {
+  panel.replaceChildren();
+  for (const [index, text] of [identity, details].entries()) {
+    const line = document.createElement("p");
+    line.className = index === 0 ? "inspector-summary-name" : "inspector-summary-details";
+    line.textContent = text; line.title = text; panel.appendChild(line);
+  }
+  const close = document.createElement("button"); close.type = "button"; close.className = "inspector-close";
+  close.textContent = "×"; close.setAttribute("aria-label", "Close selected item");
+  close.addEventListener("click", _closeWellDetails); panel.appendChild(close);
+}
+
+// Constraints follow discovered physical interfaces, not device brands.
+function _catalogPosition(slotId) {
+  const pos = (_currentState?.positions || []).find(pos => String(pos.id) === String(slotId));
+  if (!pos) return null;
+  const declared = pos.allowed_labware_types || pos.accepts;
+  let allowed = Array.isArray(declared) ? declared.filter(value => typeof value === "string") : [];
+  const label = `${pos.id} ${pos.module || ""}`;
+  const acousticPlate = _currentState?._transfer_physics?.mechanism === "acoustic_droplets" && _inspectionRole(pos, _currentState);
+  if (!allowed.length && (acousticPlate || /plate.*(gripper|holder|stage)|(gripper|holder).*plate/i.test(label))) allowed = ["plate"];
+  if (!allowed.length) return null;
+  // The context names the physical position only, never what is loaded on it, so each position keeps one
+  // stable list of compatible items whatever the protocol or the user loads there.
+  return {id:String(pos.id), interface:pos.module || "", role:_inspectionRole(pos, _currentState), allowed_types:allowed};
+}
+
+function _catalogForPosition(catalog, position) {
+  if (!position?.allowed_types?.length) return catalog;
+  const allowed = new Set(position.allowed_types);
+  return {...catalog, categories:(catalog.categories || []).map(category => ({...category, items:(category.items || []).filter(item => {
+    let type = item.type && _deckAreaType(item.type, item.name);
+    if (!type) {
+      const label = `${item.name || ""} ${item.id || ""} ${category.name || ""}`;
+      if (/tip|reservoir|trough|tube|module|trash|instrument/i.test(label)) type = _guessType(label);
+      else if (/plate|well/i.test(label)) type = "plate";
+    }
+    return allowed.has(type);
+  })})).filter(category => category.items.length)};
+}

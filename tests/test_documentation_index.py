@@ -9,6 +9,7 @@ import tempfile
 import threading
 import unittest
 from unittest.mock import patch
+import types
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "biobot"))
 try:
@@ -86,3 +87,30 @@ class DocumentationIndexTests(unittest.TestCase):
                 self.load()
         directory = self.root / self.config["docs_path"]
         self.assertEqual(sorted(p.name for p in directory.iterdir()), ["manual.txt", "store.pkl.lock"])
+
+
+class DocumentationPreparationTests(unittest.TestCase):
+    def test_initial_preparation_waits_for_index_and_skips_online_refresh(self):
+        started, release = threading.Event(), threading.Event()
+        config = {"robot": {"name":"Robot XYZ", "docs_path":"docs/robot", "store_path":"index.pkl"}}
+        def build(*args, **kwargs):
+            started.set()
+            if not release.wait(5): raise RuntimeError("Test preparation did not finish")
+            return ["manual"], ["source"], object()
+        handlers = types.SimpleNamespace(load_handlers_config=lambda:config, detect_handler=lambda *args:None)
+        with patch.dict(sys.modules, {"handlers":handlers}), patch.object(documentation, "load_or_build_index", side_effect=build), patch.object(documentation, "refresh_index") as refresh:
+            future = documentation.preload_documentation("Robot XYZ", "test-key", check_updates=False)
+            try:
+                self.assertTrue(started.wait(5))
+                self.assertFalse(future.done())
+                self.assertIs(documentation.preload_documentation("Robot XYZ", "test-key", check_updates=False),future)
+            finally:
+                release.set()
+            self.assertTrue(future.result(timeout=5))
+            refresh.assert_not_called()
+
+    def test_missing_documentation_does_not_report_ready(self):
+        handlers = types.SimpleNamespace(load_handlers_config=lambda:{"robot":{"name":"Missing manual robot", "docs_path":"docs/missing", "store_path":"index.pkl"}}, detect_handler=lambda *args:None)
+        with patch.dict(sys.modules, {"handlers":handlers}), patch.object(documentation,"load_or_build_index",return_value=([],[],None)):
+            with self.assertRaisesRegex(ValueError,"No usable device documentation"):
+                documentation.preload_documentation("Missing manual robot", "test-key", check_updates=False).result(timeout=5)

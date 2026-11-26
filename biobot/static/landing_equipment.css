@@ -1,62 +1,113 @@
 #landing-stage {display:contents}
-#landing-equipment {display:none}
 .landing .chat-window {display:block;position:relative;overflow-y:auto;scrollbar-gutter:stable;padding:0}
-.landing #landing-stage {display:flex;flex-direction:column;justify-content:center;align-items:center;position:relative;min-height:100%;height:100%;box-sizing:border-box;padding:105px 24px}
-.landing #landing-intro,.landing .input-area {position:relative;z-index:2;flex-shrink:0;background:var(--bg-primary);border-radius:24px}
-.landing #landing-intro {max-width:min(490px,90%);padding:12px 16px;gap:12px}
-.landing #landing-intro h1 {font-size:clamp(23px,2.6vw,30px)}
-.landing #landing-intro .hero-logo {width:64px;height:52px}
-.landing #landing-intro .hero-logo .bench-carriage {animation:landing-pipette-dip 15s ease-in-out infinite}
-@keyframes landing-pipette-dip {0%,88%,100% {transform:translateY(0)}94% {transform:translateY(6px)}}
-@media(prefers-reduced-motion:reduce) {.landing #landing-intro .hero-logo .bench-carriage {animation:none}}
-.landing .input-area {max-width:550px;margin-top:12px}
-.landing #landing-equipment {display:block;position:absolute;inset:0;z-index:1;pointer-events:none}
-#landing-equipment-lines {position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none}
-#landing-equipment-lines path {fill:none;stroke:var(--protocol-accent);stroke-opacity:.25;stroke-width:1.3;stroke-dasharray:3 5}
-.equipment-bubble {position:absolute;pointer-events:auto;animation:equipment-float 7s ease-in-out infinite;animation-delay:var(--bubble-delay);transform-origin:center;box-sizing:border-box;clip-path:circle(50%)}
-.equipment-category {border-radius:50%;background:var(--bg-elevated);border:1px solid color-mix(in srgb,var(--border) 70%,hsl(var(--bubble-hue) 40% 65%));box-shadow:0 6px 24px #2633490a,inset 0 1px 0 #ffffff70;transition:border-color .25s,box-shadow .25s}
-.equipment-category:hover,.equipment-category:focus-within {border-color:var(--protocol-accent);box-shadow:0 8px 30px #7058bb1f}
-.equipment-category.is-open {border-radius:50%;border-color:var(--protocol-accent);background:var(--protocol-soft);box-shadow:0 8px 36px #7058bb24;z-index:3;animation:none}
-.equipment-category-toggle {position:absolute;inset:0;box-sizing:border-box;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;width:100%;height:100%;padding:10px 13px;border:0;background:transparent;border-radius:inherit;cursor:pointer;color:var(--text-primary);font:600 12px/1.4 var(--font-sans)}
-.equipment-category.is-open .equipment-category-toggle {height:100%;padding:12px 13px}
-.equipment-category.is-open .equipment-category-count {display:block}
-.equipment-category-count {font-size:10px;font-weight:500;color:var(--text-muted)}
-.equipment-category.is-open .equipment-category-name {color:var(--protocol-accent)}
-.equipment-device {border:1px solid var(--border-light);border-radius:50%;background:var(--bg-elevated);box-shadow:0 5px 20px #2633490c;z-index:2}
-.equipment-device-link {border-radius:inherit;display:flex;align-items:center;justify-content:center;width:100%;height:100%;box-sizing:border-box;padding:5px 12px;text-align:center;text-decoration:none;font:500 11px/1.3 var(--font-sans);color:var(--text-secondary);overflow-wrap:anywhere}
-.equipment-device:hover {border-color:var(--protocol-accent)}
-.equipment-device:hover a {color:var(--protocol-accent)}
-#landing-equipment-status {position:absolute;bottom:12px;left:24px;right:24px;text-align:center;font:500 10px/1.5 var(--font-sans);color:var(--text-muted);pointer-events:auto}
-#landing-equipment-status button {border:0;background:transparent;text-decoration:underline;color:var(--protocol-accent);font:inherit;cursor:pointer}
-@keyframes equipment-float {0%,100% {transform:translateY(-4px) rotate(-.4deg)}50% {transform:translateY(4px) rotate(.4deg)}}
-@media(max-width:600px) {.landing #landing-stage {padding-inline:14px}.landing #landing-intro {max-width:100%}.landing .input-area {width:100%;padding-inline:8px}}
-@media(prefers-reduced-motion:reduce) {.equipment-bubble {animation:none}.equipment-category {transition:none}}
-.equipment-device-link span {display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
-.landing #landing-intro {max-width:min(480px,90%)}
-.landing .input-area {max-width:480px}
-.equipment-category-toggle {font-size:11px;line-height:1.3;padding:6px 11px;gap:3px}
-.landing #device-catalog-status {font-size:10px;line-height:1.5;color:var(--text-muted);margin:6px 0}
+.landing #landing-stage {display:flex;flex-direction:column;justify-content:center;align-items:center;min-height:100%;box-sizing:border-box;padding:105px 24px}
+.landing #landing-intro,.landing .input-area {position:relative;flex-shrink:0}
+.landing #landing-intro {padding:12px 16px}
+.landing .input-area {width:100%;max-width:480px;margin-top:12px}
+.landing .input-wrapper {position:relative;display:flex;flex-direction:row;align-items:center;gap:8px;padding:6px 10px;border:1px solid var(--border-light);border-radius:10px}
+.landing #user-input {flex:1;width:auto;min-width:0;height:22px!important;min-height:22px;max-height:22px;line-height:22px;resize:none;white-space:pre;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+.landing #user-input::-webkit-scrollbar {display:none}
+.landing .composer-footer {flex-shrink:0;margin:0;align-self:center}
+.workspace-app.landing #send-btn {width:28px;height:28px;min-width:28px;border-radius:6px}
+.landing .input-disclaimer {display:none}
+.landing #landing-equipment-status,.landing #device-catalog-status {
+  position:absolute;inset:auto;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip:rect(0,0,0,0);clip-path:inset(50%);white-space:nowrap;border:0;pointer-events:none;
+}
+#landing-device-suggestions {position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:5;max-height:220px;overflow-y:auto;padding:4px;border:1px solid var(--border-light);border-radius:8px;background:var(--bg-elevated);box-shadow:var(--shadow-lg)}
+#landing-device-suggestions[hidden] {display:none}
+#landing-device-suggestions button {display:block;width:100%;padding:8px;border:0;border-radius:5px;background:transparent;color:var(--text-primary);font:500 13px/1.4 var(--font-sans);text-align:left;cursor:pointer}
+#landing-device-suggestions button:hover,#landing-device-suggestions button:focus-visible {background:var(--protocol-soft);color:var(--protocol-accent)}
+#landing-device-suggestions mark {background:transparent;color:var(--protocol-accent);font-weight:700}
+@media(max-width:600px) {.landing #landing-stage {padding-inline:14px}.landing .input-area {padding-inline:8px}}
+.landing #device-model-choices {flex-direction:column;gap:3px}
+.landing #device-model-choices .device-bubble {width:100%;padding:8px;border:0;border-radius:5px;box-shadow:none;text-align:left}
 
-.equipment-category::before {content:"";position:absolute;top:12px;left:calc(50% - 2.5px);width:5px;height:5px;border-radius:50%;background:hsl(var(--bubble-hue) 45% 60%);pointer-events:none}
+.landing #device-choice-status {margin:8px 0 0;font-size:12px;line-height:1.5;color:var(--text-secondary)}
+.landing #device-choice-status.is-error {color:var(--danger)}
+.landing #device-model-choices {max-height:220px;overflow-y:auto}
 
-.equipment-bubble {touch-action:none;user-select:none}
-.equipment-category-toggle,.equipment-device-link {cursor:grab}
-.equipment-bubble.is-dragging {animation:none;z-index:5}
-.equipment-bubble.is-dragging * {cursor:grabbing}
+/* A quiet home page; the library is available on demand. */
+body.workspace-app.clean-shell .app-banner {border:0;background:transparent;box-shadow:none;gap:8px;justify-content:flex-end}
+body.workspace-app.clean-shell .app-banner .brand,
+body.workspace-app.clean-shell .app-banner .version-tag,
+body.workspace-app.clean-shell #admin-workspace-link {display:none!important}
+.landing-history-toggle {display:none;border:0;background:transparent;color:var(--text-secondary);width:38px;height:38px;border-radius:50%;place-items:center;align-items:center;justify-content:center;cursor:pointer;padding:0}
+body.workspace-app.clean-shell .app-banner .landing-history-toggle {display:grid;margin-left:0}
+body.workspace-app.clean-shell .account-menu {margin-left:auto}
+body.workspace-app.clean-shell .account-menu > summary {background:transparent;color:var(--text-secondary)}
+.landing-history-toggle:hover,body.workspace-app.clean-shell .account-menu > summary:hover {background:var(--protocol-soft)}
+.landing-history-toggle:focus-visible {outline:2px solid var(--accent);outline-offset:3px}
+body.workspace-app.clean-shell .sidebar {display:none}
+body.workspace-app.clean-shell .sidebar.open {display:flex;position:fixed;inset:calc(var(--banner-height) + 8px) 20px auto auto;width:min(300px,calc(100vw - 40px));min-width:0;max-height:calc(100dvh - var(--banner-height) - 75px);padding:20px;box-sizing:border-box;transform:none;border:0;border-radius:12px;box-shadow:var(--shadow-lg);z-index:1401;background:var(--bg-elevated);overflow-y:auto}
+body.workspace-app.clean-shell .sidebar.open .library-sections {display:block}
+body.workspace-app.clean-shell .sidebar.open .history-toolbar {display:flex;margin-bottom:20px}
+body.workspace-app.clean-shell .sidebar.open .new-chat-btn {display:flex}
+body.workspace-app.clean-shell .sidebar-collapse-btn {display:none}
+body.workspace-app.clean-shell .sidebar-overlay.active {background:transparent;z-index:1399}
+body.workspace-app.landing .chat-window {border:0;box-shadow:none;background:transparent;scrollbar-gutter:auto;min-width:0}
+body.workspace-app.landing .left-panels {overflow:visible}
+body.workspace-app.landing #landing-stage {padding:60px 24px 140px}
+body.workspace-app.landing #landing-intro {padding:0}
+body.workspace-app.landing .landing-wordmark {font:600 30px/1.2 var(--font-sans);letter-spacing:-3px;color:var(--chat-accent);margin:0}
+body.workspace-app.landing .input-area {max-width:560px;margin-top:26px}
+body.workspace-app.landing .input-wrapper {box-shadow:none;background:transparent}
+body.workspace-app .funding-footer {height:auto;min-height:28px;line-height:1.6;white-space:normal;overflow:visible;border:0;background:transparent;padding:6px 20px 10px;box-sizing:border-box}
+@media(max-width:600px) {
+  body.workspace-app.clean-shell .app-banner {padding:12px 16px}
+  body.workspace-app.landing #landing-stage {padding:30px 16px 80px}
+  body.workspace-app .funding-footer {font-size:10px;padding-inline:16px}
+}
 
-#landing-equipment-status .equipment-browse-all {display:block;margin:0 auto 4px;font-size:12px;font-weight:700}
-.equipment-browser {width:min(520px,calc(100vw - 32px));max-height:75dvh;box-sizing:border-box;padding:20px;border:1px solid var(--border);border-radius:20px;background:var(--bg-elevated);color:var(--text-primary);box-shadow:var(--shadow-lg);font-family:var(--font-sans)}
-.equipment-browser::backdrop {background:#18233566}
-.equipment-browser-header {display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:14px}
-.equipment-browser h2 {font-size:18px;margin:0}
-.equipment-browser-header button {border:0;background:transparent;color:var(--text-secondary);font-size:26px;cursor:pointer}
-.equipment-browser input {box-sizing:border-box;width:100%;padding:12px;border:1px solid var(--border-light);border-radius:12px;background:var(--bg-input);color:var(--text-primary);font:inherit}
-.equipment-browser-count {font-size:12px;color:var(--text-muted)}
-.equipment-browser-list {max-height:45dvh;overflow-y:auto;display:flex;flex-direction:column;gap:4px}
-.equipment-browser-list a {display:block;padding:12px;border-radius:10px;text-decoration:none;color:var(--text-primary);font-size:13px}
-.equipment-browser-list a:hover,.equipment-browser-list a:focus-visible {background:var(--protocol-soft);color:var(--protocol-accent)}
-.equipment-browser-list mark {background:var(--protocol-soft);color:var(--protocol-accent);font-weight:700}
+.landing #landing-intro {gap:6px}
+.landing #landing-intro .hero-logo {width:76px;height:62px;margin-bottom:6px}
+.landing .landing-version {font-size:11px;line-height:1.5;color:var(--text-muted)}
+.landing .hero-logo .bench-carriage {animation:landing-pipette 6s ease-in-out infinite}
+.landing .hero-logo .bench-drop {transform-box:fill-box;transform-origin:center;animation:landing-drop 6s ease-in-out infinite}
+@keyframes landing-pipette {0%,30%,52%,100% {transform:translateY(0)}35%,47% {transform:translateY(6px)}}
+@keyframes landing-drop {0%,35%,52%,100% {opacity:0;transform:translateY(0) scale(.5)}39% {opacity:1;transform:translateY(3px) scale(1)}47% {opacity:0;transform:translateY(9px) scale(.7)}}
+@media(prefers-reduced-motion:reduce) {
+  .landing .hero-logo .bench-carriage,.landing .hero-logo .bench-drop {animation:none}
+}
 
-.landing #landing-stage.has-open-category {justify-content:flex-start;padding-top:var(--landing-open-top)}
-.equipment-series {background:var(--chat-soft);border-color:var(--chat-accent)}
-.equipment-series.is-open {background:var(--protocol-soft)}
+/* Floating chats and protocol views share the same full-width shell as home. */
+body.workspace-app.clean-shell:is(.floating-chat-workspace,.protocol-library-view) > .container > .app-left {flex:0 0 0;min-width:0;width:0;border:0}
+
+body.workspace-app.clean-shell:not(.landing) .app-banner .brand {display:flex!important;align-items:center;gap:8px;margin-right:auto;text-decoration:none}
+body.workspace-app.clean-shell .app-banner .brand-title {display:flex;align-items:baseline;gap:7px;font-size:16px;line-height:1.2}
+body.workspace-app.clean-shell .app-banner .brand-version {font-size:10px;font-weight:500;color:var(--text-muted)}
+body.workspace-app.clean-shell .app-banner .brand .liquid-handler-logo {width:42px;height:34px}
+body.workspace-app.clean-shell .app-banner .brand .bench-carriage {animation:landing-pipette 6s ease-in-out infinite}
+body.workspace-app.clean-shell .app-banner .brand .bench-drop {animation:landing-drop 6s ease-in-out infinite}
+@media(prefers-reduced-motion:reduce) {
+  body.workspace-app.clean-shell .app-banner .brand .bench-carriage,
+  body.workspace-app.clean-shell .app-banner .brand .bench-drop {animation:none}
+}
+
+body.clean-shell .landing-history-toggle {position:relative;overflow:visible}
+.history-unread-count {position:absolute;top:-3px;right:-4px;display:grid;place-items:center;min-width:17px;height:17px;padding:0 4px;box-sizing:border-box;border-radius:20px;background:var(--chat-accent);color:#fff;font:700 10px/1 var(--font-sans);box-shadow:0 0 0 2px var(--bg-primary);pointer-events:none}
+.history-unread-count[hidden] {display:none}
+
+/* Keep the textbox width and show every match in one flat list. */
+#landing-device-suggestions {max-height:none;overflow:visible}
+#landing-device-suggestions button {overflow-wrap:anywhere}
+body.workspace-app.landing #device-model-choices {max-height:none;overflow:visible}
+body.workspace-app.landing #landing-stage:has(#landing-device-suggestions button:nth-child(7)):has(#landing-device-suggestions:not([hidden])),
+body.workspace-app.landing #landing-stage:has(#device-model-choices button:nth-child(7)) {justify-content:flex-start;padding-top:30px}
+
+#landing-question,.landing-device-attachment {display:none}
+body.landing #landing-question {display:block;font:600 21px/1.35 var(--font-sans);letter-spacing:-.3px;text-align:center;margin:0 0 18px;color:var(--text-primary)}
+body.landing .input-wrapper {display:grid;grid-template-columns:minmax(0,1fr) auto}
+body.landing .landing-device-attachment:not([hidden]) {display:inline-flex;align-items:center;gap:7px;max-width:100%;box-sizing:border-box;margin:0 0 10px;border:1px solid var(--border-light);border-radius:6px;padding:6px 8px;background:var(--protocol-soft);color:var(--protocol-accent);font:500 12px/1.4 var(--font-sans);cursor:pointer;text-align:left}
+.landing-device-attachment svg {flex:none}
+#landing-device-name {overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.landing-device-attachment:focus-visible {outline:2px solid var(--accent);outline-offset:2px}
+
+body.clean-shell:not(.landing) .app-banner .brand .bench-carriage {animation-name:chat-logo-pipette;animation-duration:5s}
+body.clean-shell:not(.landing) .app-banner .brand .bench-drop {animation-name:chat-logo-drop;animation-duration:5s}
+@keyframes chat-logo-pipette {0%,20%,65%,100% {transform:translateY(0)}35%,50% {transform:translateY(6px)}}
+@keyframes chat-logo-drop {0%,35%,70%,100% {opacity:0;transform:translateY(0) scale(.5)}45% {opacity:1;transform:translateY(3px) scale(1)}60% {opacity:0;transform:translateY(9px) scale(.7)}}
+@media(prefers-reduced-motion:reduce) {
+  body.clean-shell:not(.landing) .app-banner .brand .bench-carriage,
+  body.clean-shell:not(.landing) .app-banner .brand .bench-drop {animation:none}
+}

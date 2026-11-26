@@ -61,6 +61,42 @@ class ChatTrashTests(unittest.TestCase):
     def ids(self, path):
         return {item['chat_id'] for item in self.client.get(path).get_json()}
 
+    def test_restart_recovery_preserves_live_tasks_and_reports_only_interrupted_ones(self):
+        run_id = str(uuid.uuid4())
+        conn = self.connection()
+        with conn, conn.cursor() as cursor:
+            cursor.execute("INSERT INTO chat_history(user_id,chat_id,role,content) VALUES(1,'one','user',%s) RETURNING id",
+                           (self.server.encrypt_message('Generate a demo'),))
+            message_id = cursor.fetchone()[0]
+            cursor.execute("INSERT INTO chat_runs(chat_id,id,user_id,message_id) VALUES('one',%s,1,%s)", (run_id,message_id))
+        conn.close()
+        self.server.recover_interrupted_chat_runs(1)
+        def status():
+            conn=self.connection()
+            with conn,conn.cursor() as cursor:
+                cursor.execute("SELECT status FROM chat_runs WHERE chat_id='one'")
+                value=cursor.fetchone()[0]
+            conn.close();return value
+        self.assertEqual(status(),'running')
+        owner = self.connection()
+        try:
+            with owner,owner.cursor() as cursor:
+                cursor.execute('SELECT pg_advisory_lock(hashtextextended(%s,0))',('chat-run:'+run_id,))
+                cursor.execute("UPDATE chat_runs SET updated_at=NOW()-INTERVAL '1 hour' WHERE chat_id='one'")
+            self.server.recover_interrupted_chat_runs(1)
+            self.assertEqual(status(),'running')
+        finally:
+            owner.close()
+        self.server.recover_interrupted_chat_runs(2)
+        self.assertEqual(status(),'running')
+        self.server.recover_interrupted_chat_runs(1)
+        self.assertEqual(status(),'error')
+        messages=self.client.get('/chat/one').json
+        self.assertIn('server restart',messages[-1]['content'])
+        wire=self.client.get('/chat/one/stream',buffered=True).data
+        self.assertIn(b'__FAILED_CODE__:',wire)
+        self.assertIn(b'server restart',wire)
+
     def test_move_to_trash_preserves_messages_and_restore_returns_original_chat(self):
         page = self.client.get('/')
         self.assertEqual(page.status_code, 200)
@@ -118,6 +154,40 @@ class ChatTrashTests(unittest.TestCase):
         messages = self.client.get('/chat/one').get_json()
         self.assertNotIn('Late assistant response', [message['content'] for message in messages])
         self.assertEqual(len(messages), 3)
+
+    def test_feasibility_explanation_preserves_text_format_in_stream_and_history(self):
+        conn = self.connection()
+        with conn, conn.cursor() as cursor:
+            cursor.execute("UPDATE users SET api_key = 'test-placeholder' WHERE id = 1")
+        conn.close()
+        for output_format in ('text', 'python'):
+            content = 'Specify compatible plates.' if output_format == 'text' else 'print("demo")'
+            def response(*args, **kwargs):
+                yield '__RAG_STATUS__:Checking feasibility...'
+                yield '__FORMAT__:' + output_format + '\n' + content
+            with patch.object(self.server, 'decrypt_text', return_value='sk-test'), patch.object(self.server, 'process_user_query', side_effect=response), patch.object(self.library, 'get_deck', return_value={}):
+                result = self.client.post('/chat/one/stream', json={'message': 'Make a demo'}, buffered=True)
+            self.assertIn(('__STATUS__:__FORMAT__:' + output_format + '\n').encode(), result.data)
+            self.assertIn(content.encode(), result.data)
+            messages = self.client.get('/chat/one').get_json()
+            expected = content if output_format == 'text' else 'Your protocol, deck and playback are ready.\n\n```python\n' + content + '\n```'
+            self.assertEqual(messages[-1]['content'], expected)
+
+    def test_feasibility_rejection_is_not_marked_as_a_completed_protocol(self):
+        conn = self.connection()
+        with conn, conn.cursor() as cursor:
+            cursor.execute("UPDATE users SET api_key='test-placeholder' WHERE id=1")
+        conn.close()
+        with patch.object(self.server,'decrypt_text',return_value='sk-test'), \
+             patch.object(self.server,'process_user_query',return_value=iter([
+                 '__FORMAT__:text\n__FAILED_CODE__:A documented constraint prevents this operation.'])), \
+             patch.object(self.library,'get_deck') as deck:
+            result = self.client.post('/chat/one/stream',json={'message':'Generate a protocol'},buffered=True)
+        self.assertIn(b'__FAILED_CODE__:',result.data)
+        deck.assert_not_called()
+        chat = next(chat for chat in self.client.get('/chats').json if chat['chat_id']=='one')
+        self.assertEqual(chat['run']['status'],'error')
+        self.assertEqual(self.client.get('/chat/one').json[-1]['content'],'A documented constraint prevents this operation.')
 
     def test_generation_timeout_is_visible_and_saved_in_history(self):
         conn = self.connection()
@@ -251,6 +321,77 @@ class ChatTrashTests(unittest.TestCase):
             self.assertEqual(self.library.get_hardware_catalog('Robot XYZ', api_key='test'), catalog)
             generate.assert_called_once()
 
+
+    def test_deck_preparation_failure_is_not_a_completed_task(self):
+        conn = self.connection()
+        with conn, conn.cursor() as cursor:
+            cursor.execute("UPDATE users SET api_key = 'test-placeholder' WHERE id = 1")
+        conn.close()
+        with patch.object(self.server, 'decrypt_text', return_value='sk-test'), \
+             patch.object(self.server, 'process_user_query', return_value=iter(['__FORMAT__:json\n{}'])), \
+             patch.object(self.library, 'get_deck', side_effect=RuntimeError('Deck preparation failed.')):
+            response=self.client.post('/chat/one/stream',json={'message':'Demo'},buffered=True)
+        self.assertIn(b'__FAILED_CODE__:',response.data)
+        chat=next(chat for chat in self.client.get('/chats').get_json() if chat['chat_id']=='one')
+        self.assertEqual(chat['run']['status'],'error')
+        saved=self.client.get('/chat/one').get_json()[-1]['content']
+        self.assertIn('Deck preparation failed',saved)
+        self.assertNotIn('playback are ready',saved)
+
+    def test_protocol_prompt_is_saved_while_its_device_prepares(self):
+        from threading import Event
+        release=Event()
+        conn=self.connection()
+        with conn,conn.cursor() as cursor:
+            cursor.execute("UPDATE users SET api_key='test-placeholder' WHERE id=1")
+            cursor.execute("INSERT INTO device_catalog_jobs(lookup_key,requested_name,status) VALUES ('new-device','Maker Model7','building')")
+            cursor.execute("UPDATE chat_names SET device_name='Maker Model7',device_job='new-device' WHERE chat_id='one'")
+        conn.close()
+        def ready(key):
+            if not release.wait(5):raise RuntimeError('Test release timed out')
+            return {'catalog_job':key,'status':'ready','name':'Maker Model7','device_id':'model7'}
+        with patch.object(self.server,'decrypt_text',return_value='sk-test'), \
+             patch('device_catalog.request_device',return_value={'catalog_job':'new-device','status':'building','message':'Preparing the selected device…'}), \
+             patch('device_catalog.job_status',side_effect=ready), \
+             patch.object(self.server,'process_user_query',return_value=iter(['Protocol answer'])) as generate:
+            try:
+                response=self.client.post('/chat/one/stream',json={'message':'Prepare a dilution'},buffered=False)
+                self.assertIn('Prepare a dilution',[item['content'] for item in self.client.get('/chat/one').get_json()])
+                generate.assert_not_called()
+            finally:
+                release.set()
+            self.assertIn('Protocol answer',response.get_data(as_text=True))
+            generate.assert_called_once()
+
+    def test_task_stays_running_until_deck_and_playback_are_ready(self):
+        from threading import Event
+        preparing, release = Event(), Event()
+        conn = self.connection()
+        with conn, conn.cursor() as cursor:
+            cursor.execute("UPDATE users SET api_key = 'test-placeholder' WHERE id = 1")
+        conn.close()
+        def prepare(*args, **kwargs):
+            preparing.set()
+            if not release.wait(5):
+                raise RuntimeError('Test release timed out')
+            return {'steps':[], '_parameters_pending':False, '_playback_pending':False}
+        with patch.object(self.server, 'decrypt_text', return_value='sk-test'), \
+             patch.object(self.server, 'process_user_query', return_value=iter(['__FORMAT__:python\nprint("demo")'])), \
+             patch.object(self.library, 'get_deck', side_effect=prepare) as deck:
+            try:
+                response=self.client.post('/chat/one/stream', json={'message':'Make a demo'}, buffered=False)
+                self.assertTrue(preparing.wait(3))
+                chat=next(chat for chat in self.client.get('/chats').get_json() if chat['chat_id']=='one')
+                self.assertEqual(chat['run']['status'],'running')
+                self.assertFalse(chat['run']['seen'])
+            finally:
+                release.set()
+            wire=response.get_data(as_text=True)
+            self.assertIn('Preparing deck and playback',wire)
+            self.assertIn('print("demo")',wire)
+            self.assertTrue(deck.call_args.kwargs['refresh_parameters'])
+        chat=next(chat for chat in self.client.get('/chats').get_json() if chat['chat_id']=='one')
+        self.assertEqual(chat['run']['status'],'done')
 
 if __name__ == '__main__':
     unittest.main()
