@@ -107,6 +107,8 @@ def merge(cursor, target, source, *, correction_evidence=None):
     if not correction_evidence and target.get('model_key') and source.get('model_key') and target['model_key'] != source['model_key']:
         raise ValueError('Different physical models cannot be merged through a shared label.')
     signature = target.get('model_key') or source.get('model_key')
+    if source.get('on_demand'):
+        cursor.execute('UPDATE device_catalog_jobs SET on_demand=TRUE WHERE lookup_key=%s',(target['lookup_key'],))
     target_id, source_id = target.get('device_id'), source.get('device_id')
     if not target_id:
         target_id = source_id

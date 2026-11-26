@@ -649,7 +649,12 @@ def admin_reset_device_database():
         return jsonify({'success': True, 'removed': count, 'queued': 0,
             'message': 'Device catalog cleared. Discovering devices again from scratch. Users, chats, saved protocols and personal decks are preserved.'}), 202
     except Busy as error:
-        return jsonify({'error': str(error)}), 409
+        if 'protocol' in str(error).lower():
+            return jsonify({'error': str(error)}), 409
+        from device_catalog import queue_reset
+        queue_reset(actor, api_key)
+        return jsonify({'success':True, 'queued':0,
+            'message':'Clearing the device catalog. Finishing the active discovery step before starting fresh.'}), 202
     except ValueError as error:
         return jsonify({'error': str(error)}), 400
 

@@ -114,12 +114,17 @@ def _local_profile(identifier, profiles, catalog_profile=None):
 def devices():
     from device_catalog import _read, lookup_key, family_clarification
     from handlers import load_handlers_config
+    from device_catalog import reset_pending
+    if reset_pending():
+        return []
     profiles = load_handlers_config()
-    jobs = _read('SELECT * FROM device_catalog_jobs WHERE canonical_key IS NULL ORDER BY requested_name')
-    layouts = _read('SELECT device_id, device_name, layout FROM deck_templates WHERE is_default ORDER BY device_name')
+    jobs = _read("SELECT * FROM device_catalog_jobs WHERE canonical_key IS NULL AND status<>'excluded' ORDER BY requested_name")
+    layouts = _read("SELECT device_id, device_name, layout FROM deck_templates t WHERE is_default AND NOT EXISTS (SELECT 1 FROM device_catalog_jobs j WHERE j.device_id=t.device_id AND j.status='excluded') ORDER BY device_name")
     result, seen = [], set()
     layout_ids = {row['device_id'] for row in layouts}
     for row in jobs:
+        if not row['on_demand'] and categories_for(row['profile'] or {})[:1] != ['Liquid handling']:
+            continue
         profile = {} if row['reset_layout'] else _local_profile(row['device_id'], profiles, row['profile'])
         result.append({'key': row['lookup_key'], 'device_id': row['device_id'], 'device_name': row['device_name'] or row['requested_name'],
                        'identity': profile.get('identity') or {}, 'has_layout': row['device_id'] in layout_ids, 'status': row['status'], 'features': profile.get('features', []), 'search_terms': profile.get('search_terms', []), 'categories': categories_for(profile), 'constraints': profile.get('constraints', []),
@@ -233,8 +238,9 @@ def update_device_database(actor, api_key):
                 cursor.execute('SELECT pg_try_advisory_xact_lock(hashtextextended(%s,0)) AS locked', (lock,))
                 if not cursor.fetchone()['locked']:
                     raise Busy('Device discovery is running. Wait for it to finish before starting an update.')
-            cursor.execute('SELECT lookup_key FROM device_catalog_jobs WHERE canonical_key IS NULL ORDER BY lookup_key')
-            keys = [row['lookup_key'] for row in cursor.fetchall()]
+            cursor.execute('SELECT lookup_key,profile FROM device_catalog_jobs WHERE canonical_key IS NULL ORDER BY lookup_key')
+            devices = cursor.fetchall()
+            keys = [row['lookup_key'] for row in devices]
             for key in keys:
                 cursor.execute('SELECT pg_try_advisory_xact_lock(hashtextextended(%s,0)) AS locked', ('catalog-device:' + key,))
                 if not cursor.fetchone()['locked']:
@@ -242,7 +248,7 @@ def update_device_database(actor, api_key):
             cursor.execute("""UPDATE device_catalog_jobs SET refresh_profile=TRUE,error=NULL,updated_at=NOW(),
                 status=CASE WHEN status='ready' THEN status ELSE 'queued' END WHERE canonical_key IS NULL""")
             new_limit = max(0,int(os.environ.get('BIOBOT_CATALOG_INITIAL_LIMIT','50')))
-            target = len(keys) + new_limit if new_limit else 0
+            target = sum(not row['profile'] or categories_for(row['profile'])[:1] == ['Liquid handling'] for row in devices) + new_limit if new_limit else 0
             cursor.execute("""UPDATE device_catalog_build SET status='pending',discovery_done=FALSE,
                 next_query='',rounds=0,target_count=%s,updated_at=NOW() WHERE id=1""",(target,))
             audit(cursor,actor,'update_device_database','catalog',['online_checks','new_instruments'])
@@ -306,7 +312,7 @@ def reset_device_database(actor, api_key):
                 fcntl.flock(lock, fcntl.LOCK_EX)
                 device_series.CACHE_PATH.unlink(missing_ok=True)
             cursor.execute("""UPDATE device_catalog_build SET status='pending',discovery_done=FALSE,
-                next_query='',rounds=0,target_count=NULL,updated_at=NOW() WHERE id=1""")
+                next_query='',rounds=0,target_count=NULL,reset_requested=FALSE,reset_actor=NULL,updated_at=NOW() WHERE id=1""")
             audit(cursor, actor, 'reset_device_database', 'catalog', ['devices', 'aliases', 'profiles', 'hardware_catalogs', 'shared_decks', 'series'])
     except Exception:
         if registry_cleared:

@@ -192,6 +192,58 @@ class CatalogAdminTests(unittest.TestCase):
         self.assertEqual(self.catalog.job_status(key)['status'], 'ready')
         self.assertEqual(self.profile.call_count, 1)
 
+    def test_automatic_non_liquid_candidate_is_excluded_before_workspace_preparation(self):
+        conn=self.connection()
+        with conn,conn.cursor() as cursor:
+            cursor.execute("INSERT INTO device_catalog_jobs(lookup_key,requested_name) VALUES('legacycandidate','Maker Model7')")
+        conn.close()
+        with self.assertLogs(self.catalog._log,level='INFO') as captured:
+            self.catalog._integrate('legacycandidate','test-key',automatic=True)
+        row=self.catalog.find_device('legacycandidate')
+        self.assertEqual(row['status'],'excluded')
+        self.assertTrue(any('outside liquid handling' in line for line in captured.output))
+        self.geometry.assert_not_called();self.mirror.assert_not_called()
+        self.assertEqual(self.admin.devices(),[])
+        self.assertEqual(self.client.get('/devices/equipment').json,[])
+        # Explicitly selecting the same instrument promotes it out of the excluded automatic queue.
+        with patch.object(self.catalog,'resume_device'):
+            selected=self.catalog.request_device('legacycandidate','test-key')
+        self.assertEqual(selected['status'],'queued')
+        self.assertTrue(self.catalog.find_device('legacycandidate')['on_demand'])
+        self.catalog._integrate('legacycandidate','test-key',automatic=True)
+        self.assertEqual(self.catalog.job_status('legacycandidate')['status'],'ready')
+        self.geometry.assert_called_once()
+
+    def test_old_automatic_inventory_is_retired_but_requested_devices_remain(self):
+        self.ready()
+        with self.connection() as conn, conn.cursor() as cursor:
+            cursor.execute("INSERT INTO device_catalog_jobs(lookup_key,requested_name,status,profile) VALUES(%s,%s,'ready',%s)",
+                           ('oldreader','Old reader',json.dumps(PROFILE)))
+            liquid = {**PROFILE, 'categories':['Liquid handling']}
+            cursor.execute("INSERT INTO device_catalog_jobs(lookup_key,requested_name,status,profile) VALUES(%s,%s,'ready',%s)",
+                           ('oldliquidhandler','Old liquid handler',json.dumps(liquid)))
+        with self.connection() as conn, conn.cursor(cursor_factory=self.catalog.RealDictCursor) as cursor:
+            self.assertEqual(self.catalog.exclude_automatic_non_liquid_devices(cursor),1)
+            self.assertEqual(self.catalog.exclude_automatic_non_liquid_devices(cursor),0)
+        with self.connection() as conn, conn.cursor() as cursor:
+            cursor.execute("INSERT INTO device_catalog_jobs(lookup_key,requested_name) VALUES('unverified','Unverified candidate')")
+        self.assertEqual(self.catalog.find_device('oldreader')['status'],'excluded')
+        self.assertEqual(self.catalog.find_device('oldliquidhandler')['status'],'ready')
+        names = {row['device_name'] for row in self.admin.devices()}
+        self.assertNotIn('Old reader',names)
+        self.assertNotIn('Unverified candidate',names)
+        self.assertIn('Maker Model7',names)
+
+    def test_new_automatic_liquid_handler_is_integrated(self):
+        self.profile.return_value['features']=['Liquid handling']
+        conn=self.connection()
+        with conn,conn.cursor() as cursor:
+            cursor.execute("INSERT INTO device_catalog_jobs(lookup_key,requested_name) VALUES('newliquidhandler','Maker Model7')")
+        conn.close()
+        self.catalog._integrate('newliquidhandler','test-key',automatic=True)
+        self.assertEqual(self.catalog.job_status('newliquidhandler')['status'],'ready')
+        self.geometry.assert_called_once()
+
     def test_automatic_discovery_searches_only_liquid_handlers(self):
         with patch.object(self.catalog,'OpenAI'),patch.object(self.catalog,'_answer',return_value={'devices':[]}) as search:
             self.catalog._bootstrap('test-key')
@@ -217,6 +269,7 @@ class CatalogAdminTests(unittest.TestCase):
         docs.assert_called_once_with(PROFILE['name'],'test-key',check_updates=False)
 
     def test_first_build_is_persistent_and_not_repeated(self):
+        self.profile.return_value['features']=['Liquid handling']
         answers = [{'devices':[{'name':'Maker Model7','source':'https://manufacturer.example/manual'}], 'next_query':'other manufacturers'}, {'devices':[]}]
         with patch.object(self.catalog, 'OpenAI'), patch.object(self.catalog, '_answer', side_effect=answers) as discover:
             self.catalog._bootstrap('test-key')
@@ -329,7 +382,7 @@ class CatalogAdminTests(unittest.TestCase):
         self.assertNotIn(b'id="chat-history"',response.data)
         self.assertNotIn(b'class="admin-brand"',response.data)
         self.assertNotIn(b'class="admin-return"',response.data)
-        self.assertIn(b'id="admin-category-cloud"',response.data)
+        self.assertNotIn(b'id="admin-category-cloud"',response.data)
         self.assertNotIn(b'id="admin-tab-decks"',response.data)
         self.assertNotIn(b'id="admin-deck-cloud"',response.data)
         self.assertNotIn(b'id="admin-deck-device"',response.data)
@@ -535,6 +588,7 @@ class CatalogAdminTests(unittest.TestCase):
         alias=self.queue('Maker Model7 Robot');self.catalog._integrate(alias,'test-key')
         another=copy.deepcopy(PROFILE);another.update(name='Maker Model70',device_id='maker_model70')
         another['identity']={'manufacturer':'Maker','model':'Model70','variant':''}
+        another['features']=['Liquid handling']
         self.profile.return_value=another
         batches=[{'devices':[{'name':'Maker Model7 Robot','source':'https://manufacturer.example/manual'}]},
                  {'devices':[{'name':'Maker Model70','source':'https://manufacturer.example/model70'}]},
@@ -691,7 +745,7 @@ class CatalogAdminTests(unittest.TestCase):
             self.assertEqual(self.catalog.job_status(key)['status'],'ready')
         finally:owner.close()
 
-    def test_reset_database_requires_admin_csrf_confirmation_and_no_active_builder(self):
+    def test_reset_database_requires_admin_csrf_and_drains_active_builders(self):
         key=self.ready()
         url='/admin/devices/reset'
         self.assertEqual(self.client.post(url,json={'confirm':'RESET DB'}).status_code,403)
@@ -704,11 +758,24 @@ class CatalogAdminTests(unittest.TestCase):
             with conn.cursor() as cursor:
                 cursor.execute("SELECT pg_advisory_lock_shared(hashtextextended('catalog-reset',0))")
             conn.commit()
-            result=self.client.post(url,json={'confirm':'RESET DB'},headers=self.headers)
-            self.assertEqual(result.status_code,409,result.get_json())
-            self.assertEqual(self.catalog.job_status(key)['status'],'ready')
-            self.assertIsNotNone(self.catalog.find_device(PROFILE['name'])['profile'])
+            with patch.object(self.catalog,'_submit') as submit:
+                result=self.client.post(url,json={'confirm':'RESET DB'},headers=self.headers)
+            self.assertEqual(result.status_code,202,result.get_json())
+            self.assertTrue(self.catalog.reset_pending())
+            self.assertEqual(self.admin.devices(),[])
+            self.assertEqual(self.catalog.catalog_status()['status'],'resetting')
+            submit.assert_called_once()
+            # New builders stop while the old builder drains.
+            self.profile.reset_mock()
+            self.catalog._integrate(key,'test-key')
+            self.profile.assert_not_called()
         finally:conn.close()
+        with patch.object(self.catalog,'start_catalog') as start:
+            self.catalog._finish_reset('test-key')
+        start.assert_called_once_with('test-key',force=True)
+        self.assertFalse(self.catalog.reset_pending())
+        self.assertIsNone(self.catalog.find_device(key))
+        self.assertEqual(self.admin.devices(),[])
 
     def test_online_update_checks_ready_devices_and_refreshes_metadata_without_rebuilding_decks(self):
         key=self.ready()
@@ -753,6 +820,7 @@ class CatalogAdminTests(unittest.TestCase):
         self.ready()
         another=copy.deepcopy(PROFILE);another.update(name='Maker Model70',device_id='maker_model70')
         another['identity']={'manufacturer':'Maker','model':'Model70','variant':''}
+        another['features']=['Liquid handling']
         self.profile.side_effect=lambda name,key: copy.deepcopy(another if name=='Maker Model70' else PROFILE)
         with patch.dict(os.environ,{'BIOBOT_CATALOG_INITIAL_LIMIT':'1'}):
             response=self.client.post('/admin/devices/update',json={},headers=self.headers)
