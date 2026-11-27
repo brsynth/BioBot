@@ -1324,8 +1324,9 @@ function _hideDeckTooltip() {
 }
 
 function _fixedDeckArea(pos) {
-  return pos.fixed || pos.module || ["trash", "module"].includes(_deckAreaType(pos.type, pos.labware))
-    || /^fixed(?:[\s_-]|$)/i.test(pos.type || "");
+  // fixed describes the position; configurable describes whether users can change its contents.
+  if (pos.configurable === false || ["trash", "module", "instrument"].includes(_deckAreaType(pos.type, pos.labware))) return true;
+  return pos.configurable !== true && (pos.fixed || pos.module || /^fixed(?:[\s_-]|$)/i.test(pos.type || ""));
 }
 
 function _movableDeckArea(pos) {
@@ -3154,7 +3155,7 @@ window.toggleProtocolDeck = toggleProtocolDeck;
 // protocol bindings remain the documentation-derived device layout.
 function _hasPairedInspection(state) {
   if (state._transfer_physics?.mechanism !== "acoustic_droplets") return false;
-  const positions = (state.positions || []).filter(pos => !pos.fixed);
+  const positions = (state.positions || []).filter(pos => !_fixedDeckArea(pos));
   return positions.some(pos => _inspectionRole(pos, state) === "source") &&
     positions.some(pos => _inspectionRole(pos, state) === "destination");
 }
@@ -3175,7 +3176,7 @@ function _inspectionRole(pos, state) {
 function _renderPairedInspection(state) {
   const root = document.createElement("div"); root.className = "deck-plates facing inspection-projection";
   for (const role of ["destination", "source"]) {
-    const pos = (state.positions || []).find(pos => !pos.fixed && _inspectionRole(pos, state) === role);
+    const pos = (state.positions || []).find(pos => !_fixedDeckArea(pos) && _inspectionRole(pos, state) === role);
     const plate = state.plates?.[role] || {};
     _plateSlotRoles.set(String(pos.id), new Set([role]));
     // A gripper remains integrated, but the plate it holds is configurable.
@@ -3187,7 +3188,7 @@ function _renderPairedInspection(state) {
     root.appendChild(item);
   }
   for (const pos of state.positions || []) {
-    if (!pos.fixed && !_inspectionRole(pos, state)) root.appendChild(_createSlot(pos));
+    if (!_fixedDeckArea(pos) && !_inspectionRole(pos, state)) root.appendChild(_createSlot(pos));
   }
   const caption = document.createElement("p"); caption.className = "inspection-caption";
   caption.textContent = "Inspection projection · Both plate interiors face you. The destination plate is inverted above the source during transfer. Integrated transfer hardware is fixed.";
@@ -3217,7 +3218,7 @@ function _inspectDeckItem(id, pos, area) {
   _renderInspectorSummary(panel,
     `${pos.labware_display || pos.labware || "Empty position"} · ${id}`,
     [pos.labware ? "Loaded" : "Empty", pos.well_count ? `${pos.well_count} wells` : "", pos.module || ""].filter(Boolean).join(" · "));
-  if (!window.workspace?.readOnly && !pos.fixed && !["module", "trash", "instrument"].includes(pos.type)) {
+  if (!window.workspace?.readOnly && !_fixedDeckArea(pos)) {
     const change = document.createElement("button"); change.type = "button"; change.className = "workspace-button";
     change.classList.add("inspector-change");
     change.textContent = pos.labware ? "✎" : "+";

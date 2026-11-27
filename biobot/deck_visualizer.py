@@ -295,7 +295,7 @@ Rules:
   Use mm when actual dimensions are documented, relative proportions otherwise and explicitly state the uncertainty in sources.
 - Shape is rectangle or ellipse (drawing primitives, not device categories). View is top or front, whichever best exposes the workspace.
 - workspace.label describes the physical context in the source's own terminology; discover this, do not select it from an example list.
-- Position IDs must be stable documented physical identifiers. A built-in holder can have fixed: true and configurable: true: its location is fixed but users choose its contents. Empty holders have null labware; do not put the holder itself in labware. Set configurable from documentation, not from whether software can operate a component.
+- Position IDs must be stable documented physical identifiers. A built-in holder can have fixed: true and configurable: true: its location is fixed but users choose its contents. fixed must never imply that removable labware loaded there is fixed; configurable: true allows loading, moving and removing that labware. Empty holders have null labware; do not put the holder itself in labware. Set configurable from documentation, not from whether software can operate a component.
 - For a fixed component, optionally include visual: {parts: [{shape: rect or ellipse, x: number, y: number,
   width: number, height: number, tone: body or inset or accent}]}. These drawing primitives use a local 0..100
   coordinate space within the component. Derive silhouettes and features from the references, never from a device-category template.

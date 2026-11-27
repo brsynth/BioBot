@@ -1270,3 +1270,36 @@ test('nonconfigurable hardware is hidden while fixed loadable interfaces remain 
   assert.equal(w.context._configurableInstrument({name:'Built-in mechanism',configurable:false,mount:'internal'},state),false);
   assert.equal(w.context._renderInstruments([]).children.length,0);
 });
+
+
+test('fixed configurable holders allow moving and removing plates without moving the holders',()=>{
+  const w=setup();
+  Object.assign(w.context.state.positions[0],{fixed:true,configurable:true,labware:'plate_api',type:'plate',well_count:96,well_rows:8,well_columns:12});
+  Object.assign(w.context.state.positions[1],{fixed:true,configurable:true,type:'empty',labware:null});
+  vm.runInContext('_renderApplyBar=function(){};',w.context);
+  const loaded=w.context._createSlot(w.context.state.positions[0]);
+  assert.equal(loaded.draggable,true);
+  assert.ok(loaded.querySelector('.deck-slot-remove'));
+  const empty=w.context._createSlot(w.context.state.positions[1]);
+  loaded.events.dragstart({dataTransfer:{setData(){}}});
+  empty.events.drop({preventDefault(){}});
+  assert.equal(w.context.state.positions[0].labware,undefined);
+  assert.equal(w.context.state.positions[1].labware,'plate_api');
+  for(const pos of w.context.state.positions){assert.equal(pos.fixed,true);assert.equal(pos.configurable,true);}
+  const moved=w.context._createSlot(w.context.state.positions[1]);
+  moved.querySelector('.deck-slot-remove').events.click({stopPropagation(){}});
+  assert.equal(w.context.state.positions[1].labware,null);
+  assert.equal(w.context.state.positions[1].fixed,true);
+  assert.equal(w.context._createSlot({id:'built-in',configurable:false,labware:'integrated'}).draggable,false);
+});
+
+test('paired inspection includes fixed configurable loading interfaces',()=>{
+  const w=setup();
+  const state={_transfer_physics:{mechanism:'acoustic_droplets'},positions:[
+    {id:'source',fixed:true,configurable:true,labware:'source_plate',type:'plate'},
+    {id:'destination',fixed:true,configurable:true,labware:'destination_plate',type:'plate'},
+    {id:'internal',fixed:true,configurable:false,labware:'internal mechanism'}]};
+  assert.equal(w.context._hasPairedInspection(state),true);
+  const deck=w.context._renderPairedInspection(state);
+  assert.equal(deck.children.filter(item=>item.draggable===true).length,2);
+});
