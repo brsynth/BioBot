@@ -7,6 +7,8 @@ import types
 import unittest
 from unittest.mock import Mock, patch
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "biobot"))
+
 spec = importlib.util.spec_from_file_location("tested_deck_library", Path(__file__).resolve().parents[1] / "biobot/deck_library.py")
 library = importlib.util.module_from_spec(spec)
 with patch.dict(sys.modules, {

@@ -1,4 +1,5 @@
 """Source-backed programming-series choices, separate from physical device records."""
+from api_budget import shared_setup
 import fcntl
 import hashlib
 import json
@@ -138,6 +139,7 @@ def suggestion_choices(rows):
             + [row for row in rows if row['name'].casefold() not in covered])
 
 
+@shared_setup()
 def series_choices(query, saved, api_key):
     """Discover once, then reuse learned group metadata; never create physical devices."""
     key = hashlib.sha256(query.strip().casefold().encode()).hexdigest()

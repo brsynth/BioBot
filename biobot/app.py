@@ -549,6 +549,22 @@ def admin_edit_user(target):
         return jsonify({"error": str(error)}), 400
 
 
+@app.route("/admin/users/<int:target>/recharge", methods=["POST"])
+def admin_recharge_quota(target):
+    actor, error = _admin_write()
+    if error:
+        return error
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict) or set(data) != {'amount'}:
+        return jsonify({'error':'Provide a recharge amount in USD.'}), 400
+    from admin_console import recharge_quota
+    try:
+        amount = recharge_quota(target,data['amount'],actor)
+        return jsonify({'success':True,'amount':amount,'message':f'Added ${amount:.2f} to today’s allowance. Expires at 00:00 UTC.'})
+    except ValueError as error:
+        return jsonify({'error':str(error)}), 400
+
+
 @app.route("/admin/users/<int:target>/reset", methods=["POST"])
 def admin_reset_user(target):
     actor, error = _admin_write()

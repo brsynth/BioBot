@@ -60,6 +60,93 @@ class ApiBudgetTests(unittest.TestCase):
         self.assertEqual(self.client.patch('/admin/users/1', headers=self.headers,
                                          json={'daily_api_limit': None}).status_code, 403)
 
+    def test_new_device_and_documentation_setup_bypass_zero_daily_allowance(self):
+        import documentation_index as docs
+        self.set_limit(0)
+        provider=Mock(return_value=NS(usage=NS(input_tokens=100,output_tokens=50),output=[]))
+        resource=self.budget._Resource(NS(create=provider),1)
+        def setup_call(value):
+            resource.create(model='test-model',input='shared device knowledge')
+            return value
+        self.profile.side_effect=lambda *args:setup_call(fixtures.PROFILE.copy())
+        self.geometry.side_effect=lambda *args,**kwargs:setup_call(fixtures.LAYOUT.copy())
+        token=self.budget.set_user(1)
+        try:
+            with patch.object(self.catalog,'resume_device'):
+                job=self.catalog.request_device('Maker Model7','test-only')
+            self.catalog._integrate(job['catalog_job'],'test-only')
+            self.assertEqual(self.catalog.job_status(job['catalog_job'])['status'],'ready')
+            handler={'name':'Maker Model7','docs_path':'docs/new-device','store_path':'index.pkl'}
+            def fetch(name,keywords,path,key):
+                setup_call(True)
+                Path(path).mkdir(parents=True,exist_ok=True)
+                (Path(path)/'manual.txt').write_text('Public documentation')
+                return True
+            with patch.object(docs,'SCRIPT_DIR',self.runtime), \
+                 patch('handlers.load_handlers_config',return_value={'maker_model7':handler}), \
+                 patch.object(docs,'fetch_documentation',side_effect=fetch), \
+                 patch.object(docs,'load_and_chunk_docs',return_value=(['New manual passage'],['manual.txt'])), \
+                 patch.object(docs,'get_text_embedding_with_retry',side_effect=lambda *args:setup_call([0.1,0.2])):
+                self.assertTrue(docs.preload_documentation('Maker Model7','test-only',check_updates=False).result(timeout=5))
+            self.assertEqual(provider.call_count,4)
+            self.assertEqual(self.total(),0)
+            with self.assertRaises(self.budget.BudgetError):
+                resource.create(model='test-model',input='Design a protocol')
+            self.assertEqual(provider.call_count,4)
+        finally:
+            self.budget.reset_user(token)
+
+    def test_shared_setup_overrides_subprocess_identity_and_restores_metering(self):
+        with patch.dict(os.environ,{'BIOBOT_USAGE_USER':'1','BIOBOT_USAGE_KEY_HASH':self.budget._hash('shared-key')}):
+            self.assertEqual(self.budget.funded_user('shared-key'),1)
+            with self.assertRaisesRegex(RuntimeError,'setup interrupted'):
+                with self.budget.shared_setup():
+                    self.assertIsNone(self.budget.funded_user('shared-key'))
+                    env=dict(os.environ);self.budget.subprocess_context(env,'shared-key')
+                    self.assertNotIn('BIOBOT_USAGE_USER',env)
+                    raise RuntimeError('setup interrupted')
+            self.assertEqual(self.budget.funded_user('shared-key'),1)
+
+    def test_recharge_adds_credit_only_for_selected_user_without_changing_daily_limit(self):
+        url='/admin/users/2/recharge'
+        self.assertEqual(self.client.post(url,json={'amount':0.75}).status_code,403)
+        self.login(2)
+        self.assertEqual(self.client.post(url,json={'amount':0.75},headers=self.headers).status_code,403)
+        self.login(1)
+        response=self.client.post(url,json={'amount':0.75},headers=self.headers)
+        self.assertEqual(response.status_code,200,response.json)
+        users=self.client.get('/admin/users').json
+        self.assertEqual(users[0]['daily_api_credit'],0)
+        self.assertEqual(users[1]['daily_api_credit'],0.75)
+        self.assertEqual(users[1]['daily_api_limit'],0.5)
+        self.assertEqual(self.total(2),0)
+        self.assertEqual(self.client.post(url,json={'amount':0.25},headers=self.headers).status_code,200)
+        self.assertEqual(self.client.get('/admin/users').json[1]['daily_api_credit'],1)
+        with self.connection() as conn,conn.cursor() as cursor:
+            cursor.execute("SELECT actor_id FROM admin_audit WHERE action='recharge_quota'")
+            self.assertEqual(cursor.fetchall(),[(1,),(1,)])
+
+    def test_recharge_restores_exhausted_allowance_and_expires_the_next_day(self):
+        import uuid
+        with self.connection() as conn,conn.cursor() as cursor:
+            cursor.execute("INSERT INTO api_usage(id,user_id,day,model,amount,reserved) VALUES(%s,1,(NOW() AT TIME ZONE 'UTC')::date,'test-model',0.5,FALSE)",(str(uuid.uuid4()),))
+        with self.assertRaises(self.budget.BudgetError):self.reserve()
+        self.admin.recharge_quota(1,0.5,1)
+        self.assertIsNotNone(self.reserve())
+        self.assertGreater(self.total(),Decimal('0.5'))
+        self.set_limit(0)
+        with self.connection() as conn,conn.cursor() as cursor:
+            cursor.execute('UPDATE api_quota_recharges SET day=day-1')
+        self.assertEqual(self.client.get('/admin/users').json[0]['daily_api_credit'],0)
+        with self.assertRaises(self.budget.BudgetError):self.reserve()
+
+    def test_recharge_rejects_invalid_amounts_and_unknown_users(self):
+        for value in (0,-1,None,True,'NaN','Infinity','',1000001,0.0000001):
+            response=self.client.post('/admin/users/1/recharge',json={'amount':value},headers=self.headers)
+            self.assertEqual(response.status_code,400,(value,response.json))
+        self.assertEqual(self.client.post('/admin/users/999/recharge',json={'amount':1},headers=self.headers).status_code,400)
+        self.assertEqual(self.client.get('/admin/users').json[0]['daily_api_credit'],0)
+
     def test_zero_stops_calls_and_unlimited_allows_them(self):
         self.set_limit(0)
         resource = Mock()

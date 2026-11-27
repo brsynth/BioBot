@@ -31,7 +31,7 @@
       <section id="admin-panel-users" role="tabpanel" aria-labelledby="admin-tab-users">
         <div class="admin-page-heading"><div><p class="admin-eyebrow">Access & accounts</p><h1>Users</h1><p>Manage accounts, daily API allowances, administrator access and password resets.</p></div><button id="admin-refresh-users" class="btn" type="button">Refresh users</button></div>
         <div class="admin-section"><h2>Access requests</h2><div id="admin-requests"></div></div>
-        <p class="admin-help">Each user starts with their own $0.50/day allowance for the shared API key; resets at 00:00 UTC. Edit a user to set any amount, 0, or Unlimited. Personal API keys are excluded. Running requests reserve allowance; web-search costs are estimates until completion and can exceed the remaining amount. Shared catalog maintenance is excluded.</p>
+        <p class="admin-help">Each user starts with their own $0.50/day allowance for the shared API key; resets at 00:00 UTC. Edit a user to set any amount, 0, or Unlimited. Recharge quota adds extra allowance for today only, without changing the normal daily limit. Personal API keys are excluded. Running requests reserve allowance; web-search costs are estimates until completion and can exceed the remaining amount. Device discovery, workspace preparation, documentation downloads and indexing are excluded from user allowances.</p>
         <div id="admin-users" class="admin-record-list"></div>
         <details class="admin-section"><summary>Diagnostic settings</summary><label class="admin-toggle"><input id="debug-logs" type="checkbox"> Keep logs for successful runs</label></details>
       </section>

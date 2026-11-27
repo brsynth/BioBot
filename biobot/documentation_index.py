@@ -1,4 +1,5 @@
 """One persistent documentation index shared by preloading and generation."""
+from api_budget import shared_setup
 from background_jobs import BackgroundExecutor
 import fcntl
 import logging
@@ -102,6 +103,7 @@ def embed_chunks(chunks, api_key, docs_path):
     return np.asarray([cache[key(chunk)] for chunk in chunks], dtype="float32")
 
 
+@shared_setup()
 def load_or_build_index(handler_id, handler_config, chunk_size=3000, api_key=None):
     docs_path = SCRIPT_DIR / handler_config["docs_path"]
     store_path = docs_path / handler_config["store_path"]
@@ -145,6 +147,7 @@ def load_or_build_index(handler_id, handler_config, chunk_size=3000, api_key=Non
         return store["chunks"], store["chunk_sources"], index
 
 
+@shared_setup()
 def refresh_index(handler_config, chunk_size=3000, api_key=None):
     """Fetch only new or changed documentation and re-embed only the passages whose text changed."""
     docs_path = SCRIPT_DIR / handler_config["docs_path"]
@@ -166,6 +169,7 @@ def refresh_index(handler_config, chunk_size=3000, api_key=None):
     return changed
 
 
+@shared_setup()
 def preload_documentation(device, api_key=None, check_updates=True):
     """Return a shared future for preparing the selected device documentation."""
     key = re.sub(r"[^a-z0-9]", "", device.casefold())

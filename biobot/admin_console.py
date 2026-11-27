@@ -26,15 +26,39 @@ def users():
         with conn, conn.cursor(cursor_factory=RealDictCursor) as cursor:
             cursor.execute("""SELECT u.id,first_name,last_name,email,role,country,admin_status,u.created_at,
                 COALESCE(u.daily_api_limit,'{\"usd\":0.5}'::jsonb) AS daily_api_limit,
-                COALESCE(usage.amount,0) AS daily_api_spent
+                COALESCE(usage.amount,0) AS daily_api_spent,COALESCE(credits.amount,0) AS daily_api_credit
                 FROM users u
                 LEFT JOIN (SELECT user_id,SUM(amount) AS amount FROM api_usage
                            WHERE day=(NOW() AT TIME ZONE 'UTC')::date GROUP BY user_id) usage ON usage.user_id=u.id
+                LEFT JOIN (SELECT user_id,SUM(amount) AS amount FROM api_quota_recharges
+                           WHERE day=(NOW() AT TIME ZONE 'UTC')::date GROUP BY user_id) credits ON credits.user_id=u.id
                 ORDER BY u.id""")
             return [{**dict(row), 'daily_api_limit': row['daily_api_limit']['usd'],
-                     'daily_api_spent': float(row['daily_api_spent'])} for row in cursor.fetchall()]
+                     'daily_api_spent': float(row['daily_api_spent']), 'daily_api_credit':float(row['daily_api_credit'])} for row in cursor.fetchall()]
     finally:
         conn.close()
+
+
+
+def recharge_quota(target, amount, actor):
+    from api_budget import validate_limit
+    import uuid
+    amount = validate_limit(amount)
+    if amount is None or amount <= 0:
+        raise ValueError('Enter a recharge amount greater than 0 USD.')
+    conn = get_db_connection()
+    try:
+        with conn, conn.cursor() as cursor:
+            cursor.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s,0))', (f'api-budget:{target}',))
+            cursor.execute('SELECT id FROM users WHERE id=%s', (target,))
+            if not cursor.fetchone():
+                raise ValueError('User not found.')
+            cursor.execute("""INSERT INTO api_quota_recharges(id,user_id,day,amount,actor_id)
+                VALUES(%s,%s,(NOW() AT TIME ZONE 'UTC')::date,%s,%s)""", (str(uuid.uuid4()),target,amount,actor))
+            audit(cursor,actor,'recharge_quota',target,['amount_usd',str(amount)])
+    finally:
+        conn.close()
+    return amount
 
 
 def edit_user(target, data, actor, is_owner):

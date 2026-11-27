@@ -4,6 +4,7 @@ PostgreSQL stores both the queue and completed instruction profiles. Session
 advisory locks prevent duplicate builders across server processes; a crash
 releases its locks so the next worker can resume unfinished entries.
 """
+from api_budget import shared_setup
 from background_jobs import BackgroundExecutor
 from concurrent.futures import wait
 from equipment_categories import categories_for, require_discovered_categories
@@ -401,6 +402,7 @@ def _sync_handler_aliases():
 
 
 
+@shared_setup()
 def _integrate(key, api_key, verify_identity=False, check_updates=False, automatic=False):
     """Own a device until profile AND deck are persisted. Other callers poll its row."""
     if reset_pending():
@@ -520,6 +522,7 @@ def _upgrade_identities(api_key):
 
 
 
+@shared_setup()
 def _bootstrap(api_key):
     """Discover a broad initial inventory, retaining progress across restarts."""
     conn = get_db_connection()

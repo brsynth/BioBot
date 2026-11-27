@@ -110,7 +110,21 @@
       const tags = node('p', user.server_owner ? 'Server owner' : user.admin_status === 'approved' ? 'Administrator' : 'User', 'admin-tags');
       row.appendChild(tags);
       const allowance = user.daily_api_limit === undefined ? 0.5 : user.daily_api_limit;
-      row.appendChild(node('p', `Shared API allowance: ${allowance === null ? 'Unlimited' : `$${Number(allowance).toFixed(2)} / day`} · $${Number(user.daily_api_spent || 0).toFixed(4)} used or reserved today`, 'admin-help'));
+      const credit = Number(user.daily_api_credit || 0);
+      const remaining = allowance === null ? '' : ` · $${Math.max(0,Number(allowance)+credit-Number(user.daily_api_spent || 0)).toFixed(2)} remaining today`;
+      row.appendChild(node('p', `Shared API allowance: ${allowance === null ? 'Unlimited' : `$${Number(allowance).toFixed(2)} / day`} · $${Number(user.daily_api_spent || 0).toFixed(4)} used or reserved today${credit ? ` · +$${credit.toFixed(2)} recharged today` : ''}${remaining}`, 'admin-help'));
+      if (allowance !== null) row.appendChild(button('Recharge quota', () => {
+        const form = node('div',undefined,'admin-editor');
+        const amount = field(form,'Extra allowance for today (USD)','0.50','number');
+        amount.min='0.000001';amount.max='1000000';amount.step='any';
+        form.appendChild(node('p','Expires at 00:00 UTC. The normal daily limit and usage history stay unchanged.','admin-help'));
+        actions(form,async()=>{
+          if (!amount.reportValidity() || !amount.value.trim() || !Number.isFinite(Number(amount.value)) || Number(amount.value)<=0) throw Error('Enter a recharge amount greater than 0 USD.');
+          const result=await api(`/admin/users/${user.id}/recharge`,'POST',{amount:Number(amount.value)});
+          message(result.message);await refreshUsers();
+        },()=>form.remove());
+        row.appendChild(form);
+      }));
       row.appendChild(button('Edit user', () => {
             const form = node('div', undefined, 'admin-editor');
         const inputs = {};
@@ -124,7 +138,7 @@
         }
         access.value = user.admin_status || ''; access.disabled = user.server_owner || String(user.id) === document.body.dataset.userId;
         wrapper.appendChild(access); form.appendChild(wrapper);
-        const allowanceInput = field(form, 'Daily shared API allowance (USD; 0 disables access)', allowance === null ? '0.50' : allowance, 'number');
+        const allowanceInput = field(form, 'Daily protocol allowance (USD; 0 disables the allowance)', allowance === null ? '0.50' : allowance, 'number');
         allowanceInput.min = '0'; allowanceInput.max = '1000000'; allowanceInput.step = 'any';
         allowanceInput.disabled = allowance === null;
         const unlimitedLabel = node('label', 'Unlimited', 'admin-field');

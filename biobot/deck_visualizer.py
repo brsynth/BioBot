@@ -5,6 +5,7 @@ Generates device geometry and extracts protocol contents as separate JSON artifa
 Handles code updates when the user modifies the deck through the visualization.
 """
 
+from api_budget import shared_setup
 from openai import OpenAI
 from api_budget import metered_openai
 OpenAI = metered_openai(OpenAI)
@@ -333,6 +334,7 @@ def local_layout_documentation(device_name):
     return ""
 
 
+@shared_setup()
 def generate_device_layout(device_name, api_key=None, previous=None, correction=None):
     """previous: an earlier layout whose position ids are kept wherever they match the real device."""
     import json

@@ -10,6 +10,7 @@ This makes the RAG pipeline self-provisioning — it only fetches once,
 then the docs are local for all subsequent runs.
 """
 
+from api_budget import shared_setup
 import os, sys
 from model_settings import model_for
 import re
@@ -656,6 +657,7 @@ def record_sources(docs_path, pages):
         json.dump(known, f, indent=1)
 
 
+@shared_setup()
 def update_documentation(handler_name, handler_keywords, docs_path, api_key):
     """Keep a device's documentation current. Returns how many documents were new or changed.
     1. For each stored resource, a fast check (server change markers); download only if it may have changed,
@@ -700,6 +702,7 @@ def update_documentation(handler_name, handler_keywords, docs_path, api_key):
     return len(changed) + repaired
 
 
+@shared_setup()
 def fetch_documentation(handler_name, handler_keywords, docs_path, api_key):
     """
     Main entry point: discover, fetch, and save documentation for a handler.

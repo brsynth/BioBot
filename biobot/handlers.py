@@ -1,4 +1,5 @@
 """Discover platform settings on demand; a fresh install has no robot registry."""
+from api_budget import shared_setup
 import json
 import fcntl
 import tempfile
@@ -350,6 +351,7 @@ def _discover_protocol_format(cfg, client):
     return True
 
 
+@shared_setup()
 def detect_handler(query, history, api_key):
     """
     Detect which programmable biology device the user is referring to using LLM classification.

@@ -35,6 +35,11 @@ function setup({users = [{id:1,first_name:'First',email:'admin@example.test',adm
         Object.assign(users.find(user => String(user.id) === url.split('/').at(-1)), JSON.parse(options.body));
         data = {ok:true};
       }
+      if (/^\/admin\/users\/\d+\/recharge$/.test(url) && options.method === 'POST') {
+        const user=users.find(user=>String(user.id)===url.split('/')[3]);
+        user.daily_api_credit=(user.daily_api_credit||0)+JSON.parse(options.body).amount;
+        data={success:true,message:'Quota recharged until 00:00 UTC.'};
+      }
       if(url==='/admin/models') {
         if(options.method==='PATCH'&&!state.modelError) {
           const body=JSON.parse(options.body);
@@ -314,4 +319,23 @@ test('Devices tab automatically adds discoveries and preserves search and editor
   assert.equal(form.parentElement,w.get('admin-devices').children[0]);
   w.context.window.adminConsole.selectTab('users');
   assert.equal(w.timers.size,0);
+});
+
+
+test('Users tab recharges one user for today without changing the daily limit',async()=>{
+  const users=[{id:1,email:'admin@example.test',daily_api_limit:0.5,daily_api_spent:0.5},
+    {id:2,email:'user@example.test',daily_api_limit:0.5,daily_api_spent:0.5}];
+  const w=setup({users});await w.context.window.adminConsole.open();
+  const row=w.get('admin-users').children[1];
+  await row.children.find(child=>child.textContent==='Recharge quota').events.click();
+  const form=row.children.find(child=>child.className==='admin-editor');
+  form.children[0].children[0].value='0.75';
+  await form.children.at(-1).children[0].events.click();
+  const request=w.calls.find(call=>call.url==='/admin/users/2/recharge');
+  assert.equal(JSON.parse(request.options.body).amount,0.75);
+  assert.equal(request.options.method,'POST');
+  assert.equal(request.options.headers['X-CSRF-Token'],'csrf');
+  assert.equal(users[0].daily_api_credit,undefined);
+  assert.equal(users[1].daily_api_limit,0.5);
+  assert.match(w.text(w.get('admin-users').children[1]),/0.75 remaining today/);
 });

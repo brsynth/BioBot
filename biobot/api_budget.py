@@ -4,6 +4,7 @@ Reserve before contacting OpenAI, settle against reported usage afterwards. A
 lost stream/process keeps its reservation until midnight rather than refunding
 possibly billed work. Shared maintenance runs without a user allowance.
 """
+from contextlib import contextmanager
 from contextvars import ContextVar
 from decimal import Decimal, InvalidOperation, ROUND_CEILING
 import hashlib
@@ -12,6 +13,7 @@ import os
 import uuid
 
 _actor = ContextVar('api_budget_user', default=None)
+_shared_setup = ContextVar('api_budget_shared_setup', default=False)
 DEFAULT_LIMIT = Decimal('0.50')
 UNIT = Decimal('0.000001')
 # Standard USD rates: https://developers.openai.com/api/docs/models/text-embedding-3-small
@@ -31,6 +33,16 @@ def reset_user(token):
     _actor.reset(token)
 
 
+@contextmanager
+def shared_setup():
+    """Shared device knowledge is installation overhead, never a user's daily allowance."""
+    token = _shared_setup.set(True)
+    try:
+        yield
+    finally:
+        _shared_setup.reset(token)
+
+
 def init_usage_table(cursor):
     cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_api_limit JSONB")
     cursor.execute('''CREATE TABLE IF NOT EXISTS api_usage (
@@ -38,6 +50,11 @@ def init_usage_table(cursor):
         day DATE NOT NULL, model TEXT NOT NULL, amount NUMERIC(20,8) NOT NULL,
         reserved BOOLEAN NOT NULL DEFAULT TRUE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())''')
     cursor.execute('CREATE INDEX IF NOT EXISTS api_usage_user_day ON api_usage(user_id, day)')
+    cursor.execute("""CREATE TABLE IF NOT EXISTS api_quota_recharges (
+        id UUID PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        day DATE NOT NULL, amount NUMERIC(20,8) NOT NULL CHECK (amount > 0),
+        actor_id INTEGER REFERENCES users(id) ON DELETE SET NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())""")
+    cursor.execute('CREATE INDEX IF NOT EXISTS api_quota_recharges_user_day ON api_quota_recharges(user_id,day)')
 
 
 def daily_limit(cursor, user):
@@ -66,6 +83,8 @@ def _hash(key):
 
 def funded_user(key):
     """Personal credentials bypass the installation allowance, including in subprocesses."""
+    if _shared_setup.get():
+        return None
     user = _actor.get()
     if user is None:
         user = os.environ.get('BIOBOT_USAGE_USER')
@@ -106,6 +125,9 @@ def _reserve(user, model, kwargs, embedding):
             # Lock before reading settings and totals; works across web workers and subprocesses.
             cursor.execute('SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))', (f'api-budget:{user}',))
             limit = daily_limit(cursor, user=user)
+            if limit is not None:
+                cursor.execute("SELECT COALESCE(SUM(amount),0) FROM api_quota_recharges WHERE user_id=%s AND day=(NOW() AT TIME ZONE 'UTC')::date", (user,))
+                limit += cursor.fetchone()[0]
             if limit == 0:
                 raise BudgetError('The shared daily allowance is disabled. Add your own API key in Settings.')
             rates = _rates(cursor, model)
@@ -183,6 +205,8 @@ class _Resource:
         return getattr(self._resource, name)
 
     def create(self, **kwargs):
+        if _shared_setup.get():
+            return self._resource.create(**kwargs)
         reservation = _reserve(self._user, kwargs['model'], kwargs, self._embedding)
         try:
             result = self._resource.create(**kwargs)

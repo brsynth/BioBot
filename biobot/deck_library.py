@@ -1,4 +1,5 @@
 """Persistent device layouts, private protocol bindings, and published layout copies."""
+from api_budget import shared_setup
 import copy
 import hashlib
 import json
@@ -47,6 +48,7 @@ def init_deck_tables(cursor):
     """)
 
 
+@shared_setup()
 def get_hardware_catalog(platform, position_type="labware", api_key=None, position=None):
     """Reuse a public hardware catalog across page loads and concurrent requests."""
     from deck_visualizer import get_catalog
@@ -427,6 +429,7 @@ def _attach_transfer_physics(cursor, state, device_id):
         state['_transfer_physics'] = physics
 
 
+@shared_setup()
 def get_device_deck(name, user_id, api_key=None, template_id=None, identified_device=None):
     """Open shared physical geometry before a protocol exists."""
     conn = get_db_connection()

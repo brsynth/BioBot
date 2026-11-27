@@ -1,3 +1,4 @@
+from api_budget import shared_setup
 import subprocess
 import json
 from openai import OpenAI
@@ -38,6 +39,7 @@ def matching_device_models(query, known_devices):
     return matches
 
 
+@shared_setup()
 def list_device_models(query, api_key=None, scope="series"):
     """Source-backed exact models within the submitted manufacturer or family, not category matches."""
     client = get_openai_client(api_key).with_options(timeout=60, max_retries=0)
@@ -73,6 +75,7 @@ def list_device_models(query, api_key=None, scope="series"):
     return choices[:12] if scope == "description" else choices
 
 
+@shared_setup()
 def dispatch_device(name, known_devices, api_key=None):
     """Validate the landing-page device before opening a workspace."""
     import re
