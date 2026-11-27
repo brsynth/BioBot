@@ -1064,6 +1064,34 @@ def mark_chat_read(chat_id):
     return jsonify({"success": True})
 
 
+def _retry_preparation(operation, stop, streaming=False, status_format="__RAG_STATUS__:{}"):
+    """Retry temporary timeouts before delivering an answer, within the original chat task."""
+    from engine import RAG_STATUS_PREFIX
+    for attempt in range(3):
+        delivered = False
+        try:
+            if stop.is_set():
+                raise RuntimeError('Stopped by the user.')
+            result = operation()
+            if not streaming:
+                return result
+            if result is None:
+                raise RuntimeError("Couldn't process your request. Please try again.")
+            for chunk in result:
+                delivered = delivered or not chunk.startswith(RAG_STATUS_PREFIX)
+                yield chunk
+            return
+        except Exception as error:
+            timeout = isinstance(error, TimeoutError) or 'timeout' in type(error).__name__.lower() or any(
+                text in str(error).lower() for text in ('timed out','timeout'))
+            if isinstance(error, BudgetError) or not timeout or delivered or attempt == 2:
+                raise
+            app.logger.info('Retrying interrupted protocol preparation (%s/3)',attempt+2)
+            yield status_format.format('Still preparing… reconnecting to the AI service.')
+            if stop.wait(2 ** (attempt + 1)):
+                raise RuntimeError('Stopped by the user.')
+
+
 #For streaming :
 @app.route("/chat/<chat_id>/stream", methods=["POST"])
 def chat_stream(chat_id):
@@ -1223,10 +1251,8 @@ def chat_stream(chat_id):
                             (chat_id,user_id),commit=True)
                 finally:
                     ready_conn.close()
-            result = process_user_query(user_message, messages, model_for("main"), api_key=user_api_key, debug=debug_logs,
-                                        device=device or _chat_device({"chat_id": chat_id}, user_id), run_key=chat_id)
-            if result is None:
-                raise RuntimeError("Couldn't process your request. Please try again.")
+            result = _retry_preparation(lambda: process_user_query(user_message, messages, model_for("main"), api_key=user_api_key, debug=debug_logs,
+                                        device=device or _chat_device({"chat_id": chat_id}, user_id), run_key=chat_id), stop, streaming=True)
             for chunk in result:
                 if chunk.startswith(RAG_STATUS_PREFIX):
                     status_text = chunk[len(RAG_STATUS_PREFIX):]
@@ -1258,8 +1284,8 @@ def chat_stream(chat_id):
                     from deck_library import get_deck
                     fenced = re.fullmatch(r"```[^\n]*\n([\s\S]*?)\n?```\s*", full_reply.strip())
                     code = fenced[1] if fenced else full_reply
-                    state = get_deck(code, user_id, user_api_key, messages, refresh_parameters=True,
-                                     device_name=device or _chat_device({"chat_id": chat_id}, user_id))
+                    state = yield from _retry_preparation(lambda: get_deck(code, user_id, user_api_key, messages, refresh_parameters=True,
+                                     device_name=device or _chat_device({"chat_id": chat_id}, user_id)), stop, status_format="__STATUS__:{}\n")
                     if state.get("_parameters_pending") or state.get("_playback_pending"):
                         raise RuntimeError("The deck is still being prepared. Please retry your request.")
                 yield full_reply
@@ -1278,7 +1304,7 @@ def chat_stream(chat_id):
             elif "rate limit" in error_msg or "429" in error_msg:
                 reply = "Rate limit reached. Please wait a moment and try again."
             elif "timeout" in error_msg or "timed out" in error_msg:
-                reply = "The request timed out while preparing the protocol. Please retry your request."
+                reply = "Preparation could not finish because the AI service did not respond. Please try again later."
             elif "model" in error_msg or "404" in error_msg:
                 reply = "The AI model is currently unavailable. Please try again later."
             else:

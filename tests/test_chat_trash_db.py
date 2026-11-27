@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 import sys
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 import uuid
 
 
@@ -14,6 +14,7 @@ class ChatTrashTests(unittest.TestCase):
         import config
         import app as server
         import deck_library as library
+        import device_catalog
         self.library = library
         self.config, self.server = config, server
         self.connect = config.get_db_connection
@@ -23,13 +24,14 @@ class ChatTrashTests(unittest.TestCase):
             cursor.execute(f'CREATE SCHEMA "{self.schema}"')
         conn.close()
         self.addCleanup(self.drop_schema)
-        for module in (config, server, library):
+        for module in (config, server, library, device_catalog):
             patcher = patch.object(module, 'get_db_connection', side_effect=self.connection)
             patcher.start()
             self.addCleanup(patcher.stop)
         config.init_db()
         conn = self.connection()
         with conn, conn.cursor() as cursor:
+            cursor.execute("UPDATE device_catalog_build SET status='complete',discovery_done=TRUE WHERE id=1")
             cursor.execute("INSERT INTO users (id, first_name) VALUES (1, 'First'), (2, 'Second')")
             cursor.executemany('INSERT INTO chat_names (chat_id, user_id, name) VALUES (%s, %s, %s)', [
                 ('one', 1, server.encrypt_message('First chat')),
@@ -189,7 +191,7 @@ class ChatTrashTests(unittest.TestCase):
         self.assertEqual(chat['run']['status'],'error')
         self.assertEqual(self.client.get('/chat/one').json[-1]['content'],'A documented constraint prevents this operation.')
 
-    def test_generation_timeout_is_visible_and_saved_in_history(self):
+    def test_persistent_timeout_retries_then_reports_service_failure(self):
         conn = self.connection()
         with conn, conn.cursor() as cursor:
             cursor.execute("UPDATE users SET api_key = 'test-placeholder' WHERE id = 1")
@@ -199,14 +201,71 @@ class ChatTrashTests(unittest.TestCase):
             yield '__RAG_STATUS__:Indexing documentation...'
             raise RuntimeError('Protocol preparation timed out. Please retry your request.')
 
-        with patch.object(self.server, 'decrypt_text', return_value='sk-test'), patch.object(self.server, 'process_user_query', side_effect=timeout):
+        with patch.object(self.server, 'decrypt_text', return_value='sk-test'), patch.object(self.server, 'process_user_query', side_effect=timeout) as prepare:
             result = self.client.post('/chat/one/stream', json={'message': 'Generate a protocol'}, buffered=True)
         self.assertIn(b'__FAILED_CODE__:', result.data)
-        self.assertIn(b'timed out', result.data)
+        self.assertIn(b'AI service did not respond', result.data)
+        self.assertEqual(prepare.call_count,3)
         messages = self.client.get('/chat/one').get_json()
         self.assertEqual(messages[-1]['role'], 'assistant')
-        self.assertIn('timed out', messages[-1]['content'])
+        self.assertIn('AI service did not respond', messages[-1]['content'])
         self.assertNotIn('```', messages[-1]['content'])
+
+    def test_retry_does_not_repeat_a_partial_answer_or_budget_rejection_and_remains_cancellable(self):
+        stop=Mock();stop.is_set.return_value=False;stop.wait.return_value=False
+        def partial():
+            yield 'Part of an answer'
+            raise TimeoutError('Request timed out')
+        operation=Mock(side_effect=partial)
+        reply=self.server._retry_preparation(operation,stop,streaming=True)
+        self.assertEqual(next(reply),'Part of an answer')
+        with self.assertRaises(TimeoutError):next(reply)
+        operation.assert_called_once();stop.wait.assert_not_called()
+        operation=Mock(side_effect=self.server.BudgetError('Daily allowance used'))
+        with self.assertRaises(self.server.BudgetError):list(self.server._retry_preparation(operation,stop))
+        operation.assert_called_once()
+        operation=Mock(side_effect=TimeoutError('Request timed out'));stop.wait.return_value=True
+        reply=self.server._retry_preparation(operation,stop)
+        self.assertTrue(next(reply).startswith('__RAG_STATUS__:'))
+        with self.assertRaisesRegex(RuntimeError,'Stopped by the user'):next(reply)
+        operation.assert_called_once()
+
+    def test_transient_generation_timeout_retries_without_an_error_answer(self):
+        with self.connection() as conn,conn.cursor() as cursor:
+            cursor.execute("UPDATE users SET api_key='test-placeholder' WHERE id=1")
+        attempts=0
+        def prepare(*args,**kwargs):
+            nonlocal attempts
+            attempts+=1
+            if attempts==1:
+                yield '__RAG_STATUS__:Preparing documentation'
+                raise TimeoutError('Request timed out')
+            yield '__FORMAT__:python\nprint("demo")'
+        with patch.object(self.server,'decrypt_text',return_value='sk-test'), \
+             patch.object(self.server,'process_user_query',side_effect=prepare), \
+             patch.object(self.library,'get_deck',return_value={'platform':'Device'}) as deck:
+            result=self.client.post('/chat/one/stream',json={'message':'Make a demo'},buffered=True)
+        self.assertEqual(attempts,2);deck.assert_called_once()
+        self.assertNotIn(b'__FAILED_CODE__:',result.data)
+        self.assertIn(b'reconnecting to the AI service',result.data)
+        self.assertIn(b'print("demo")',result.data)
+        answer=self.client.get('/chat/one').json[-1]['content']
+        self.assertIn('print("demo")',answer)
+        self.assertNotIn('reconnecting',answer)
+        self.assertNotIn('timed out',answer)
+        chat=next(chat for chat in self.client.get('/chats').json if chat['chat_id']=='one')
+        self.assertEqual(chat['run']['status'],'done')
+
+    def test_deck_timeout_retries_the_deck_without_regenerating_protocol(self):
+        with self.connection() as conn,conn.cursor() as cursor:
+            cursor.execute("UPDATE users SET api_key='test-placeholder' WHERE id=1")
+        with patch.object(self.server,'decrypt_text',return_value='sk-test'), \
+             patch.object(self.server,'process_user_query',return_value=iter(['__FORMAT__:python\nprint("demo")'])) as prepare, \
+             patch.object(self.library,'get_deck',side_effect=[TimeoutError('Request timed out'),{'platform':'Device'}]) as deck:
+            result=self.client.post('/chat/one/stream',json={'message':'Make a demo'},buffered=True)
+        prepare.assert_called_once();self.assertEqual(deck.call_count,2)
+        self.assertNotIn(b'__FAILED_CODE__:',result.data)
+        self.assertIn('print("demo")',self.client.get('/chat/one').json[-1]['content'])
 
     def test_refresh_reconnects_without_restarting_generation_or_losing_the_answer(self):
         from threading import Event

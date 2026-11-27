@@ -62,7 +62,9 @@ and protocol formats before BioBot learns a shared programming series; shared
 languages, names or file extensions alone are insufficient. Learned grouping
 metadata stays outside source control in `biobot/data/device_series.json`.
 Hardware, consumables and physical limits remain model-specific. A discovered
-family is offered as exact models instead of an error or an executable device. Family checks include documented hardware and suffix variants even when only a few models are saved; fresh verified choices enrich later suggestions without registering devices until selected. Downloaded source pages and embeddings are shared across models, while their physical identities and limits remain separate.
+family is offered as exact models instead of an error or an executable device. Family checks include documented hardware and suffix variants even when only a few models are saved; fresh verified choices enrich later suggestions without registering devices until selected. Downloaded source pages and embeddings are shared across models, while their physical identities and limits remain separate. Before fetching new documentation, BioBot reuses matching cached sources and public manuals from source-verified programming-compatible peers. GitHub documentation crawls stay within one repository and exclude profiles, pull requests and issue discussions.
+
+Temporary AI timeouts retry within the same background chat task, with progress notices rather than an immediate error answer. Deck preparation retries reuse the generated protocol. Retries are bounded, remain cancellable, and preserve quota enforcement.
 
 History and account tools open from the top-right icons. History keeps background
 preparations and shows unread completion counts, including failures. Protocol tasks
