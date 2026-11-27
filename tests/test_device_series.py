@@ -57,13 +57,17 @@ class DeviceSeriesTests(unittest.TestCase):
             self.assertTrue(series.CACHE_PATH.exists())
         client.responses.create.assert_called_once()
 
-    def test_known_family_shows_its_series_and_other_saved_models_not_unrelated_online_models(self):
-        choices = series.clean_choices([GROUP, {'kind': 'model', 'name': 'Maker Old Model',
-                                                'source': 'https://manufacturer.example/old'}], ['Maker A10', 'Maker B20'])
-        visible = series._visible_choices(choices, ['Maker A10', 'Maker B20'])
-        self.assertEqual([choice['name'] for choice in visible], ['Maker A Series', 'Maker B20'])
-        self.assertEqual(len(visible[0]['members']), 3)
-        self.assertEqual(series._visible_choices(choices, []), choices)
+    def test_known_family_keeps_new_verified_models_outside_compatible_groups(self):
+        client=Mock()
+        client.responses.create.return_value.output_text=json.dumps({'choices':[GROUP,{'kind':'model','name':'Maker A20',
+            'source':'https://manufacturer.example/a20'}]})
+        with tempfile.TemporaryDirectory() as directory,patch.object(series,'CACHE_PATH',Path(directory)/'series.json'), \
+             patch.object(series,'OpenAI',return_value=client), \
+             patch.dict(sys.modules,{'deck_visualizer':types.SimpleNamespace(_clean_llm_json=lambda value:value)}):
+            choices=series.series_choices('Maker A',['Maker A10'],'test-key')
+            self.assertEqual(series.model_names(choices),['Maker A10','Maker A10T','Maker A10T Plus','Maker A20'])
+            suggestions=series.suggestion_choices([{'name':'Maker A10','status':'ready'}])
+            self.assertEqual([choice['name'] for choice in suggestions],['Maker A Series','Maker A20'])
 
     def test_enter_expands_every_member_and_deduplicates_physical_models(self):
         self.assertEqual(series.model_names([GROUP, GROUP['members'][0], {'kind':'model','name':'Maker B20'}]),
@@ -71,7 +75,7 @@ class DeviceSeriesTests(unittest.TestCase):
 
     def test_autocomplete_uses_only_fresh_cached_series_anchored_to_saved_devices(self):
         rows = [{'name':'Maker A10','key':'a','status':'ready','search_terms':['Microplate reader','absorbance']}, {'name':'Maker B20','key':'b','status':'local'}]
-        entry = {'checked_at':datetime.now(timezone.utc).isoformat(), 'choices':[GROUP]}
+        entry = {'version':series.CACHE_VERSION, 'checked_at':datetime.now(timezone.utc).isoformat(), 'choices':[GROUP]}
         with patch.object(series, '_read', return_value={'query':entry}), patch.object(series, 'OpenAI') as client:
             suggestions = series.suggestion_choices(rows)
             self.assertEqual([item['name'] for item in suggestions], ['Maker A Series', 'Maker B20'])

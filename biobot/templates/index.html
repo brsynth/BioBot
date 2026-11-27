@@ -16,6 +16,7 @@
   <link rel="stylesheet" href="/static/workspace.css" />
   <link rel="stylesheet" href="{{ asset_url('landing_equipment.css') }}" />
   <link rel="stylesheet" href="{{ asset_url('workbench.css') }}" />
+  <link rel="stylesheet" href="{{ asset_url('device_documentation.css') }}" />
 </head>
 <body class="workspace-app clean-shell landing" data-user-id="{{ user.id if user else '' }}" data-answer-session="{{ session.get('answer_session', '') }}">
   <!-- Mobile sidebar overlay -->
@@ -134,6 +135,15 @@
     </form>
   </dialog>
 
+  <dialog id="device-documentation" aria-labelledby="device-documentation-title">
+    <div class="documentation-header"><h2 id="device-documentation-title">Documentation</h2><button id="documentation-close" type="button" class="code-action-icon" aria-label="Close documentation">×</button></div>
+    <label class="documentation-search">Search documentation<input id="documentation-search" type="search" placeholder="Search manuals and API references" maxlength="200"></label>
+    <p id="documentation-status" role="status" aria-live="polite"></p>
+    <div id="documentation-list"></div>
+    <details id="documentation-sources"><summary>Online sources</summary><div id="documentation-source-links"></div></details>
+    <section id="documentation-preview" hidden><button id="documentation-back" type="button" class="workspace-button">Back to documents</button><h3 id="documentation-file-name"></h3><pre id="documentation-text"></pre></section>
+  </dialog>
+
   {% include "_account_dialogs.html" %}
 
   <footer class="funding-footer">{{ funding_acknowledgement() }}</footer>
@@ -145,5 +155,6 @@
   <script src="{{ asset_url('workspace.js') }}"></script>
   <script src="{{ asset_url('landing_equipment.js') }}"></script>
   <script src="{{ asset_url('maintenance.js') }}"></script>
+  <script src="{{ asset_url('device_documentation.js') }}"></script>
 </body>
 </html>

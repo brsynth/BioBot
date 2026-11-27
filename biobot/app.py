@@ -1834,15 +1834,48 @@ def validate_device():
         except Exception:
             app.logger.warning("Could not discover programming series; keeping exact model choices", exc_info=True)
             choices = []
-        options = model_names(choices) if choices else saved or list_device_models(error.query, api_key)
+        discovered = model_names(choices) if choices else list_device_models(error.query, api_key)
+        options = list({name.casefold():name for name in [*discovered, *saved]}.values())
         return jsonify({"incomplete": True, "scope": error.scope, "query": error.query,
                         "message": str(error), "options": options, "choices": choices,
-                        "options_source": "saved" if saved else "online"})
+                        "options_source": "online" if discovered else "saved"})
     except ValueError as error:
         return jsonify({"error": str(error)}), 400
     except Exception:
         app.logger.exception("Device validation failed")
         return jsonify({"error": "Could not validate this device. Please try again."}), 502
+
+
+@app.route("/devices/documentation")
+def device_documentation():
+    if not session.get('user'):
+        return jsonify({'error':'Not logged in'}), 403
+    from device_documentation import documentation
+    try:
+        response = jsonify(documentation(request.args.get('device',''), request.args.get('q','')))
+        response.headers['Cache-Control'] = 'no-store'
+        return response
+    except ValueError as error:
+        return jsonify({'error':str(error)}), 404
+
+
+@app.route("/devices/documentation/file")
+def device_documentation_file():
+    if not session.get('user'):
+        return jsonify({'error':'Not logged in'}), 403
+    from flask import send_file
+    from device_documentation import document_file, document_text
+    try:
+        path = document_file(request.args.get('device',''), request.args.get('file',''))
+        if request.args.get('view') == '1':
+            response = jsonify({'text':document_text(path)})
+        else:
+            response = send_file(path, as_attachment=True, download_name=path.name)
+        response.headers['Cache-Control'] = 'no-store'
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        return response
+    except ValueError as error:
+        return jsonify({'error':str(error)}), 404
 
 
 @app.route("/devices/catalog", methods=["GET"])

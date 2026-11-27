@@ -914,6 +914,32 @@ class CatalogAdminTests(unittest.TestCase):
             self.assertFalse(self.catalog.find_device(PROFILE['name'])['refresh_profile'])
         finally:conn.close()
 
+    def test_device_documentation_is_readable_by_users_but_private_code_is_not_shared(self):
+        import device_documentation
+        self.ready()
+        folder=self.runtime/'data/docs/device';folder.mkdir(parents=True)
+        (folder/'manual.txt').write_text('Public transfer instructions <script>example</script>')
+        (folder/'codes').mkdir();(folder/'codes/private.txt').write_text('Private protocol')
+        profile={'name':PROFILE['name'],'docs_path':'data/docs/device','store_path':'index.pkl'}
+        with patch.object(device_documentation,'SCRIPT_DIR',self.runtime),patch('handlers.load_handlers_config',return_value={PROFILE['device_id']:profile}):
+            self.login(2)
+            response=self.client.get('/devices/documentation',query_string={'device':PROFILE['name'],'q':'transfer'})
+            self.assertEqual(response.status_code,200)
+            self.assertEqual(response.json['total'],1)
+            self.assertEqual(response.headers['Cache-Control'],'no-store')
+            params={'device':PROFILE['name'],'file':'manual.txt'}
+            download=self.client.get('/devices/documentation/file',query_string=params)
+            self.assertEqual(download.status_code,200)
+            self.assertIn('attachment',download.headers['Content-Disposition'])
+            download.close()
+            preview=self.client.get('/devices/documentation/file',query_string={**params,'view':'1'})
+            self.assertIn('<script>example</script>',preview.json['text'])
+            for name in ('codes/private.txt','../manual.txt','index.pkl'):
+                self.assertEqual(self.client.get('/devices/documentation/file',query_string={**params,'file':name}).status_code,404)
+            with self.client.session_transaction() as session:session.clear()
+            self.assertEqual(self.client.get('/devices/documentation',query_string={'device':PROFILE['name']}).status_code,403)
+            self.assertEqual(self.client.get('/devices/documentation/file',query_string=params).status_code,403)
+
     def test_landing_equipment_catalog_is_available_to_users_and_exposes_only_ready_public_fields(self):
         key=self.ready()
         alias=self.queue('Maker Model7 Robot');self.catalog._integrate(alias,'test-key')
@@ -992,7 +1018,7 @@ class CatalogAdminTests(unittest.TestCase):
         self.assertEqual(rows[0]['categories'],['Analysis & detection'])
         self.assertEqual(rows[0]['name'],PROFILE['name'])
 
-    def test_series_clarification_prefers_saved_models_without_registering_the_family(self):
+    def test_series_clarification_adds_online_variants_even_when_saved_models_match(self):
         from engine import DeviceIncomplete
         from psycopg2.extras import Json
         conn=self.connection()
@@ -1004,16 +1030,16 @@ class CatalogAdminTests(unittest.TestCase):
         conn.close()
         with patch.object(self.server,'_deck_request_context',return_value=('test-key',None)), \
              patch.object(self.server,'dispatch_device',side_effect=DeviceIncomplete('Specify the exact model.','SeriesA')), \
-             patch('engine.list_device_models') as online, patch('device_series.series_choices',return_value=[]), \
+             patch('engine.list_device_models',return_value=['Maker SeriesA 10T','Maker SeriesA 10T Plus']) as online, patch('device_series.series_choices',return_value=[]), \
              patch.object(self.catalog,'request_device') as register:
             response=self.client.post('/devices/validate',json={'device':'SeriesA'})
         self.assertEqual(response.status_code,200,response.get_json())
         data=response.get_json()
         self.assertEqual(data['scope'],'series')
         self.assertEqual(data['query'],'SeriesA')
-        self.assertEqual(data['options'],['Maker SeriesA 10','Maker SeriesA 20'])
-        self.assertEqual(data['options_source'],'saved')
-        online.assert_not_called()
+        self.assertEqual(data['options'],['Maker SeriesA 10T','Maker SeriesA 10T Plus','Maker SeriesA 10','Maker SeriesA 20'])
+        self.assertEqual(data['options_source'],'online')
+        online.assert_called_once_with('SeriesA','test-key')
         register.assert_not_called()
 
     def test_unknown_series_preserves_query_and_labels_online_choices_without_registering_them(self):

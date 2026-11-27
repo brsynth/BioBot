@@ -35,6 +35,9 @@ Device brands and models are runtime knowledge, never application rules. BioBot 
 - **Resumable and shared.** PostgreSQL stores the discovery queue, profiles, features, constraints, instruction formats, source evidence and build progress. Automatic discovery prepares up to three devices concurrently, including resumed jobs, and waits for the batch before marking discovery complete. Per-device locks prevent duplicate integration across server processes. Startup checks persisted completion and pending work, skips a finished catalog, and resumes an interrupted build on launch or the next authenticated request; API keys are never stored in catalog rows.
 - **Initial scope.** Automatic discovery verifies that liquid handling is the device’s primary function before preparing its workspace; older queued candidates outside this scope are skipped. It targets 50 programmable liquid-handler models by default, across manufacturers and liquid-handling applications, without a fixed brand/model list. `BIOBOT_CATALOG_INITIAL_LIMIT` changes this initial batch size (`0` searches until no additional models are found). This is a growing catalog, not a claim to exhaustively list every instrument. Other types of biology devices are added only on request, after checking programmability and retrieving their documentation. Set `BIOBOT_CATALOG_ENABLED=0` to disable the automatic inventory build while retaining on-demand discovery.
 
+### Device documentation
+The book icon beside the workspace device name opens existing manuals and API references in a separate panel. Users can search document names and extracted text, read a text preview, download originals and follow recorded source links. Preparation progress refreshes while indexing is active. Opening documentation makes no AI requests. Saved protocol code and internal indexes are excluded from the shared files.
+
 ### Device search on the landing page
 While the configured liquid-handler discovery cycle is incomplete, the home page shows preparation progress and opens automatically when discovery finishes. Administration remains accessible to approved administrators, including during catalog resets.
 
@@ -59,7 +62,7 @@ and protocol formats before BioBot learns a shared programming series; shared
 languages, names or file extensions alone are insufficient. Learned grouping
 metadata stays outside source control in `biobot/data/device_series.json`.
 Hardware, consumables and physical limits remain model-specific. A discovered
-family is offered as exact models instead of an error or an executable device.
+family is offered as exact models instead of an error or an executable device. Family checks include documented hardware and suffix variants even when only a few models are saved; fresh verified choices enrich later suggestions without registering devices until selected. Downloaded source pages and embeddings are shared across models, while their physical identities and limits remain separate.
 
 History and account tools open from the top-right icons. History keeps background
 preparations and shows unread completion counts, including failures. Protocol tasks

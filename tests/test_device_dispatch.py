@@ -21,6 +21,12 @@ with patch.dict(sys.modules, {
 
 
 class DeviceDispatchTests(unittest.TestCase):
+    def test_family_enumeration_keeps_all_verified_physical_variants(self):
+        models=[{'name':f'Maker Family Model{i}','scope':'model','source':f'https://manufacturer.example/model{i}'} for i in range(15)]
+        client=self.client({'models':models})
+        self.assertEqual(len(engine.list_device_models('Maker Family','test-key')),15)
+        self.assertIn('named hardware variant',client.responses.create.call_args.kwargs['input'][0]['content'])
+
     def client(self, output):
         client = Mock()
         client.with_options.return_value = client
