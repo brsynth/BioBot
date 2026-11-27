@@ -19,7 +19,7 @@ from api_budget import metered_openai
 OpenAI = metered_openai(OpenAI)
 from config import get_api_key
 from doc_loader import load_and_chunk_docs, get_supported_extensions
-from doc_fetcher import fetch_documentation, update_documentation
+from doc_fetcher import fetch_documentation, update_documentation, reuse_documentation
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 _executor = BackgroundExecutor(max_workers=2, thread_name_prefix="documentation")
@@ -103,6 +103,24 @@ def embed_chunks(chunks, api_key, docs_path):
     return np.asarray([cache[key(chunk)] for chunk in chunks], dtype="float32")
 
 
+def _reuse_documentation(handler_config, docs_path):
+    from device_series import documentation_peers
+    from handlers import load_handlers_config
+    import json
+    sources = list(handler_config.get('programming_sources', []))
+    peers = documentation_peers(handler_config['name'])
+    for profile in load_handlers_config().values() if peers else []:
+        if profile['name'] not in peers:
+            continue
+        try:
+            with (SCRIPT_DIR / profile['docs_path'] / 'sources.json').open() as file:
+                sources.extend(json.load(file))
+        except (OSError, ValueError, TypeError):
+            continue
+    return reuse_documentation(str(docs_path), sources) if sources else False
+
+
+
 @shared_setup()
 def load_or_build_index(handler_id, handler_config, chunk_size=3000, api_key=None):
     docs_path = SCRIPT_DIR / handler_config["docs_path"]
@@ -123,7 +141,7 @@ def load_or_build_index(handler_id, handler_config, chunk_size=3000, api_key=Non
         else:
             extensions = set(get_supported_extensions())
             has_docs = any(path.is_file() and path.suffix.lower() in extensions for path in docs_path.rglob("*"))
-            if not has_docs and not fetch_documentation(name, handler_config.get("keywords", []), str(docs_path), api_key or get_api_key()):
+            if not has_docs and not _reuse_documentation(handler_config, docs_path) and not fetch_documentation(name, handler_config.get("keywords", []), str(docs_path), api_key or get_api_key()):
                 return [], [], None
             print("STEP:Checking available resources...", flush=True)
             chunks, sources = load_and_chunk_docs(str(docs_path), chunk_size)

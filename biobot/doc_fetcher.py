@@ -201,17 +201,25 @@ def fetch_page_content(url, timeout=REQUEST_TIMEOUT):
         return None, [], "error"
 
 
-def is_doc_url(url, base_domain):
+def is_doc_url(url, base_domain, start_url=None):
     """Check if a URL is likely a documentation page worth crawling."""
     parsed = urlparse(url)
 
     # Stay on the same domain
-    if parsed.netloc and base_domain not in parsed.netloc:
+    if parsed.scheme not in {'http', 'https'} or parsed.netloc.casefold() != base_domain.casefold():
         return False
+    if parsed.hostname in {'github.com', 'raw.githubusercontent.com'}:
+        parts = parsed.path.strip('/').split('/')
+        if len(parts) < 2:
+            return False  # User/organization profiles are not documentation.
+        if start_url:
+            origin = urlparse(start_url).path.strip('/').split('/')
+            if parts[:2] != origin[:2]:
+                return False
 
     # Skip non-doc paths
     skip_patterns = [
-        r'/issues', r'/pull/', r'/commit/', r'/releases',
+        r'/issues', r'/pulls?(/|$)', r'/discussions?(/|$)', r'/commit/', r'/releases',
         r'/(tree|blob)/[0-9a-f]{7,40}(/|$)', r'/commits?/', r'/blame/', r'/compare/',  # past snapshots of a repository
         r'/stargazers', r'/watchers', r'/forks?(/|$)',
         r'(?i)\.(dxf|dwg|step|stp|stl|igs|iges|sldprt|sldasm|f3d|png|jpe?g|gif|svg|ico|bmp|tiff?|mp4|mov|avi|zip|7z|rar|tar|gz|whl|exe|dmg|msi|bin|hex)$',  # CAD, media, archives, binaries
@@ -245,6 +253,8 @@ def crawl_docs_site(start_url, max_pages=MAX_PAGES_PER_SOURCE):
     """
     parsed = urlparse(start_url)
     base_domain = parsed.netloc
+    if not is_doc_url(start_url, base_domain, start_url):
+        return []
     visited = set()
     to_visit = [start_url]
     results = []
@@ -279,7 +289,7 @@ def crawl_docs_site(start_url, max_pages=MAX_PAGES_PER_SOURCE):
 
         # Add discovered links to crawl queue
         for link in links:
-            if link not in visited and is_doc_url(link, base_domain):
+            if link not in visited and is_doc_url(link, base_domain, start_url):
                 to_visit.append(link)
 
         time.sleep(CRAWL_DELAY)
@@ -375,6 +385,14 @@ def save_fetched_docs(docs_path, fetched_pages):
             key = hashlib.sha256(url.encode()).hexdigest()[:20] + os.path.splitext(name)[1]
             path = os.path.join(shared, "files", key)
             try:
+                # Existing public pages are linked, without rewriting their shared bytes.
+                if entries.get(url, {}).get('fingerprint') == _fingerprint(page) and os.path.exists(path):
+                    with open(path, 'rb') as cached:
+                        unchanged = hashlib.sha256(cached.read()).hexdigest() == _fingerprint(page)
+                    if unchanged:
+                        _link(path, os.path.join(docs_path, name))
+                        saved += 1
+                        continue
                 # Written in place, so every device linked to this file sees the new content.
                 if content_type == "pdf":
                     with open(path, "wb") as f:
@@ -561,7 +579,12 @@ def gather_documentation(handler_name, handler_keywords, api_key, docs_path=None
         verified_sources = []
         for source in sources:
             url = source.get("url", "")
-            if not url:
+            if not url or not is_doc_url(url, urlparse(url).netloc):
+                continue
+            reused = shared_pages(docs_path, url) if docs_path else []
+            if reused:
+                all_fetched.extend(reused)
+                _log(f"Reusing {len(reused)} shared pages for {url}")
                 continue
             if verify_url(url):
                 verified_sources.append(source)
@@ -611,7 +634,11 @@ def gather_documentation(handler_name, handler_keywords, api_key, docs_path=None
 
         for source in github_sources:
             url = source.get("url", "")
-            if not url or url in failed_urls:
+            if not url or url in failed_urls or not is_doc_url(url, urlparse(url).netloc):
+                continue
+            reused = shared_pages(docs_path, url) if docs_path else []
+            if reused:
+                all_fetched.extend(reused)
                 continue
 
             content, _, content_type = fetch_page_content(url)
@@ -629,6 +656,26 @@ def gather_documentation(handler_name, handler_keywords, api_key, docs_path=None
     return all_fetched, failed_urls
 
 
+
+def reuse_documentation(docs_path, sources):
+    """Link already downloaded public sources without another search, crawl or validation request."""
+    pages = {}
+    for source in sources:
+        url = source.get('url') if isinstance(source, dict) else source
+        if not isinstance(url, str) or not is_doc_url(url, urlparse(url).netloc):
+            continue
+        for page in shared_pages(docs_path, url):
+            if is_doc_url(page['url'], urlparse(page['url']).netloc):
+                pages[page['url']] = page
+    if not pages:
+        return False
+    saved = save_fetched_docs(docs_path, list(pages.values()))
+    if saved:
+        record_sources(docs_path, list(pages.values()), check_updates=False)
+        _log(f"Reused {saved} existing documentation files for {os.path.basename(docs_path)}")
+    return bool(saved)
+
+
 def _fingerprint(page):
     import hashlib
     content = page["content"]
@@ -644,7 +691,7 @@ def _validators(url):
         return {}
 
 
-def record_sources(docs_path, pages):
+def record_sources(docs_path, pages, check_updates=True):
     """Remember each fetched source's fingerprint and change markers, so later checks stay cheap."""
     path = os.path.join(docs_path, "sources.json")
     try:
@@ -652,7 +699,7 @@ def record_sources(docs_path, pages):
     except (OSError, ValueError):
         known = {}
     for page in pages:
-        known[page["url"]] = {"fingerprint": _fingerprint(page), "fetched": time.strftime("%Y-%m-%d %H:%M:%S"), **_validators(page["url"])}
+        known[page["url"]] = {"fingerprint": _fingerprint(page), "fetched": time.strftime("%Y-%m-%d %H:%M:%S"), **(_validators(page["url"]) if check_updates else {})}
     with open(path, "w") as f:
         json.dump(known, f, indent=1)
 
@@ -679,7 +726,7 @@ def update_documentation(handler_name, handler_keywords, docs_path, api_key):
             changed.append({"url": url, "content": content, "type": kind})
     for source in discover_doc_urls(handler_name, handler_keywords, api_key) or []:
         url = source.get("url", "")
-        if not url or url in known:
+        if not url or url in known or not is_doc_url(url, urlparse(url).netloc):
             continue
         reused = shared_pages(docs_path, url)
         if reused:  # another device already has it: link, no download

@@ -139,6 +139,24 @@ def suggestion_choices(rows):
             + [row for row in rows if row['name'].casefold() not in covered])
 
 
+def documentation_peers(name):
+    """Only source-verified programming-compatible models can supply a shared documentation base."""
+    normalize = lambda value: ''.join(char for char in value.casefold() if char.isalnum())
+    peers = set()
+    for entry in _read().values():
+        try:
+            age = datetime.now(timezone.utc) - datetime.fromisoformat(entry['checked_at'])
+            if entry.get('version') != CACHE_VERSION or not timedelta(0) <= age < timedelta(days=7):
+                continue
+            for choice in clean_choices(entry['choices'], []):
+                if choice['kind'] == 'series' and any(normalize(member['name']) == normalize(name) for member in choice['members']):
+                    peers.update(member['name'] for member in choice['members'] if normalize(member['name']) != normalize(name))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return peers
+
+
+
 @shared_setup()
 def series_choices(query, saved, api_key):
     """Discover once, then reuse learned group metadata; never create physical devices."""

@@ -91,6 +91,27 @@ class DocumentationIndexTests(unittest.TestCase):
         self.assertEqual(self.load()[2].ntotal,2)
         embed.assert_called_once_with('second','test-key')
 
+    def test_compatible_model_reuses_downloads_and_embeddings_without_searching(self):
+        import doc_fetcher,json
+        peer=self.root/'docs/peer';peer.mkdir()
+        page={'url':'https://manufacturer.example/shared-api','content':'Common programming reference','type':'text'}
+        doc_fetcher.save_fetched_docs(str(peer),[page])
+        (peer/'sources.json').write_text(json.dumps({page['url']:{}}))
+        peer_config={**self.config,'name':'Peer Model','docs_path':'docs/peer'}
+        documentation.load_or_build_index('peer',peer_config,api_key='test-key')
+        self.patches['get_text_embedding_with_retry'].reset_mock()
+        (self.root/'docs/robot_xyz/manual.txt').unlink()
+        with patch('device_series.documentation_peers',return_value={'Peer Model'}), \
+             patch('handlers.load_handlers_config',return_value={'peer':peer_config}), \
+             patch.object(doc_fetcher,'discover_doc_urls') as discover, \
+             patch.object(doc_fetcher.requests,'get') as download,patch.object(doc_fetcher.requests,'head') as verify:
+            result=self.load()
+        self.assertEqual(result[2].ntotal,2)
+        self.patches['fetch_documentation'].assert_not_called()
+        self.patches['get_text_embedding_with_retry'].assert_not_called()
+        discover.assert_not_called();download.assert_not_called();verify.assert_not_called()
+        self.assertTrue((self.root/'docs/robot_xyz/shared-api.txt').samefile(peer/'shared-api.txt'))
+
     def test_failed_save_does_not_publish_a_partial_store(self):
         with patch.object(documentation.os, "replace", side_effect=OSError("save failed")):
             with self.assertRaises(OSError):

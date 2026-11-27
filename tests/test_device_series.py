@@ -69,6 +69,14 @@ class DeviceSeriesTests(unittest.TestCase):
             suggestions=series.suggestion_choices([{'name':'Maker A10','status':'ready'}])
             self.assertEqual([choice['name'] for choice in suggestions],['Maker A Series','Maker A20'])
 
+    def test_documentation_peers_require_fresh_source_verified_compatibility(self):
+        entry={'version':series.CACHE_VERSION,'checked_at':datetime.now(timezone.utc).isoformat(),'choices':[GROUP]}
+        with patch.object(series,'_read',return_value={'family':entry}):
+            self.assertEqual(series.documentation_peers('Maker A10T Plus'),{'Maker A10','Maker A10T'})
+            self.assertEqual(series.documentation_peers('Maker A100'),set())
+            entry['checked_at']=(datetime.now(timezone.utc)-timedelta(days=8)).isoformat()
+            self.assertEqual(series.documentation_peers('Maker A10'),set())
+
     def test_enter_expands_every_member_and_deduplicates_physical_models(self):
         self.assertEqual(series.model_names([GROUP, GROUP['members'][0], {'kind':'model','name':'Maker B20'}]),
                          ['Maker A10', 'Maker A10T', 'Maker A10T Plus', 'Maker B20'])
